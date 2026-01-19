@@ -33,19 +33,19 @@ Post-processing with video overlay to obtain:
 # Full Product once above tasks produce accurate results
 These accurate tracking stats and information will be used in a social application, think Strava for futsal.  Users can get automatic:
 - game statistics
-- player profiles
+- player profiles (automatic based on playing performances)
 - personal performance statistics
 - team performance statistics
 - replays of key moments
 - player ratings per game
 - positional information
+- replay of game with AI commentary that can refer to past performances of players
 
 To encourage engagment:
 - Player of month (based on stats) at venues/countries etc
 - Goal of the month votes at venues/countries etc
 - comments/banter
 - social posting of game footage
-
 
 
 
