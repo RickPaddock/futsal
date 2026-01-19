@@ -55,5 +55,4 @@ Currently we have test footage using a static GoPro wide angle camera. Constrain
 - FishEye effect
 - Near corners of pitch missing
 
-Example frame:
 ![alt text](image.png)
