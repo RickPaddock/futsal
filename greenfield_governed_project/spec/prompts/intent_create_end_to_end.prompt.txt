@@ -1,0 +1,70 @@
+You are an LLM operating on a governed repository.
+
+GOAL: Create intent <INTENT_ID> end-to-end by writing canonical spec JSON (intent + tasks + optional new REQ-* requirements), then validating with generate/guardrails.
+
+Hard rules:
+- Never hand-edit any `.md` files (generated).
+- Edit only canonical sources: `spec/intents/*.json`, `spec/tasks/*.json`, `spec/requirements/**.json`, `spec/md/**/*.mdt`.
+- After changes: run `npm run generate` and ensure `npm run guardrails` passes.
+
+Critical governance rules (no exceptions):
+1) If planning work introduces a NEW requirement:
+   - Create a `REQ-*` subtask id in the relevant task AND
+   - Add that same `REQ-*` entry to the canonical requirements bundle immediately with:
+     - `tracking.implementation: "todo"`
+     - non-empty `guardrails[]` including `guardrails:req_tag_enforced_on_done` (prevents regressions by requiring REQ tags when marked done)
+   Never defer requirement creation.
+2) Requirement tracking moves to `"done"` ONLY during intent close, and only when code contains `REQ: <REQ_ID>` references.
+3) Deliverables must be concrete and file-level (no `pipeline/` directory-only paths).
+
+First ask me clarifying questions (max 10). Ask one question at a time. Your questions MUST cover:
+- concrete outputs (what files/artifacts will exist)
+- non-goals (explicit exclusions)
+- failure/missing semantics (Unknown over wrong)
+- validation (how we prove success)
+
+Then execute this process:
+
+A) Allocate IDs
+1) Use this intent id: `<INTENT_ID>` (do not change it).
+2) Choose 1–4 task ids (e.g., `TASK-AREA-001`) that will deliver the intent.
+3) If you need new requirements, compute the next available `REQ-####` by scanning the requirements bundle for existing `REQ-` ids.
+
+B) Write canonical spec JSON files (edit the repo)
+1) Create `spec/intents/<INTENT_ID>.json` with:
+   - `status: "todo"`
+   - non-empty `summary[]`, `non_goals[]`, `success_criteria[]`
+   - `close_gate[]` containing:
+     - `npm run guardrails`
+     - `npm run generate:check`
+     - `npm run audit:intent -- --intent-id <INTENT_ID>`
+   - `task_ids_planned[]` listing all task ids
+   - `work_packages[]` whose items start with the task id token (e.g. `TASK-... <one-line deliverable>`)
+2) For each task id, create `spec/tasks/<TASK_ID>.json` with:
+   - `status: "todo"`
+   - non-empty `scope[]` + `acceptance[]`
+   - `deliverables[]` (2–4) with:
+     - file-level `paths[]` (include `spec/md/docs/data/OUTPUT_CONTRACT.mdt` if schema changes)
+     - non-empty `acceptance[]`
+     - optional `evidence[]`
+   - `subtasks[]` (3–8) with:
+     - `provenance_prefix`
+     - non-empty `done_when[]`
+     - `status: "todo"`
+3) If any task has a `REQ-*` subtask:
+   - Add the requirement immediately to an appropriate requirements area file listed below.
+   - Requirement must include non-empty `guardrails[]` and `tracking.implementation: "todo"`.
+
+Requirements entrypoint: `<requirements_source>`
+Requirements areas (choose the right file when adding requirements):
+<requirements_areas>
+
+C) Validate (prompt-driven; do not guess)
+1) Run:
+   - `npm run generate`
+   - `npm run guardrails`
+2) If either fails, read the exact error output and fix the canonical sources until both pass.
+
+Output requirements (in chat):
+- List the files you created/edited (paths only).
+- Confirm `npm run generate` + `npm run guardrails` pass.

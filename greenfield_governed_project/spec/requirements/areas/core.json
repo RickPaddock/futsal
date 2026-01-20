@@ -7,7 +7,7 @@
       "id": "SYS-ARCH-15",
       "status": "canonical",
       "tracking": {
-        "implementation": "todo"
+        "implementation": "done"
       },
       "guardrails": [
         "guardrails:req_tag_enforced_on_done",
@@ -28,7 +28,7 @@
       "id": "AUD-REQ-10",
       "status": "canonical",
       "tracking": {
-        "implementation": "todo"
+        "implementation": "done"
       },
       "guardrails": [
         "guardrails:repository_guardrails",

@@ -1,4 +1,4 @@
-You are GitHub Copilot Chat running inside VS Code on a governed repository.
+You are an LLM operating on a governed repository.
 
 GOAL: Close intent <INTENT_ID> end-to-end, only if audits pass and requirements tracking is correct.
 
@@ -25,12 +25,17 @@ A) Preflight (do not modify anything yet)
    - If deliverable paths are vague (directory-only), improve them before closing.
 3) If any task/subtask indicates a new requirement (`REQ-*`), confirm that requirement exists in `spec/requirements/areas/*.json` with `tracking.implementation: "todo"`.
    - If missing, add it to the appropriate area file (status must be `draft`, tracking.implementation must be `todo`).
-   - Ensure all requirements include a non-empty `guardrails[]` list.
+   - Ensure `guardrails[]` is non-empty and includes `guardrails:req_tag_enforced_on_done` (regression guardrail enforced by automation).
 
-B) Governance audit (MUST pass before closing)
-1) Run:
-   `npm run audit:intent -- --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/audit_report.json`
-2) If the audit fails, stop and list the exact required fixes. Do NOT close.
+B) Required audits must already be completed (and evidenced)
+1) Confirm these evidence files exist (they must come from the Audit prompt run):
+   - `status/audit/<INTENT_ID>/runs/<run_id>/audit/run.json`
+   - `status/audit/<INTENT_ID>/runs/<run_id>/audit/audit_report.json`
+   - `status/audit/<INTENT_ID>/runs/<run_id>/guardrails/run.json`
+2) Open the evidence JSON and confirm:
+   - All exit codes are 0
+   - `audit_report.json` has `errors: []`
+3) If any are missing or failing, STOP. Run the Audit prompt first and fix issues until audits pass.
 
 C) Optional quality audit (recommended)
 If enabled, produce:
@@ -52,12 +57,16 @@ E) Refresh derived surfaces + validate
 1) `npm run generate`
 2) `npm run guardrails`
 
-F) Evidence (recommended)
-Record the full close run as evidence:
-`node tools/evidence/record_run.mjs --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/run.json --artefact status/audit/<INTENT_ID>/runs/<run_id>/audit_report.json --artefact status/audit/<INTENT_ID>/runs/<run_id>/quality_audit.json -- npm run intent:close -- --intent-id <INTENT_ID> --closed-date <closed_date> --apply`
+F) Evidence (MUST)
+Record the close apply as evidence (and attach the audit artefacts you created above; missing artefacts are ignored):
+`node tools/evidence/record_run.mjs --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/close/run.json --artefact status/audit/<INTENT_ID>/runs/<run_id>/audit/audit_report.json --artefact status/audit/<INTENT_ID>/runs/<run_id>/quality_audit.json -- npm run intent:close -- --intent-id <INTENT_ID> --closed-date <closed_date> --apply`
 
 Output requirements (in chat):
 - Only show:
-  - The 3 evidence file paths written (`run.json`, `audit_report.json`, and `quality_audit.json` if produced)
+  - The evidence file paths used/written:
+    - `status/audit/<INTENT_ID>/runs/<run_id>/audit/run.json`
+    - `status/audit/<INTENT_ID>/runs/<run_id>/audit/audit_report.json`
+    - `status/audit/<INTENT_ID>/runs/<run_id>/guardrails/run.json`
+    - `status/audit/<INTENT_ID>/runs/<run_id>/close/run.json`
   - Confirmation that intent status is now `closed` and will show in the portal after Refresh
 Do not paste the full JSON reports into chat.

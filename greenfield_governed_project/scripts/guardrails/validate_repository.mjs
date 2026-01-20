@@ -144,6 +144,10 @@ function validateGovernanceSpec(repoRoot) {
     if (requirementById.has(id)) throw new Error(`requirements_duplicate_id:${id}`);
     const guardrails = Array.isArray(r.guardrails) ? r.guardrails.map(String).map((s) => s.trim()).filter(Boolean) : [];
     if (!guardrails.length) throw new Error(`requirements_missing_guardrails:${id}`);
+    const isNewReq = [...newReqPrefixes].some((pfx) => id.startsWith(pfx));
+    if (isNewReq && !guardrails.includes("guardrails:req_tag_enforced_on_done")) {
+      throw new Error(`requirements_new_req_missing_regression_guardrail:${id}`);
+    }
     requirementById.set(id, r);
   }
 

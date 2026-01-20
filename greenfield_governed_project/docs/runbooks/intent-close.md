@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/md/docs/runbooks/intent-close.mdt
-source_sha256: sha256:7505316a0d6d675812856555fbea0424d57cde553573bb08f6b9c33da58167bd
+source_sha256: sha256:c7649507a0ae5848081394faf7e79c18fbad1222047e7f202ab3eafcc4ab4c91
 ---
 
 # Intent close
@@ -30,7 +30,6 @@ Command:
 
 ## VSCode LLM prompt
 
-Prompt template: `spec/prompts/intent_close.prompt.txt`
 End-to-end close prompt: `spec/prompts/intent_close_end_to_end.prompt.txt`
 
 ## Status definitions (enforced)

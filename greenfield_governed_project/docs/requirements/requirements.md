@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/requirements/index.json + spec/requirements/areas/core.json + spec/requirements/areas/greenfield.json + spec/requirements/areas/v1.json
-source_sha256: sha256:29f64d4b5f67b28aeeccbdf199f6889970d031deab39d054b0f0562027a71906
+source_sha256: sha256:8f3c38ae0be0044faadc98a3502328239a5ef2ae42255a83649fd10e58138a33
 ---
 
 # Requirements (generated)
@@ -11,7 +11,7 @@ Source: `spec/requirements/index.json`
 ## SYS-ARCH-15 — All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.
 
 - Status: `canonical`
-- Implementation: `todo`
+- Implementation: `done`
 - Guardrails: `guardrails:req_tag_enforced_on_done`, `guardrails:repository_guardrails`
 - Owner: `platform`
 - Tags: `governance`, `traceability`
@@ -23,7 +23,7 @@ Acceptance:
 ## AUD-REQ-10 — Generate + enforce Requirement ↔ Code provenance (100% policy with guardrails).
 
 - Status: `canonical`
-- Implementation: `todo`
+- Implementation: `done`
 - Guardrails: `guardrails:repository_guardrails`, `audit:intent`
 - Owner: `platform`
 - Tags: `governance`, `guardrails`
@@ -104,6 +104,7 @@ Acceptance:
 Acceptance:
 - Any subtask id starting with `REQ-` must exist as a requirement entry.
 - New requirements start with `tracking.implementation: todo`.
+- New `REQ-*` requirements include `guardrails:req_tag_enforced_on_done` to prevent regressions.
 
 ## GREENFIELD-GOV-007 — Closing an intent updates requirement implementation tracking only after code exists.
 
@@ -152,6 +153,69 @@ Acceptance:
 - All requirement entries include a non-empty `guardrails[]` list.
 - Guardrails enforce the presence of the `guardrails[]` list.
 
+## GREENFIELD-GOV-012 — Task specs are gold-standard and machine-checkable (scope, acceptance, file-level deliverables, and provable subtasks).
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:repository_guardrails`
+- Owner: `platform`
+- Tags: `governance`, `tasks`, `quality`
+
+Acceptance:
+- All `todo` tasks include non-empty `scope[]` and `acceptance[]`.
+- All deliverables have file-level `paths[]` (no directory-only paths) and non-empty deliverable `acceptance[]`.
+- All `todo` tasks include non-empty `subtasks[]` and every subtask includes `provenance_prefix` + non-empty `done_when[]`.
+
+## GREENFIELD-GOV-013 — Every `REQ-*` requirement includes a regression guardrail (cannot be marked implemented without code references).
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:repository_guardrails`, `guardrails:req_tag_enforced_on_done`
+- Owner: `platform`
+- Tags: `governance`, `requirements`, `regression`
+
+Acceptance:
+- Any requirement whose id starts with `REQ-` includes `guardrails:req_tag_enforced_on_done`.
+- `npm run guardrails` fails if any `REQ-*` requirement omits the guardrail.
+- `tracking.implementation: done` is rejected unless the repo contains a `REQ: <REQ_ID>` reference.
+
+## GREENFIELD-GOV-014 — Intents are closed only via the close process (no manual status flips).
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `intent:close`, `manual:repo_review`
+- Owner: `platform`
+- Tags: `governance`, `intents`, `close`
+
+Acceptance:
+- Users do not manually set intent `status: closed` in JSON; they run `npm run intent:close -- --apply`.
+- Close requires required audits and guardrails to have passed and to be evidenced under `status/audit/<INTENT_ID>/runs/<run_id>/`.
+- Intent `closed_date` is set only by the close process.
+
+## GREENFIELD-OPS-001 — Logging and error surfacing are usable for audits and operators.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `manual:ops_runbook`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `ops`, `logging`, `observability`
+
+Acceptance:
+- Scripts print stable, searchable prefixes (e.g. `[generate]`, `[guardrails]`, `[audit]`, `[close]`).
+- Portal actions that run automation (Refresh) surface errors and show actionable stdout/stderr.
+
+## GREENFIELD-OPS-002 — Starting the internal portal clears common dev ports and starts reliably.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `manual:ops_runbook`
+- Owner: `platform`
+- Tags: `ops`, `portal`, `devex`
+
+Acceptance:
+- Starting the portal clears ports 3015–3020 (kills LISTEN pids) before launching Next dev server.
+- Startup runs generation before starting the portal so data is current.
+
 ## GREENFIELD-PORTAL-001 — Internal portal task pages are human-readable (not raw JSON).
 
 - Status: `canonical`
@@ -164,6 +228,60 @@ Acceptance:
 - `/internal/tasks/<TASK_ID>` renders task scope, acceptance, deliverables, and subtasks as structured sections.
 - Raw canonical JSON remains accessible (e.g., via a collapsible section) for debugging and audits.
 - Task pages link back to the parent intent when `intent_id` is present.
+
+## GREENFIELD-PORTAL-002 — Internal portal provides copy-ready prompts for create/implement/audit/close flows.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `portal:ui_smoke`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `ux`, `workflows`
+
+Acceptance:
+- `/internal/intents` includes a 'Create prompt' action that shows the gold-standard intent creation prompt in an overlay.
+- For intents with `status: todo`, actions 'Implement', 'Audit', and 'Close' appear and open overlays containing the gold-standard prompts.
+- Prompts are prefilled with the intent id and include run_id/closed_date defaults suitable for pasting into an LLM.
+- Prompts are sourced from canonical templates under `spec/prompts/*.prompt.txt` (not hardcoded ad-hoc text).
+- No VS Code tasks/wizard flow is required to use the system; the portal is sufficient to obtain all prompts.
+
+## GREENFIELD-PORTAL-003 — Portal surfaces intents in priority order with clickable work items.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `portal:ui_smoke`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `ux`, `workflow`
+
+Acceptance:
+- `/internal/intents` lists intents ordered by status (todo first, then draft, then closed).
+- Each intent links to its detail page; each planned task is clickable and human-readable.
+- Intent list shows audit pass/fail state from evidence runs when available.
+
+## GREENFIELD-PORTAL-004 — Portal refresh regenerates governed surfaces and reports failures.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `portal:ui_smoke`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `generation`, `ops`
+
+Acceptance:
+- Pressing Refresh triggers `npm run generate` and updates portal-visible surfaces.
+- If generation fails, the portal shows actionable error output.
+
+## GREENFIELD-GOV-011 — All governed workflows are prompt-driven with explicit evidence capture (no undocumented manual steps).
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `manual:prompt_review`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `governance`, `workflows`, `evidence`
+
+Acceptance:
+- Create/Implement/Audit/Close each have a gold-standard prompt template (or portal-generated prompt) that fully specifies the steps and commands.
+- Create prompts MUST add any new `REQ-*` requirements to `spec/requirements/**.json` immediately with `tracking.implementation: "todo"` and `guardrails:req_tag_enforced_on_done`.
+- Audit prompts MUST run `npm run audit:intent` AND `npm run guardrails`, and write evidence JSON under `status/audit/<INTENT_ID>/runs/<run_id>/` (use a unique run_id per run).
+- Close prompts MUST only close after audits pass and guardrails pass, and requirement tracking moves to `done` only when the repo contains `REQ: <REQ_ID>` references.
 
 ## FUSBAL-V1-TRUST-001 — Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.
 

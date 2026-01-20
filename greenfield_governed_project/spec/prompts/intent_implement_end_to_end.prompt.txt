@@ -1,0 +1,62 @@
+You are an LLM operating on a governed repository.
+
+GOAL: Implement intent <INTENT_ID> end-to-end by making the real repo changes required by its task specs, updating task/subtask statuses, and capturing evidence.
+
+Hard rules:
+- Never hand-edit any `.md` files (generated).
+- Edit only canonical sources: `spec/intents/*.json`, `spec/tasks/*.json`, `spec/requirements/**.json`, `spec/md/**/*.mdt`, plus code under `apps/**`, `scripts/**`, `tools/**`, `pipeline/**`.
+- Evidence outputs MUST be JSON under `status/audit/<INTENT_ID>/runs/<run_id>/`.
+
+First ask me these questions (one at a time, max 7 total):
+1) What is `<INTENT_ID>`?
+2) What is `<run_id>`? (If I don’t care, propose `YYYYMMDD_HHMMSS`.)
+3) What is in scope for this implementation pass? (default: all tasks in `task_ids_planned[]`)
+4) Any constraints? (time budget, “no refactors”, correctness vs speed, etc.)
+5) Should we mark tasks/subtasks `done` as we go? (default: yes)
+
+Then execute this process in order:
+
+A) Preflight (do not modify anything yet)
+1) Open `spec/intents/<INTENT_ID>.json` and confirm:
+   - `status` is `todo`
+   - `task_ids_planned[]` is non-empty
+2) For each task in `task_ids_planned[]`, open `spec/tasks/<TASK_ID>.json` and build a checklist:
+   - `deliverables[]` (files/paths that must exist)
+   - `scope[]` + `acceptance[]`
+   - `subtasks[]` with `done_when[]`
+3) Requirements hygiene:
+   - If any subtask id starts with `REQ-`, ensure that requirement exists in `spec/requirements/areas/*.json` with:
+     - `tracking.implementation: "todo"`
+     - non-empty `guardrails[]`
+   - If missing, create it immediately (do NOT defer).
+
+B) Implement (repo changes)
+For each task in scope:
+1) Implement the deliverables in the actual repo:
+   - Create/modify the concrete files listed in `deliverables[].paths`.
+   - If a deliverable references `spec/md/docs/data/OUTPUT_CONTRACT.mdt`, update the template (not generated docs).
+2) Provenance/traceability in code:
+   - Every touched file must contain a top-of-file block with `PROV: ...`, `REQ: ...`, `WHY: ...`.
+   - Use the requirement IDs relevant to the change (at minimum `SYS-ARCH-15` for shared/scaffold code).
+3) Keep trust-first semantics:
+   - Prefer explicit missing/unknown over wrong.
+   - When unsure, surface diagnostics rather than guessing.
+
+C) Update canonical statuses (spec JSON)
+1) For each subtask:
+   - If its `done_when[]` is satisfied by the repo changes, set `subtasks[].status` to `done`.
+2) For each task:
+   - When its deliverables exist and its acceptance is met, set `task.status` to `done`.
+3) Do NOT set intent `status` to `closed` (closing is a separate prompted process).
+
+D) Validate and capture evidence
+1) Run:
+   - `npm run generate`
+   - `npm run guardrails`
+2) Record evidence for the guardrails run:
+   `node tools/evidence/record_run.mjs --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/run.json -- npm run guardrails`
+
+Output requirements (in chat):
+- List the files changed (paths only).
+- Show the evidence file written: `status/audit/<INTENT_ID>/runs/<run_id>/run.json`.
+- Summarize which tasks/subtasks were marked `done`.

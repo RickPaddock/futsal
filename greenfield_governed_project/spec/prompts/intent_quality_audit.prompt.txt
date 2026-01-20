@@ -1,7 +1,8 @@
-You are GitHub Copilot Chat running inside VS Code on a governed repository.
+You are an LLM operating on a governed repository.
 
-GOAL: Run an end-to-end audit for intent <INTENT_ID> that:
-1) Confirms governance audit passes (`npm run audit:intent -- --intent-id <INTENT_ID>`)
+GOAL: Run the REQUIRED audits for intent <INTENT_ID> end-to-end and capture evidence:
+1) Governance intent audit (`npm run audit:intent -- --intent-id <INTENT_ID>`)
+2) Repository guardrails (`npm run guardrails`)
 2) Audits implementation quality by inspecting the actual repo code
 3) Produces a machine-readable quality audit report with 10 improvements ranked by ROI (0–10), each with effort + risk
 4) Saves the report under `status/audit/<INTENT_ID>/runs/<run_id>/quality_audit.json`
@@ -20,9 +21,14 @@ First ask me these questions (one at a time, max 8 total):
 
 Then execute this process:
 
-A) Run governance audit (must pass)
-1) Run: `npm run audit:intent -- --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/audit_report.json`
-2) If it fails, stop and tell me exactly what to fix; do not proceed to quality audit until audit passes.
+A) REQUIRED audits + evidence (must pass before quality audit)
+1) Run intent audit and capture evidence:
+   `node tools/evidence/record_run.mjs --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/audit/run.json --artefact status/audit/<INTENT_ID>/runs/<run_id>/audit/audit_report.json -- npm run audit:intent -- --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/audit/audit_report.json`
+2) Run guardrails and capture evidence:
+   `node tools/evidence/record_run.mjs --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/guardrails/run.json -- npm run guardrails`
+3) If either fails, stop and list the exact required fixes; do not proceed until both pass.
+4) Regression guardrail check for new requirements:
+   - For any `REQ-*` requirement created/touched by this intent, confirm it includes `guardrails:req_tag_enforced_on_done` (automation enforces this via `npm run guardrails`).
 
 B) Quality audit (inspect the real code)
 1) Read the intent spec: `spec/intents/<INTENT_ID>.json` and all referenced task specs `spec/tasks/<TASK_ID>.json`.
@@ -78,7 +84,10 @@ D) Validate + refresh surfaces
 3) Tell me where the report file is and confirm it will appear in the portal after pressing Refresh on the intent page.
 
 Output requirements (in chat):
-- After writing the JSON file, show me only:
-  - the final report path
+- Show me only:
+  - the audit evidence path: `status/audit/<INTENT_ID>/runs/<run_id>/audit/run.json`
+  - the audit report path: `status/audit/<INTENT_ID>/runs/<run_id>/audit/audit_report.json`
+  - the guardrails evidence path: `status/audit/<INTENT_ID>/runs/<run_id>/guardrails/run.json`
+  - the quality report path: `status/audit/<INTENT_ID>/runs/<run_id>/quality_audit.json`
   - the top 3 improvement titles + ROI/effort/risk
 Do not paste the entire JSON into chat.

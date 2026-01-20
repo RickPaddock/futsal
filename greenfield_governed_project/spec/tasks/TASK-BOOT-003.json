@@ -3,7 +3,7 @@
   "task_id": "TASK-BOOT-003",
   "intent_id": "INT-001",
   "title": "Evidence run records + minimal internal portal",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Provide a machine-readable evidence capture mechanism for command runs (audit/guardrails/etc.).",
     "Provide an internal portal to browse intents/tasks and run refresh to regenerate surfaces.",
@@ -49,7 +49,7 @@
     {
       "subtask_id": "SUB-TASK-BOOT-003-001",
       "title": "Implement evidence run recorder JSON schema and CLI wrapper.",
-      "status": "todo",
+      "status": "done",
       "area": "tools",
       "provenance_prefix": "FUSBAL.TOOLS.TASK_BOOT_003.SUB_001",
       "done_when": [
@@ -60,7 +60,7 @@
     {
       "subtask_id": "SUB-TASK-BOOT-003-002",
       "title": "Implement internal portal pages for intents and tasks (click-through).",
-      "status": "todo",
+      "status": "done",
       "area": "portal",
       "provenance_prefix": "FUSBAL.PORTAL.TASK_BOOT_003.SUB_002",
       "done_when": [
@@ -71,7 +71,7 @@
     {
       "subtask_id": "SUB-TASK-BOOT-003-003",
       "title": "Add refresh endpoint to trigger regeneration and guardrails (as configured).",
-      "status": "todo",
+      "status": "done",
       "area": "portal",
       "provenance_prefix": "FUSBAL.PORTAL.TASK_BOOT_003.SUB_003",
       "done_when": [

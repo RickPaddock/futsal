@@ -3,7 +3,7 @@
   "task_id": "TASK-BOOT-004",
   "intent_id": "INT-001",
   "title": "Product docs + high-level delivery plan surfaces",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Define the generated docs surfaces that explain governance, runbooks, and delivery plan.",
     "Ensure docs are generated from templates and reflect canonical JSON sources.",
@@ -41,7 +41,7 @@
     {
       "subtask_id": "SUB-TASK-BOOT-004-001",
       "title": "Define navigation + quick reference docs templates.",
-      "status": "todo",
+      "status": "done",
       "area": "spec",
       "provenance_prefix": "FUSBAL.SPEC.TASK_BOOT_004.SUB_001",
       "done_when": [
@@ -52,7 +52,7 @@
     {
       "subtask_id": "SUB-TASK-BOOT-004-002",
       "title": "Define runbooks for intent workflow (create/audit/close) and requirements management.",
-      "status": "todo",
+      "status": "done",
       "area": "spec",
       "provenance_prefix": "FUSBAL.SPEC.TASK_BOOT_004.SUB_002",
       "done_when": [
@@ -63,7 +63,7 @@
     {
       "subtask_id": "SUB-TASK-BOOT-004-003",
       "title": "Ensure docs generation includes all templates and produces consistent links.",
-      "status": "todo",
+      "status": "done",
       "area": "scripts",
       "provenance_prefix": "FUSBAL.SCRIPTS.TASK_BOOT_004.SUB_003",
       "done_when": [

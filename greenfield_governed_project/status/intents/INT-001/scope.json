@@ -3,8 +3,7 @@
   "title": "Bootstrap Fusbal governed project: requirements, provenance, evidence, portal",
   "requirements_in_scope": [
     "SYS-ARCH-15",
-    "AUD-REQ-10",
-    "FUSBAL-V1-TRUST-001"
+    "AUD-REQ-10"
   ],
   "task_ids_planned": [
     "TASK-BOOT-001",

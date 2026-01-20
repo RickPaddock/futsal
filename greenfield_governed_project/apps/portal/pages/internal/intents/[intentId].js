@@ -1,7 +1,7 @@
 /*
 PROV: GREENFIELD.SCAFFOLD.PORTAL.05
-REQ: SYS-ARCH-15
-WHY: Intent detail view (renders generated intent.md).
+REQ: SYS-ARCH-15, GREENFIELD-PORTAL-002
+WHY: Intent detail view (surfaces specs/audits and provides prompt-driven actions).
 */
 
 import fs from "node:fs";

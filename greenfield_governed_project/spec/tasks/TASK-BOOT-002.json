@@ -3,7 +3,7 @@
   "task_id": "TASK-BOOT-002",
   "intent_id": "INT-001",
   "title": "Guardrails to enforce generation and provenance discipline",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Enforce governance invariants (generated markdown only, deterministic generation, intent/task/requirements wiring).",
     "Enforce provenance discipline by requiring requirements to declare guardrails and preventing 'done' without code references.",
@@ -45,7 +45,7 @@
     {
       "subtask_id": "SUB-TASK-BOOT-002-001",
       "title": "Enforce generated markdown only (frontmatter required).",
-      "status": "todo",
+      "status": "done",
       "area": "scripts",
       "provenance_prefix": "FUSBAL.SCRIPTS.TASK_BOOT_002.SUB_001",
       "done_when": [
@@ -55,7 +55,7 @@
     {
       "subtask_id": "SUB-TASK-BOOT-002-002",
       "title": "Enforce spec invariants (intent status model, task wiring, deliverables requirements).",
-      "status": "todo",
+      "status": "done",
       "area": "scripts",
       "provenance_prefix": "FUSBAL.SCRIPTS.TASK_BOOT_002.SUB_002",
       "done_when": [
@@ -66,7 +66,7 @@
     {
       "subtask_id": "SUB-TASK-BOOT-002-003",
       "title": "Enforce requirements provenance tracking (`REQ:` tags required for done).",
-      "status": "todo",
+      "status": "done",
       "area": "scripts",
       "provenance_prefix": "FUSBAL.SCRIPTS.TASK_BOOT_002.SUB_003",
       "done_when": [

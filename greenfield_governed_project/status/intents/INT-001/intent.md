@@ -1,11 +1,12 @@
 ---
 generated: true
 source: spec/intents/INT-001.json
-source_sha256: sha256:d3a8fb233aa2ded5c678037e11d7203acb300cf59862650441ca6cc9fe872677
+source_sha256: sha256:be61906f9919fc7ea4aa09096749e1ab437acd4f5ab43bcafa09ccbd4334ee2b
 intent_id: INT-001
 title: Bootstrap Fusbal governed project: requirements, provenance, evidence, portal
-status: todo
+status: closed
 created_date: 2026-01-20
+closed_date: 2026-01-20
 close_gate:
   - "npm run guardrails"
   - "npm run generate:check"
