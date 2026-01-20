@@ -29,6 +29,12 @@ Post-processing with video overlay to obtain:
 - Player stats.
 - Tackles/interceptions/blocks.
 
+## Optional integrations (not required for v1)
+Sensors should only **improve** results when present, never be required to deliver a baseline output.
+- Venue-installed: multi-camera (1–4), UWB-in-bibs (premium), other fixed infrastructure.
+- User-owned add-ons: GNSS/GPS-enabled ball or player GPS wearables (future).
+See `docs/sensor_integration.md` for the future-proofing contract (canonical track format, time sync, pitch geo reference, fusion policy).
+
 ## Additional (2nd phase):
 - Possession percentage per team/player
 - Formation detection and transitions
