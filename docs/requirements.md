@@ -71,12 +71,3 @@ Currently we have test footage using a static GoPro wide angle camera. Constrain
 - Near corners of pitch missing
 
 ![alt text](image.png)
-
-
-
-# PROGRESS THUS FAR
-1) As a test, I followed instructions here but replaced basktball with my futsal footage: https://blog.roboflow.com/identify-basketball-players/
-- Everything worked really well but SAM model took ages to process, so is not viable
-- The method of seperating teams using clustering worked perfectly
-- Assigning the number to the name was accurate and persistent
-2) Ball tracking via YOLO and other models found on the likes of Roboflow.com do not track the ball accurately and consistently.
