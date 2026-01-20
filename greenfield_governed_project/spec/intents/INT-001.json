@@ -13,6 +13,15 @@
     "All human-readable .md files are generated; humans edit spec/templates only.",
     "Delivery plans are represented as intents and work packages, then surfaced via portal/status outputs."
   ],
+  "non_goals": [
+    "Implement any vision/pipeline product capabilities (this is governance scaffolding only).",
+    "Introduce machine-specific paths or coupling to other repositories."
+  ],
+  "success_criteria": [
+    "`npm run generate` and `npm run guardrails` pass on a clean repo.",
+    "Internal portal starts and can browse intents/tasks; Refresh regenerates surfaces.",
+    "Evidence run records can be created as JSON artifacts under status/audit/."
+  ],
   "requirements_in_scope": [
     "SYS-ARCH-15",
     "AUD-REQ-10",
@@ -29,16 +38,16 @@
       "work_package_id": "INT-001-001",
       "title": "Repo scaffolding + generation",
       "items": [
-        "TASK-BOOT-001 Create spec/templates and generators for all .md outputs",
-        "TASK-BOOT-002 Add guardrails to enforce generation (and document provenance tagging)"
+        "TASK-BOOT-001 Deterministic generators + canonical templates for governed surfaces (no .md hand-edits).",
+        "TASK-BOOT-002 Guardrails enforcing governance invariants + provenance/requirements discipline."
       ]
     },
     {
       "work_package_id": "INT-001-002",
       "title": "Evidence + portal",
       "items": [
-        "TASK-BOOT-003 Add evidence run records + a minimal internal portal",
-        "TASK-BOOT-004 Add Fusbal product docs + high-level delivery plan surfaces"
+        "TASK-BOOT-003 Evidence run recorder + internal portal pages (intents/tasks + refresh).",
+        "TASK-BOOT-004 Generated docs templates for navigation, runbooks, and delivery plan surfaces."
       ]
     }
   ]

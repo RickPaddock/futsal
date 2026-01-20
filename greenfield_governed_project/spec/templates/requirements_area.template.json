@@ -9,6 +9,9 @@
       "tracking": {
         "implementation": "todo"
       },
+      "guardrails": [
+        "guardrails:req_tag_enforced_on_done"
+      ],
       "title": "Requirement title",
       "acceptance": [
         "Acceptance criterion"

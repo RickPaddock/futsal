@@ -4,12 +4,36 @@
   "intent_id": "INT-999",
   "title": "Short task title (deliverable)",
   "status": "todo",
+  "scope": [
+    "2–5 bullets: what this task includes.",
+    "Prefer file-level scope (avoid 'do everything in pipeline/')."
+  ],
+  "acceptance": [
+    "2–5 bullets: how we know this task is done.",
+    "Include trust-first semantics (Unknown over wrong) where applicable."
+  ],
   "deliverables": [
     {
       "deliverable_id": "DELIV-TASK-AREA-001-001",
-      "title": "Concrete deliverable",
+      "title": "Concrete deliverable (file-level)",
       "paths": [
         "path/to/code/or/spec"
+      ],
+      "acceptance": [
+        "What output exists and what it must contain."
+      ],
+      "evidence": [
+        "Optional: `npm test` / `npm run guardrails` / a CLI command demonstrating output."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-AREA-001-002",
+      "title": "Docs/contract updated for the deliverable",
+      "paths": [
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Contract template reflects the new/changed output schema and semantics."
       ]
     }
   ],
@@ -20,8 +44,11 @@
       "status": "todo",
       "area": "area-name",
       "provenance_prefix": "FUSBAL.AREA.TASK_AREA_001.SUB_001",
-      "notes": [
-        "If this subtask creates a new requirement, use a REQ-* subtask_id instead."
+      "done_when": [
+        "Concrete done criteria for this subtask."
+      ],
+      "evidence": [
+        "Optional: command, file path, or output artifact to inspect."
       ]
     },
     {
@@ -29,6 +56,11 @@
       "title": "New requirement title (created by this subtask)",
       "status": "todo",
       "area": "governance",
+      "provenance_prefix": "FUSBAL.GOV.TASK_AREA_001.REQ_0001",
+      "done_when": [
+        "Requirement is added to the canonical requirements JSON with tracking.implementation=todo.",
+        "Requirement declares at least one guardrail/coverage mechanism."
+      ],
       "requirements_to_add": [
         {
           "id": "REQ-0001",
@@ -36,6 +68,9 @@
           "tracking": {
             "implementation": "todo"
           },
+          "guardrails": [
+            "guardrails:example"
+          ],
           "title": "Requirement title",
           "acceptance": [
             "Acceptance criterion 1",

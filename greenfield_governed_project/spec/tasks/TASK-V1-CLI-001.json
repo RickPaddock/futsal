@@ -4,15 +4,68 @@
   "intent_id": "INT-010",
   "title": "Minimal CLI to init/validate bundle structure",
   "status": "todo",
+  "scope": [
+    "Provide a minimal CLI for initializing and validating a match bundle structure.",
+    "Expose clear, actionable error messages for missing/invalid artifacts (trust-first).",
+    "Do not build a full interactive UI; keep to commands + flags suitable for automation."
+  ],
+  "acceptance": [
+    "CLI supports `init` and `validate` for the bundle layout defined by TASK-V1-OUT-001.",
+    "Validation errors are explicit and include file paths and missing artifact names.",
+    "CLI behavior is deterministic and suitable for CI/guardrails usage."
+  ],
   "deliverables": [
     {
       "deliverable_id": "DELIV-TASK-V1-CLI-001-001",
       "title": "CLI commands for initializing and validating a match bundle",
       "paths": [
-        "pipeline/src/fusbal_pipeline/cli.py"
+        "pipeline/src/fusbal_pipeline/cli.py",
+        "pipeline/src/fusbal_pipeline/__main__.py",
+        "pipeline/src/fusbal_pipeline/bundle.py"
+      ],
+      "acceptance": [
+        "CLI has commands for init + validate with clear help text.",
+        "CLI validation returns non-zero exit code on invalid bundles with actionable errors."
+      ],
+      "evidence": [
+        "`python -m fusbal_pipeline --help` shows init/validate commands.",
+        "`python -m fusbal_pipeline validate ...` fails clearly on missing artifacts."
       ]
     }
   ],
-  "subtasks": []
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-V1-CLI-001-001",
+      "title": "Implement `init` command to scaffold a bundle with required directories/files.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_V1_CLI_001.SUB_001",
+      "done_when": [
+        "`init` creates the required layout deterministically.",
+        "Generated files include minimal headers/versions where appropriate."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-V1-CLI-001-002",
+      "title": "Implement `validate` command to check bundle layout, artifacts, and manifest semantics.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_V1_CLI_001.SUB_002",
+      "done_when": [
+        "`validate` checks required artifacts and manifest determinism rules.",
+        "Errors are actionable (paths + missing/invalid artifact names)."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-V1-CLI-001-003",
+      "title": "Wire CLI into module entrypoint (`python -m fusbal_pipeline`).",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_V1_CLI_001.SUB_003",
+      "done_when": [
+        "`python -m fusbal_pipeline --help` works and documents commands/flags.",
+        "Exit codes are consistent for automation/CI."
+      ]
+    }
+  ]
 }
-

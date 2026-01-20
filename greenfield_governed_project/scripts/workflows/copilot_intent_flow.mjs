@@ -108,6 +108,18 @@ function safePosixRelative(p) {
   return rel;
 }
 
+function normalizeStringList(v) {
+  return ensureArray(v).map(String).map((s) => s.trim()).filter(Boolean);
+}
+
+function looksLikeFilePath(rel) {
+  const base = path.posix.basename(String(rel || ""));
+  if (!base) return false;
+  if (base.endsWith("/")) return false;
+  if (base.includes(".")) return true;
+  return ["Makefile", "Dockerfile", "LICENSE", "NOTICE"].includes(base);
+}
+
 function run(cmd, args, cwd) {
   process.stdout.write(`[flow] run: ${cmd} ${args.join(" ")}\n`);
   const res = spawnSync(cmd, args, { cwd, stdio: "inherit" });
@@ -211,6 +223,9 @@ function validatePlan({ repoRoot, plan, areaChoices, newReqPrefix }) {
   const intentId = String(intent?.intent_id || "").trim();
   if (!/^INT-\d{3}$/.test(intentId)) errors.push("intent.intent_id must match INT-###");
   if (String(intent?.status || "") !== "todo") errors.push("intent.status must be todo");
+  if (!normalizeStringList(intent?.summary).length) errors.push("intent.summary must be non-empty");
+  if (!normalizeStringList(intent?.non_goals).length) errors.push("intent.non_goals must be non-empty");
+  if (!normalizeStringList(intent?.success_criteria).length) errors.push("intent.success_criteria must be non-empty");
 
   const intentPath = path.join(repoRoot, "spec", "intents", `${intentId}.json`);
   if (fs.existsSync(intentPath)) errors.push(`intent already exists: spec/intents/${intentId}.json`);
@@ -226,12 +241,71 @@ function validatePlan({ repoRoot, plan, areaChoices, newReqPrefix }) {
     if (!taskIdsInPlan.includes(tid)) errors.push(`intent.task_ids_planned missing task in plan.tasks: ${tid}`);
   }
 
+  const plannedNewReqIds = new Set();
+  const reqAdds = ensureArray(plan?.requirements_to_add);
+  for (const item of reqAdds) {
+    const id = String(item?.requirement?.id || "").trim();
+    if (id) plannedNewReqIds.add(id);
+  }
+
+  for (const t of tasks) {
+    const taskId = String(t?.task_id || "").trim();
+    const status = String(t?.status || "").trim() || "todo";
+
+    if (!normalizeStringList(t?.scope).length) errors.push(`task.scope must be non-empty: ${taskId}`);
+    if (!normalizeStringList(t?.acceptance).length) errors.push(`task.acceptance must be non-empty: ${taskId}`);
+
+    if (status === "todo") {
+      const deliverables = ensureArray(t?.deliverables);
+      if (!deliverables.length) errors.push(`task missing deliverables (required for todo): ${taskId}`);
+      for (const d of deliverables) {
+        const did = String(d?.deliverable_id || "").trim();
+        const title = String(d?.title || "").trim();
+        if (!did) errors.push(`deliverable missing deliverable_id: ${taskId}`);
+        if (!title) errors.push(`deliverable missing title: ${taskId}:${did || "?"}`);
+        const paths = ensureArray(d?.paths);
+        if (!paths.length) errors.push(`deliverable missing paths: ${taskId}:${did || "?"}`);
+        let anyLooksFile = false;
+        for (const p of paths) {
+          try {
+            const rel = safePosixRelative(p);
+            if (!rel) continue;
+            if (!looksLikeFilePath(rel)) {
+              errors.push(`deliverable path must be file-level (not directory-only): ${taskId}:${did || "?"}:${rel}`);
+            } else {
+              anyLooksFile = true;
+            }
+          } catch (e) {
+            errors.push(`deliverable path invalid: ${taskId}:${did || "?"}:${String(p)}`);
+          }
+        }
+        if (!anyLooksFile) errors.push(`deliverable must include at least one file-level path: ${taskId}:${did || "?"}`);
+        if (!normalizeStringList(d?.acceptance).length) errors.push(`deliverable.acceptance must be non-empty: ${taskId}:${did || "?"}`);
+      }
+    }
+
+    const subtasks = ensureArray(t?.subtasks);
+    if (!subtasks.length) errors.push(`task.subtasks must be non-empty: ${taskId}`);
+    for (const st of subtasks) {
+      const sid = String(st?.subtask_id || "").trim();
+      if (!sid) errors.push(`subtask missing subtask_id: ${taskId}`);
+      if (!String(st?.title || "").trim()) errors.push(`subtask missing title: ${taskId}:${sid || "?"}`);
+      if (!String(st?.area || "").trim()) errors.push(`subtask missing area: ${taskId}:${sid || "?"}`);
+      if (!String(st?.provenance_prefix || "").trim()) errors.push(`subtask missing provenance_prefix: ${taskId}:${sid || "?"}`);
+      if (!normalizeStringList(st?.done_when).length) errors.push(`subtask.done_when must be non-empty: ${taskId}:${sid || "?"}`);
+
+      const isNewReq = sid.startsWith(newReqPrefix);
+      if (isNewReq && !plannedNewReqIds.has(sid)) {
+        errors.push(`REQ-* subtask_id must be present in plan.requirements_to_add: ${taskId}:${sid}`);
+      }
+    }
+  }
+
   const intentRequirements = normalizeIdList(intent?.requirements_in_scope);
   const requirementsSourceRel = String(readJson(path.join(repoRoot, "spec", "project.json")).requirements_source || "");
   const bundle = loadRequirementsBundle({ repoRoot, requirementsSourceRel });
   const existingReqIds = new Set(bundle.requirements.map((r) => String(r.id || "").trim()).filter(Boolean));
 
-  const reqAdds = ensureArray(plan?.requirements_to_add);
   for (const item of reqAdds) {
     const areaFile = String(item?.area_file || "").trim();
     const req = item?.requirement;
@@ -244,6 +318,8 @@ function validatePlan({ repoRoot, plan, areaChoices, newReqPrefix }) {
     if (!id.startsWith(newReqPrefix)) errors.push(`new requirement id must start with ${newReqPrefix}: ${id}`);
     if (existingReqIds.has(id)) errors.push(`requirement already exists: ${id}`);
     if (String(req?.tracking?.implementation || "todo") !== "todo") errors.push(`new requirement tracking.implementation must be todo: ${id}`);
+    const guardrails = Array.isArray(req?.guardrails) ? req.guardrails.map(String).map((s) => s.trim()).filter(Boolean) : [];
+    if (!guardrails.length) errors.push(`new requirement missing guardrails[]: ${id}`);
   }
 
   for (const rid of intentRequirements) {
@@ -273,6 +349,8 @@ function applyPlan({ repoRoot, plan, areaChoices }) {
       deliverable_id: String(d.deliverable_id || "").trim() || `DELIV-${taskId}-001`,
       title: String(d.title || "").trim(),
       paths: ensureArray(d.paths).map(safePosixRelative).filter(Boolean),
+      acceptance: normalizeStringList(d.acceptance),
+      evidence: normalizeStringList(d.evidence),
     }));
 
     const taskSpec = {
@@ -281,6 +359,8 @@ function applyPlan({ repoRoot, plan, areaChoices }) {
       intent_id: intentId,
       title: String(t.title || "").trim(),
       status: String(t.status || "todo").trim(),
+      scope: normalizeStringList(t.scope),
+      acceptance: normalizeStringList(t.acceptance),
       deliverables,
       subtasks: ensureArray(t.subtasks),
     };
@@ -297,8 +377,10 @@ function promptText({ repoRootRel, intentId, newReqPrefix, requirementsSourceRel
     "You are GitHub Copilot Chat running inside VS Code.",
     "",
     "You will help me create a governed intent + tasks (JSON only).",
+    "Aim for gold-standard scope: concrete deliverables, clear done criteria, and evidence hooks.",
     "",
     "First: ask me clarifying questions (max 10). Ask one question at a time. After I answer, ask the next.",
+    "Your questions must cover: concrete outputs, non-goals, error/missing semantics, and how we will validate success.",
     "",
     "When done, output ONLY a single JSON object (no markdown fences) that matches this schema:",
     "",
@@ -310,6 +392,8 @@ function promptText({ repoRootRel, intentId, newReqPrefix, requirementsSourceRel
     "    \"created_date\": \"YYYY-MM-DD\",",
     "    \"close_gate\": [\"npm run guardrails\", \"npm run generate:check\", \"npm run audit:intent -- --intent-id " + intentId + "\"],",
     "    \"summary\": [\"...\"],",
+    "    \"non_goals\": [\"...\"],",
+    "    \"success_criteria\": [\"...\"],",
     "    \"requirements_in_scope\": [\"...\"],",
     "    \"task_ids_planned\": [\"TASK-AREA-001\"],",
     "    \"work_packages\": [",
@@ -323,14 +407,19 @@ function promptText({ repoRootRel, intentId, newReqPrefix, requirementsSourceRel
     "  \"tasks\": [",
     "    {",
     "      \"task_id\": \"TASK-AREA-001\",",
-    "      \"title\": \"deliverable title\",",
+    "      \"title\": \"deliverable title (specific)\",",
     "      \"status\": \"todo\",",
+    "      \"scope\": [\"...\"],",
+    "      \"acceptance\": [\"...\"],",
     "      \"deliverables\": [",
     "        {",
     "          \"deliverable_id\": \"DELIV-TASK-AREA-001-001\",",
     "          \"title\": \"...\",",
-    "          \"paths\": [\"pipeline/\"]",
+    "          \"paths\": [\"pipeline/src/fusbal_pipeline/<exact_file>.py\", \"spec/md/docs/data/OUTPUT_CONTRACT.mdt\"],",
+    "          \"acceptance\": [\"...\"],",
+    "          \"evidence\": [\"...optional command...\" ]",
     "        }",
+    "        /* include 2–4 deliverables per task; avoid directory-only paths */",
     "      ],",
     "      \"subtasks\": [",
     "        {",
@@ -338,11 +427,15 @@ function promptText({ repoRootRel, intentId, newReqPrefix, requirementsSourceRel
     "          \"title\": \"new requirement title\",",
     "          \"status\": \"todo\",",
     "          \"area\": \"core\",",
+    "          \"provenance_prefix\": \"FUSBAL.CORE.TASK_AREA_001.REQ_0001\",",
+    "          \"done_when\": [\"...\"],",
+    "          \"evidence\": [\"...\"],",
     "          \"requirements_to_add\": [",
     "            {",
     `              \"id\": \"${newReqPrefix}0001\",`,
     "              \"status\": \"draft\",",
     "              \"tracking\": { \"implementation\": \"todo\" },",
+    "              \"guardrails\": [\"guardrails:req_tag_enforced_on_done\"],",
     "              \"title\": \"...\",",
     "              \"acceptance\": [\"...\"],",
     "              \"owner\": \"platform\",",
@@ -360,6 +453,7 @@ function promptText({ repoRootRel, intentId, newReqPrefix, requirementsSourceRel
     `        \"id\": \"${newReqPrefix}0001\",`,
     "        \"status\": \"draft\",",
     "        \"tracking\": { \"implementation\": \"todo\" },",
+    "        \"guardrails\": [\"guardrails:req_tag_enforced_on_done\"],",
     "        \"title\": \"...\",",
     "        \"acceptance\": [\"...\"],",
     "        \"owner\": \"platform\",",
@@ -372,7 +466,11 @@ function promptText({ repoRootRel, intentId, newReqPrefix, requirementsSourceRel
     "Rules you MUST follow:",
     "- Do not edit or propose edits to any .md files (generated).",
     "- Only output JSON for canonical sources (intent/tasks/requirements).",
+    "- All tasks with status=todo MUST include at least 1 deliverable (guardrails enforce this).",
+    "- Prefer deliverable paths pointing at specific files (or planned specific files), not top-level directories.",
+    "- Every subtask MUST include provenance_prefix + done_when[] so audits can verify completion.",
     "- New requirements must have ids starting with " + newReqPrefix + " and tracking.implementation=\"todo\".",
+    "- New requirements must include a non-empty guardrails[] list.",
     "- Prefer 1–4 tasks; make tasks real deliverables.",
     "- Use only relative paths; no absolute paths; no '..'.",
     "",

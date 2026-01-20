@@ -4,16 +4,80 @@
   "intent_id": "INT-020",
   "title": "Pitch templates + calibration inputs per venue/pitch",
   "status": "todo",
+  "scope": [
+    "Define pitch templates (dimensions/markings model) and calibration input schema per venue/pitch.",
+    "Represent calibration inputs as explicit, versioned records (not ad-hoc arguments).",
+    "Do not implement auto-fit or manual calibration UI here (handled by subsequent tasks)."
+  ],
+  "acceptance": [
+    "Pitch template and calibration input schemas are explicit and stable (suitable for versioning).",
+    "Schemas support multiple venues/pitches without duplicating large blobs in a single file.",
+    "Output contract template documents the calibration inputs/templates."
+  ],
   "deliverables": [
     {
       "deliverable_id": "DELIV-TASK-CAL-001-001",
       "title": "Pitch template and calibration input schema",
       "paths": [
-        "pipeline/",
-        "docs/data/OUTPUT_CONTRACT.md"
+        "pipeline/src/fusbal_pipeline/calibration/pitch_templates.py",
+        "pipeline/src/fusbal_pipeline/calibration/inputs.py",
+        "pipeline/src/fusbal_pipeline/contract.py",
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Pitch template schema covers pitch dimensions and relevant markings model.",
+        "Calibration input schema supports per-venue/pitch configuration and versioning."
+      ],
+      "evidence": [
+        "A minimal pipeline run loads/validates a sample calibration input record."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-CAL-001-002",
+      "title": "Output contract template updated for calibration inputs/templates",
+      "paths": [
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Contract documents calibration input fields and pitch template semantics."
+      ],
+      "evidence": [
+        "`npm run generate` renders docs reflecting the updated contract template."
       ]
     }
   ],
-  "subtasks": []
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-CAL-001-001",
+      "title": "Define pitch templates and calibration inputs for a venue/pitch.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_CAL_001.SUB_001",
+      "done_when": [
+        "Pitch template schema is explicit and versioned.",
+        "Calibration input schema is explicit and supports multiple venues/pitches."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-CAL-001-002",
+      "title": "Update output contract template for calibration inputs/templates.",
+      "status": "todo",
+      "area": "spec",
+      "provenance_prefix": "FUSBAL.SPEC.TASK_CAL_001.SUB_002",
+      "done_when": [
+        "Contract template documents calibration inputs/templates with examples."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-CAL-001-003",
+      "title": "Add loader/validator for calibration input records.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_CAL_001.SUB_003",
+      "done_when": [
+        "Calibration input records validate with clear errors for missing/invalid fields.",
+        "Validation is deterministic and suitable for guardrails/audits."
+      ]
+    }
+  ]
 }
-

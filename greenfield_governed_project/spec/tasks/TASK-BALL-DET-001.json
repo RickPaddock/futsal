@@ -4,16 +4,77 @@
   "intent_id": "INT-040",
   "title": "Ball detector(s) + gating",
   "status": "todo",
+  "scope": [
+    "Produce per-frame ball detections with confidence and conservative false-positive gating.",
+    "Prefer missing/unknown over wrong when uncertain."
+  ],
+  "acceptance": [
+    "Detections output includes confidence and gating diagnostics.",
+    "Output contract template documents detection schema and semantics."
+  ],
   "deliverables": [
     {
       "deliverable_id": "DELIV-TASK-BALL-DET-001-001",
-      "title": "Ball detector output per frame with confidence + false-positive gating",
+      "title": "Ball detections output per frame (confidence + gating diagnostics)",
       "paths": [
-        "pipeline/",
-        "docs/data/OUTPUT_CONTRACT.md"
+        "pipeline/src/fusbal_pipeline/ball/detections.py",
+        "pipeline/src/fusbal_pipeline/ball/detector.py",
+        "pipeline/src/fusbal_pipeline/contract.py"
+      ],
+      "acceptance": [
+        "Each frame emits 0..N ball detections with confidence.",
+        "Gating surfaces a reason when detections are suppressed."
+      ],
+      "evidence": [
+        "A minimal pipeline run produces detections with confidence + gating diagnostics."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-BALL-DET-001-002",
+      "title": "Output contract template updated for ball detections",
+      "paths": [
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Contract documents detection schema and missing/unknown semantics."
+      ],
+      "evidence": [
+        "`npm run generate` renders docs reflecting the updated contract template."
       ]
     }
   ],
-  "subtasks": []
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-BALL-DET-001-001",
+      "title": "Define detection record schema and deterministic per-frame output.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_BALL_DET_001.SUB_001",
+      "done_when": [
+        "Record fields are explicit (time/frame, bbox/pos, confidence, flags).",
+        "Output ordering is deterministic."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-BALL-DET-001-002",
+      "title": "Implement conservative gating + diagnostics.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_BALL_DET_001.SUB_002",
+      "done_when": [
+        "False positives are suppressed conservatively (prefer missing over wrong).",
+        "Diagnostics explain gating decisions."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-BALL-DET-001-003",
+      "title": "Update output contract template for ball detections.",
+      "status": "todo",
+      "area": "spec",
+      "provenance_prefix": "FUSBAL.SPEC.TASK_BALL_DET_001.SUB_003",
+      "done_when": [
+        "Contract template includes schema and minimal examples."
+      ]
+    }
+  ]
 }
-

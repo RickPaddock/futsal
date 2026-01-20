@@ -4,15 +4,72 @@
   "intent_id": "INT-001",
   "title": "Product docs + high-level delivery plan surfaces",
   "status": "todo",
+  "scope": [
+    "Define the generated docs surfaces that explain governance, runbooks, and delivery plan.",
+    "Ensure docs are generated from templates and reflect canonical JSON sources.",
+    "Do not add hand-written Markdown; templates only."
+  ],
+  "acceptance": [
+    "Docs templates cover navigation, runbooks (intent flow, audit/close, requirements), and delivery plan.",
+    "`npm run generate` renders docs with generated frontmatter and consistent links.",
+    "Docs are concise and actionable for contributors (how to create/audit/close intents)."
+  ],
   "deliverables": [
     {
       "deliverable_id": "DELIV-TASK-BOOT-004-001",
       "title": "Generated docs for roadmap, runbooks, and navigation",
       "paths": [
-        "spec/md/docs/"
+        "spec/md/docs/LLM_NAVIGATION.mdt",
+        "spec/md/docs/LLM_QUICK_REFERENCE.mdt",
+        "spec/md/docs/delivery/HL_DELIVERY_PLAN.mdt",
+        "spec/md/docs/runbooks/intent-and-task-workflow.mdt",
+        "spec/md/docs/runbooks/intent-close.mdt",
+        "spec/md/docs/runbooks/intent-quality.mdt",
+        "spec/md/docs/runbooks/requirements-management.mdt",
+        "spec/md/docs/runbooks/logging-basics.mdt"
+      ],
+      "acceptance": [
+        "Templates exist for navigation + runbooks + delivery plan and are included in generation.",
+        "Docs describe repeatable flows (create/audit/close) and governance rules."
+      ],
+      "evidence": [
+        "`npm run generate` produces `docs/` with generated frontmatter and updated content."
       ]
     }
   ],
-  "subtasks": []
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-BOOT-004-001",
+      "title": "Define navigation + quick reference docs templates.",
+      "status": "todo",
+      "area": "spec",
+      "provenance_prefix": "FUSBAL.SPEC.TASK_BOOT_004.SUB_001",
+      "done_when": [
+        "Navigation templates link to key runbooks and governed surfaces.",
+        "Quick reference includes core commands and status model."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-BOOT-004-002",
+      "title": "Define runbooks for intent workflow (create/audit/close) and requirements management.",
+      "status": "todo",
+      "area": "spec",
+      "provenance_prefix": "FUSBAL.SPEC.TASK_BOOT_004.SUB_002",
+      "done_when": [
+        "Runbooks are template-driven and explain repeatable flows.",
+        "Runbooks cover requirements splitting, size limits, and close gate behavior."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-BOOT-004-003",
+      "title": "Ensure docs generation includes all templates and produces consistent links.",
+      "status": "todo",
+      "area": "scripts",
+      "provenance_prefix": "FUSBAL.SCRIPTS.TASK_BOOT_004.SUB_003",
+      "done_when": [
+        "`npm run generate` renders docs for all templates with generated frontmatter.",
+        "Cross-links resolve and are stable."
+      ]
+    }
+  ]
 }
-

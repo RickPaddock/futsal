@@ -112,7 +112,7 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
       <div className="toolbar">
         <div>
           <div className="muted">
-            <Link href="/internal/intents">← Back</Link>
+            <Link href="/internal/intents">← Intents</Link> · <Link href="/internal/tasks">Tasks</Link>
           </div>
           <h1 style={{ margin: "6px 0 0 0" }}>{intentId}</h1>
           <div className="muted">{feedIntent?.title || intentSpec?.title || ""}</div>

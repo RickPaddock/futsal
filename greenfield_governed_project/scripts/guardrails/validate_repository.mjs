@@ -89,8 +89,20 @@ function normalizeReqIdList(value) {
   return [];
 }
 
+function normalizeStringList(value) {
+  return normalizeReqIdList(value);
+}
+
 function isIsoDate(value) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function looksLikeFilePath(rel) {
+  const base = path.posix.basename(String(rel || "").replace(/\\/g, "/"));
+  if (!base) return false;
+  if (base.endsWith("/")) return false;
+  if (base.includes(".")) return true;
+  return ["Makefile", "Dockerfile", "LICENSE", "NOTICE"].includes(base);
 }
 
 function scanRepoReqTags(repoRoot) {
@@ -130,6 +142,8 @@ function validateGovernanceSpec(repoRoot) {
     const id = String(r.id || "").trim();
     if (!id) throw new Error("requirements_missing_id");
     if (requirementById.has(id)) throw new Error(`requirements_duplicate_id:${id}`);
+    const guardrails = Array.isArray(r.guardrails) ? r.guardrails.map(String).map((s) => s.trim()).filter(Boolean) : [];
+    if (!guardrails.length) throw new Error(`requirements_missing_guardrails:${id}`);
     requirementById.set(id, r);
   }
 
@@ -187,13 +201,45 @@ function validateGovernanceSpec(repoRoot) {
     if (!intentIds.has(intentId)) throw new Error(`task_unknown_intent_id:${taskId}:${intentId}`);
     const intentStatus = String(intentById.get(intentId)?.status || "").trim();
 
+    const taskStatus = String(t.status || "").trim();
+    if (taskStatus === "todo") {
+      const scope = normalizeStringList(t.scope);
+      if (!scope.length) throw new Error(`task_todo_requires_scope:${taskId}`);
+      const acceptance = normalizeStringList(t.acceptance);
+      if (!acceptance.length) throw new Error(`task_todo_requires_acceptance:${taskId}`);
+
+      const deliverables = Array.isArray(t.deliverables) ? t.deliverables : [];
+      if (!deliverables.length) throw new Error(`task_todo_requires_deliverable:${taskId}`);
+      for (const d of deliverables) {
+        const did = String(d?.deliverable_id || "").trim();
+        const title = String(d?.title || "").trim();
+        if (!did) throw new Error(`task_deliverable_missing_id:${taskId}`);
+        if (!title) throw new Error(`task_deliverable_missing_title:${taskId}:${did}`);
+
+        const paths = Array.isArray(d?.paths) ? d.paths.map(String).map((s) => s.trim()).filter(Boolean) : [];
+        if (!paths.length) throw new Error(`task_deliverable_missing_paths:${taskId}:${did}`);
+        if (!paths.every(looksLikeFilePath)) throw new Error(`task_deliverable_requires_file_paths:${taskId}:${did}`);
+
+        const dAcc = normalizeStringList(d?.acceptance);
+        if (!dAcc.length) throw new Error(`task_deliverable_missing_acceptance:${taskId}:${did}`);
+      }
+    }
+
     const subtasks = Array.isArray(t.subtasks) ? t.subtasks : [];
+    if (taskStatus === "todo" && !subtasks.length) throw new Error(`task_todo_requires_subtasks:${taskId}`);
     const seenSubtaskIds = new Set();
     for (const st of subtasks) {
       const subtaskId = String(st.subtask_id || "").trim();
       if (!subtaskId) throw new Error(`subtask_missing_id:${taskId}`);
       if (seenSubtaskIds.has(subtaskId)) throw new Error(`subtask_duplicate_id:${taskId}:${subtaskId}`);
       seenSubtaskIds.add(subtaskId);
+
+      const area = String(st.area || "").trim();
+      if (!area) throw new Error(`subtask_missing_area:${taskId}:${subtaskId}`);
+      const prov = String(st.provenance_prefix || "").trim();
+      if (!prov) throw new Error(`subtask_missing_provenance_prefix:${taskId}:${subtaskId}`);
+      const doneWhen = normalizeStringList(st.done_when);
+      if (!doneWhen.length) throw new Error(`subtask_missing_done_when:${taskId}:${subtaskId}`);
 
       const isNewReq = [...newReqPrefixes].some((pfx) => subtaskId.startsWith(pfx));
       if (isNewReq) {
@@ -247,6 +293,10 @@ function validateGovernanceSpec(repoRoot) {
       if (closedDate) throw new Error(`intent_draft_must_not_have_closed_date:${intentId}`);
       continue;
     }
+
+    if (!normalizeStringList(intent.summary).length) throw new Error(`intent_missing_summary:${intentId}`);
+    if (!normalizeStringList(intent.non_goals).length) throw new Error(`intent_missing_non_goals:${intentId}`);
+    if (!normalizeStringList(intent.success_criteria).length) throw new Error(`intent_missing_success_criteria:${intentId}`);
 
     if (status === "closed") {
       if (!closedDate) throw new Error(`intent_closed_requires_closed_date:${intentId}`);

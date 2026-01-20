@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "type": "requirements_area",
+  "area": "greenfield",
+  "requirements": [
+    {
+      "id": "GREENFIELD-GOV-001",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["guardrails:markdown_generated_only", "generate:check"],
+      "title": "All human-readable .md outputs are generated; no hand-edits allowed.",
+      "acceptance": [
+        "All `.md` files contain generated frontmatter and fail guardrails if missing.",
+        "Humans edit only canonical JSON sources and templates, then regenerate."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "generation"]
+    },
+    {
+      "id": "GREENFIELD-GOV-002",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["guardrails:deterministic_generation", "generate:check"],
+      "title": "Generation is deterministic and drift is detectable.",
+      "acceptance": [
+        "`npm run generate:check` fails if generated outputs drift from canonical sources.",
+        "`npm run guardrails` runs generate check before declaring success."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "generation"]
+    },
+    {
+      "id": "GREENFIELD-GOV-003",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["guardrails:intent_status_model"],
+      "title": "Intent status model is enforced (draft → todo → closed).",
+      "acceptance": [
+        "`draft` intents have no tasks/work packages.",
+        "`todo` intents have tasks wired.",
+        "`closed` intents require `closed_date`."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "intents"]
+    },
+    {
+      "id": "GREENFIELD-GOV-004",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["guardrails:tasks_required_for_todo_intents"],
+      "title": "Every non-draft intent must have task specs for all planned tasks.",
+      "acceptance": [
+        "For each `intent.task_ids_planned[]`, a matching `spec/tasks/<TASK_ID>.json` exists.",
+        "Task specs must reference the same `intent_id`."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "tasks"]
+    },
+    {
+      "id": "GREENFIELD-GOV-005",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["guardrails:task_deliverables_required"],
+      "title": "Every `todo` task has at least one deliverable.",
+      "acceptance": [
+        "If a task is `status: todo`, `deliverables[]` is present and non-empty.",
+        "Each deliverable has a stable id and human title."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "tasks"]
+    },
+    {
+      "id": "GREENFIELD-GOV-006",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["guardrails:req_new_requirements_flow"],
+      "title": "New requirements are created and tracked via `REQ-*` subtasks.",
+      "acceptance": [
+        "Any subtask id starting with `REQ-` must exist as a requirement entry.",
+        "New requirements start with `tracking.implementation: todo`."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "requirements"]
+    },
+    {
+      "id": "GREENFIELD-GOV-007",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["guardrails:close_updates_req_tracking", "intent:close"],
+      "title": "Closing an intent updates requirement implementation tracking only after code exists.",
+      "acceptance": [
+        "`npm run intent:close -- --apply` sets intent status to `closed` and writes `closed_date`.",
+        "For any `REQ-*` created by the intent, `tracking.implementation` is set to `done` only when code contains `REQ: REQ-*` references."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "close"]
+    },
+    {
+      "id": "GREENFIELD-GOV-008",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["guardrails:file_size_limits"],
+      "title": "Governance file size limits are enforced to prevent runaway specs.",
+      "acceptance": [
+        "File size limits are configured in `spec/project.json` and enforced by guardrails."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "scale"]
+    },
+    {
+      "id": "GREENFIELD-GOV-009",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["guardrails:requirements_split_supported"],
+      "title": "Requirements are split into multiple area files via an index entrypoint.",
+      "acceptance": [
+        "`spec/requirements/index.json` lists `spec/requirements/areas/*.json` files.",
+        "Generation and guardrails read from the index and treat the bundle as canonical."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "requirements"]
+    },
+    {
+      "id": "GREENFIELD-GOV-010",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["guardrails:requirement_guardrail_coverage_required"],
+      "title": "Every requirement declares at least one guardrail/coverage mechanism to detect regressions.",
+      "acceptance": [
+        "All requirement entries include a non-empty `guardrails[]` list.",
+        "Guardrails enforce the presence of the `guardrails[]` list."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "requirements"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-001",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["portal:ui_smoke", "manual:portal_review"],
+      "title": "Internal portal task pages are human-readable (not raw JSON).",
+      "acceptance": [
+        "`/internal/tasks/<TASK_ID>` renders task scope, acceptance, deliverables, and subtasks as structured sections.",
+        "Raw canonical JSON remains accessible (e.g., via a collapsible section) for debugging and audits.",
+        "Task pages link back to the parent intent when `intent_id` is present."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "ux", "governance"]
+    }
+  ]
+}

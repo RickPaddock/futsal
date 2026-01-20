@@ -87,7 +87,12 @@ export default function IntentsIndex({ intents }) {
   return (
     <main className="page">
       <div className="toolbar">
-        <h1 style={{ margin: 0 }}>Intents</h1>
+        <div>
+          <div className="muted">
+            <Link href="/internal">Internal</Link> · <Link href="/internal/tasks">Tasks</Link>
+          </div>
+          <h1 style={{ margin: "6px 0 0 0" }}>Intents</h1>
+        </div>
         <button className="btn" type="button" disabled={refreshing} onClick={refreshAndReload}>
           {refreshing ? "Refreshing…" : "Refresh"}
         </button>

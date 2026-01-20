@@ -118,6 +118,7 @@ function generateRequirementsMd({ repoRoot, vars, check }) {
     lines.push("");
     lines.push(`- Status: \`${r.status}\``);
     if (r.tracking?.implementation) lines.push(`- Implementation: \`${r.tracking.implementation}\``);
+    if (Array.isArray(r.guardrails) && r.guardrails.length) lines.push(`- Guardrails: ${r.guardrails.map((g) => `\`${g}\``).join(", ")}`);
     if (r.owner) lines.push(`- Owner: \`${r.owner}\``);
     if (Array.isArray(r.tags) && r.tags.length) lines.push(`- Tags: ${r.tags.map((t) => `\`${t}\``).join(", ")}`);
     lines.push("");

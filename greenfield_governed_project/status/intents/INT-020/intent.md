@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/intents/INT-020.json
-source_sha256: sha256:4feb7072a7f3ef0d1453ee5af3ed82dfb0237474f95756dd7e7636816ed942f3
+source_sha256: sha256:1e01dd6c2cae231c8da09b7f2924e52d82d9900ed0e681ef45cdfc9e98940599
 intent_id: INT-020
 title: Calibration + BEV mapping MVP
 status: todo
@@ -21,10 +21,10 @@ close_gate:
 
 ### INT-020-001 — Pitch model + mapping
 
-- TASK-CAL-001 Define pitch templates and camera calibration inputs per venue/pitch.
-- TASK-CAL-002 Implement auto-fit from field markings where possible; record reprojection error diagnostics.
+- TASK-CAL-001 Pitch templates + calibration input schema (multi-venue/pitch) + contract update.
+- TASK-CAL-002 Auto-fit from field markings + reprojection diagnostics + contract update.
 
 ### INT-020-002 — Manual fallback + quality gates
 
-- TASK-CAL-003 Add a minimal correspondence-click fallback and explicit calibration quality gating.
+- TASK-CAL-003 Manual correspondence fallback input + explicit calibration quality gating + contract update.
 

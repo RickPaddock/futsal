@@ -1,6 +1,6 @@
 /*
 PROV: GREENFIELD.GOV.PORTAL.TASKS.01
-REQ: SYS-ARCH-15
+REQ: SYS-ARCH-15, GREENFIELD-PORTAL-001
 WHY: List task specs from spec/tasks/*.json.
 */
 
@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Link from "next/link";
 import { useRouter } from "next/router";
+import { useState } from "react";
 
 function safeReadJson(p) {
   if (!fs.existsSync(p)) return null;
@@ -43,12 +44,37 @@ export async function getServerSideProps() {
 
 export default function TasksIndex({ tasks }) {
   const router = useRouter();
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function refreshAndReload() {
+    setRefreshing(true);
+    try {
+      const res = await fetch("/api/internal/refresh", { method: "POST" });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = payload?.error ? String(payload.error) : `http_${res.status}`;
+        throw new Error(msg);
+      }
+      router.reload();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert(`Refresh failed: ${msg}`);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   return (
     <main className="page">
       <div className="toolbar">
-        <h1 style={{ margin: 0 }}>Tasks</h1>
-        <button className="btn" type="button" onClick={() => router.reload()}>
-          Refresh
+        <div>
+          <div className="muted">
+            <Link href="/internal">Internal</Link> · <Link href="/internal/intents">Intents</Link>
+          </div>
+          <h1 style={{ margin: "6px 0 0 0" }}>Tasks</h1>
+        </div>
+        <button className="btn" type="button" disabled={refreshing} onClick={refreshAndReload}>
+          {refreshing ? "Refreshing…" : "Refresh"}
         </button>
       </div>
       <div className="list">
@@ -70,4 +96,3 @@ export default function TasksIndex({ tasks }) {
     </main>
   );
 }
-

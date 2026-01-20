@@ -4,15 +4,75 @@
   "intent_id": "INT-001",
   "title": "Guardrails to enforce generation and provenance discipline",
   "status": "todo",
+  "scope": [
+    "Enforce governance invariants (generated markdown only, deterministic generation, intent/task/requirements wiring).",
+    "Enforce provenance discipline by requiring requirements to declare guardrails and preventing 'done' without code references.",
+    "Keep guardrails fast and deterministic (suitable for CI)."
+  ],
+  "acceptance": [
+    "`npm run guardrails` fails on violations with actionable error codes/messages.",
+    "Guardrails prevent 'drift' by running generate check and enforcing spec invariants.",
+    "Guardrails prevent requirements from being marked done without `REQ:` code references."
+  ],
   "deliverables": [
     {
       "deliverable_id": "DELIV-TASK-BOOT-002-001",
       "title": "Guardrails validating governance invariants",
       "paths": [
         "scripts/guardrails/validate_repository.mjs"
+      ],
+      "acceptance": [
+        "Guardrails validate intent/task wiring, generated markdown frontmatter, and requirements tracking invariants.",
+        "Guardrails produce clear errors for missing/invalid spec fields."
+      ],
+      "evidence": [
+        "`npm run guardrails` passes on a clean repo and fails on intentional violations."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-BOOT-002-002",
+      "title": "Governance config (requirements source, id prefixes, file size limits)",
+      "paths": [
+        "spec/project.json",
+        "spec/requirements/areas/greenfield.json"
+      ],
+      "acceptance": [
+        "Governance settings are documented via generated surfaces and enforced by guardrails."
       ]
     }
   ],
-  "subtasks": []
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-BOOT-002-001",
+      "title": "Enforce generated markdown only (frontmatter required).",
+      "status": "todo",
+      "area": "scripts",
+      "provenance_prefix": "FUSBAL.SCRIPTS.TASK_BOOT_002.SUB_001",
+      "done_when": [
+        "All `.md` files without generated frontmatter fail guardrails."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-BOOT-002-002",
+      "title": "Enforce spec invariants (intent status model, task wiring, deliverables requirements).",
+      "status": "todo",
+      "area": "scripts",
+      "provenance_prefix": "FUSBAL.SCRIPTS.TASK_BOOT_002.SUB_002",
+      "done_when": [
+        "Guardrails enforce draft→todo→closed model and task spec presence/matching intent_id.",
+        "Todo tasks must have concrete deliverables."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-BOOT-002-003",
+      "title": "Enforce requirements provenance tracking (`REQ:` tags required for done).",
+      "status": "todo",
+      "area": "scripts",
+      "provenance_prefix": "FUSBAL.SCRIPTS.TASK_BOOT_002.SUB_003",
+      "done_when": [
+        "Requirements cannot be marked tracking.implementation=done unless referenced in repo code via `REQ:`.",
+        "New requirements flow via REQ-* subtasks is enforced."
+      ]
+    }
+  ]
 }
-

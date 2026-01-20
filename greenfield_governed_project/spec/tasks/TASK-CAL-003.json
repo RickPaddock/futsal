@@ -4,15 +4,79 @@
   "intent_id": "INT-020",
   "title": "Manual fallback + explicit calibration quality gating",
   "status": "todo",
+  "scope": [
+    "Provide a minimal manual fallback input format for correspondences when auto-fit fails.",
+    "Implement explicit calibration quality gating that controls downstream BEV outputs (trust-first).",
+    "Do not build a full UI; focus on an input schema + pipeline integration."
+  ],
+  "acceptance": [
+    "Manual fallback input is explicit and versioned (repeatable, not ad-hoc).",
+    "Quality gate has clear thresholds and emits diagnostics explaining why BEV output is suppressed.",
+    "Output contract template documents manual input schema and gating outputs."
+  ],
   "deliverables": [
     {
       "deliverable_id": "DELIV-TASK-CAL-003-001",
       "title": "Manual correspondence fallback and quality gate",
       "paths": [
-        "pipeline/"
+        "pipeline/src/fusbal_pipeline/calibration/manual.py",
+        "pipeline/src/fusbal_pipeline/calibration/gating.py",
+        "pipeline/src/fusbal_pipeline/contract.py"
+      ],
+      "acceptance": [
+        "Manual correspondence inputs can be loaded/validated with clear errors.",
+        "Gating emits explicit pass/fail plus diagnostics and never silently produces BEV when calibration is low quality."
+      ],
+      "evidence": [
+        "A minimal pipeline run demonstrates gating behavior (pass/fail) with diagnostics."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-CAL-003-002",
+      "title": "Output contract template updated for manual calibration + gating",
+      "paths": [
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Contract documents manual input fields, gating outputs, and failure semantics."
+      ],
+      "evidence": [
+        "`npm run generate` renders docs reflecting the updated contract template."
       ]
     }
   ],
-  "subtasks": []
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-CAL-003-001",
+      "title": "Define and validate manual correspondence input schema (file format + versioning).",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_CAL_003.SUB_001",
+      "done_when": [
+        "Manual input schema is explicit (points/correspondences, coordinate frames, version).",
+        "Validation failures are explicit and actionable."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-CAL-003-002",
+      "title": "Implement explicit calibration quality gating for BEV outputs.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_CAL_003.SUB_002",
+      "done_when": [
+        "Gate returns pass/fail + diagnostics; BEV output is suppressed on fail.",
+        "Diagnostics include reasons and key quality metrics."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-CAL-003-003",
+      "title": "Update output contract template for manual calibration + gating outputs.",
+      "status": "todo",
+      "area": "spec",
+      "provenance_prefix": "FUSBAL.SPEC.TASK_CAL_003.SUB_003",
+      "done_when": [
+        "Contract template documents manual input schema, gating outputs, and failure semantics."
+      ]
+    }
+  ]
 }
-

@@ -12,6 +12,15 @@
     "Detect and track all players with conservative identity continuity (breaks preferred over swaps).",
     "Assign players to teams using bib colors with temporal smoothing and an Unknown state."
   ],
+  "non_goals": [
+    "Jersey-number OCR or advanced re-identification beyond conservative continuity.",
+    "Forcing team assignment when evidence is weak (Unknown is acceptable and preferred)."
+  ],
+  "success_criteria": [
+    "Per-frame player detections are produced with confidence and diagnostics (trust-first).",
+    "MOT prefers breaks over swaps and emits track confidence + explicit break reasons.",
+    "Team assignment outputs A/B/Unknown with smoothing and diagnostics; contract is updated."
+  ],
   "requirements_in_scope": [
     "FUSBAL-V1-PLAYER-001",
     "FUSBAL-V1-TEAM-001",
@@ -27,15 +36,15 @@
       "work_package_id": "INT-030-001",
       "title": "Detection + tracking",
       "items": [
-        "TASK-PLAYER-DET-001 Select/implement player detector(s) and output per-frame detections with confidence.",
-        "TASK-PLAYER-MOT-001 Implement MOT with strong swap avoidance; expose track confidence and break reasons."
+        "TASK-PLAYER-DET-001 Per-frame player detections (bbox/pos, confidence, diagnostics) + contract update.",
+        "TASK-PLAYER-MOT-001 Swap-avoidant MOT with breaks, confidence, and break reasons + contract update."
       ]
     },
     {
       "work_package_id": "INT-030-002",
       "title": "Team assignment",
       "items": [
-        "TASK-TEAM-001 Implement bib-color team assignment with smoothing and diagnostics (A/B/Unknown)."
+        "TASK-TEAM-001 Bib-color team assignment A/B/Unknown with smoothing + diagnostics + contract update."
       ]
     }
   ]

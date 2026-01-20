@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/intents/INT-030.json
-source_sha256: sha256:053a47f78cb8a989109723a7ab13358d899b86deef3245044edc03ce6a9c2c51
+source_sha256: sha256:56998508400216cdec3755e16aca21dd9ebe7b9bd2b8191519e5e4c91be24997
 intent_id: INT-030
 title: Player tracking MVP (trust-first)
 status: todo
@@ -21,10 +21,10 @@ close_gate:
 
 ### INT-030-001 — Detection + tracking
 
-- TASK-PLAYER-DET-001 Select/implement player detector(s) and output per-frame detections with confidence.
-- TASK-PLAYER-MOT-001 Implement MOT with strong swap avoidance; expose track confidence and break reasons.
+- TASK-PLAYER-DET-001 Per-frame player detections (bbox/pos, confidence, diagnostics) + contract update.
+- TASK-PLAYER-MOT-001 Swap-avoidant MOT with breaks, confidence, and break reasons + contract update.
 
 ### INT-030-002 — Team assignment
 
-- TASK-TEAM-001 Implement bib-color team assignment with smoothing and diagnostics (A/B/Unknown).
+- TASK-TEAM-001 Bib-color team assignment A/B/Unknown with smoothing + diagnostics + contract update.
 

@@ -4,16 +4,80 @@
   "intent_id": "INT-030",
   "title": "Bib-color team assignment with smoothing",
   "status": "todo",
+  "scope": [
+    "Assign each player track to Team A / Team B / Unknown based on bib colors with temporal smoothing.",
+    "Expose diagnostics explaining team decisions (color evidence, smoothing, Unknown reasons).",
+    "Do not attempt jersey-number OCR or advanced re-identification (out of scope for V1)."
+  ],
+  "acceptance": [
+    "Team assignment includes an explicit Unknown state and does not force assignment when evidence is weak.",
+    "Outputs include diagnostics supporting audits and debugging.",
+    "Output contract template documents team assignment fields and diagnostics."
+  ],
   "deliverables": [
     {
       "deliverable_id": "DELIV-TASK-TEAM-001-001",
       "title": "Team assignment A/B/Unknown with diagnostics",
       "paths": [
-        "pipeline/",
-        "docs/data/OUTPUT_CONTRACT.md"
+        "pipeline/src/fusbal_pipeline/team/assignment.py",
+        "pipeline/src/fusbal_pipeline/team/colors.py",
+        "pipeline/src/fusbal_pipeline/contract.py",
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Team assignment outputs A/B/Unknown with confidence and diagnostics.",
+        "Smoothing is explicit and configurable; Unknown is used when uncertain."
+      ],
+      "evidence": [
+        "A minimal pipeline run produces team assignment fields and diagnostics."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-TEAM-001-002",
+      "title": "Output contract template updated for team assignment",
+      "paths": [
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Contract documents team assignment schema, smoothing semantics, and Unknown behavior."
+      ],
+      "evidence": [
+        "`npm run generate` renders docs reflecting the updated contract template."
       ]
     }
   ],
-  "subtasks": []
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-TEAM-001-001",
+      "title": "Implement bib-color team assignment with smoothing and diagnostics (A/B/Unknown).",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_TEAM_001.SUB_001",
+      "done_when": [
+        "Team assignment is computed from color evidence with temporal smoothing.",
+        "Unknown is emitted when evidence is insufficient; diagnostics explain why."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-TEAM-001-002",
+      "title": "Update output contract template for team assignment fields.",
+      "status": "todo",
+      "area": "spec",
+      "provenance_prefix": "FUSBAL.SPEC.TASK_TEAM_001.SUB_002",
+      "done_when": [
+        "Contract template documents assignment fields, confidence, diagnostics, and Unknown semantics."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-TEAM-001-003",
+      "title": "Define canonical team assignment record fields and diagnostics.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_TEAM_001.SUB_003",
+      "done_when": [
+        "Record schema is explicit (team label, confidence, evidence/diagnostics).",
+        "Schema supports audits without reading implementation code."
+      ]
+    }
+  ]
 }
-

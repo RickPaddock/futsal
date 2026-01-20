@@ -9,6 +9,10 @@
       "tracking": {
         "implementation": "todo"
       },
+      "guardrails": [
+        "guardrails:req_tag_enforced_on_done",
+        "guardrails:repository_guardrails"
+      ],
       "title": "All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.",
       "acceptance": [
         "No code unit can be merged without REQ mapping.",
@@ -26,6 +30,10 @@
       "tracking": {
         "implementation": "todo"
       },
+      "guardrails": [
+        "guardrails:repository_guardrails",
+        "audit:intent"
+      ],
       "title": "Generate + enforce Requirement ↔ Code provenance (100% policy with guardrails).",
       "acceptance": [
         "Deterministic provenance scanner exists and is enforced by guardrails.",

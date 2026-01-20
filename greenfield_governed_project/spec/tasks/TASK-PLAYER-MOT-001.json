@@ -4,16 +4,80 @@
   "intent_id": "INT-030",
   "title": "Multi-object tracking with swap avoidance",
   "status": "todo",
+  "scope": [
+    "Track players over time from per-frame detections, prioritizing swap avoidance over continuity.",
+    "Expose track confidence and explicit break reasons (e.g., occlusion, ambiguity).",
+    "Do not finalize team identity here (handled by team assignment task)."
+  ],
+  "acceptance": [
+    "Tracks prefer breaks over identity swaps; ambiguity triggers a break reason.",
+    "Each track has confidence and diagnostic fields suitable for audits and downstream gating.",
+    "Output contract template documents track schema, confidence, and break reasons."
+  ],
   "deliverables": [
     {
       "deliverable_id": "DELIV-TASK-PLAYER-MOT-001-001",
       "title": "MOT tracking with break reasons and confidence",
       "paths": [
-        "pipeline/",
-        "docs/data/OUTPUT_CONTRACT.md"
+        "pipeline/src/fusbal_pipeline/player/mot.py",
+        "pipeline/src/fusbal_pipeline/player/track_types.py",
+        "pipeline/src/fusbal_pipeline/contract.py",
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Track records include confidence and explicit break reasons.",
+        "Swap avoidance is a stated design goal with observable diagnostics."
+      ],
+      "evidence": [
+        "A minimal pipeline run produces player tracks with confidence and break reasons."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-PLAYER-MOT-001-002",
+      "title": "Output contract template updated for player tracks",
+      "paths": [
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Contract documents player track schema and trust-first break semantics."
+      ],
+      "evidence": [
+        "`npm run generate` renders docs reflecting the updated contract template."
       ]
     }
   ],
-  "subtasks": []
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-PLAYER-MOT-001-001",
+      "title": "Implement MOT with swap avoidance, break reasons, and per-track confidence.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_PLAYER_MOT_001.SUB_001",
+      "done_when": [
+        "Tracker exposes explicit break reasons and confidence per track.",
+        "Association logic prefers breaking over swapping identity in ambiguous cases."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-PLAYER-MOT-001-002",
+      "title": "Update output contract template for player tracks and confidence fields.",
+      "status": "todo",
+      "area": "spec",
+      "provenance_prefix": "FUSBAL.SPEC.TASK_PLAYER_MOT_001.SUB_002",
+      "done_when": [
+        "Contract template documents track schema, confidence, and break reasons with examples."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-PLAYER-MOT-001-003",
+      "title": "Define track record schema (ids, segments, confidence, break semantics).",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_PLAYER_MOT_001.SUB_003",
+      "done_when": [
+        "Track record schema is explicit and stable across runs.",
+        "Missing/unknown semantics are documented and encoded (no silent gaps)."
+      ]
+    }
+  ]
 }
-

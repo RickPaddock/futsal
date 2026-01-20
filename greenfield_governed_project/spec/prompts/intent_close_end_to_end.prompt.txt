@@ -21,8 +21,11 @@ A) Preflight (do not modify anything yet)
    - `task_ids_planned[]` is non-empty
    - `close_gate[]` includes `npm run audit:intent -- --intent-id <INTENT_ID>`
 2) For each task in `task_ids_planned[]`, open `spec/tasks/<TASK_ID>.json`.
+   - If any task is `status: todo`, confirm it has `deliverables[]` and at least one deliverable.
+   - If deliverable paths are vague (directory-only), improve them before closing.
 3) If any task/subtask indicates a new requirement (`REQ-*`), confirm that requirement exists in `spec/requirements/areas/*.json` with `tracking.implementation: "todo"`.
    - If missing, add it to the appropriate area file (status must be `draft`, tracking.implementation must be `todo`).
+   - Ensure all requirements include a non-empty `guardrails[]` list.
 
 B) Governance audit (MUST pass before closing)
 1) Run:
@@ -58,4 +61,3 @@ Output requirements (in chat):
   - The 3 evidence file paths written (`run.json`, `audit_report.json`, and `quality_audit.json` if produced)
   - Confirmation that intent status is now `closed` and will show in the portal after Refresh
 Do not paste the full JSON reports into chat.
-

@@ -27,6 +27,7 @@ A) Run governance audit (must pass)
 B) Quality audit (inspect the real code)
 1) Read the intent spec: `spec/intents/<INTENT_ID>.json` and all referenced task specs `spec/tasks/<TASK_ID>.json`.
 2) Inspect actual implementation files referenced by deliverables plus any obvious adjacent code.
+   - Treat `deliverables[]` + `subtasks[]` as the authoritative scope and check whether they are concrete enough.
 3) Evaluate against these categories:
    - Correctness / trust-first behavior risks
    - Maintainability / clarity / cohesion
@@ -43,6 +44,9 @@ B) Quality audit (inspect the real code)
    - `risk` (`low`|`medium`|`high`)
    - `why` (1–3 sentences)
    - `proposed_changes` (bullet strings; concrete file/symbol pointers)
+
+Quality bar (scope hygiene):
+- If a deliverable path is only a top-level directory (e.g. `pipeline/`), call it out as a scope smell and propose specific file-level deliverables.
 
 C) Write the report JSON (single file)
 Create `status/audit/<INTENT_ID>/runs/<run_id>/quality_audit.json` with this schema:
@@ -78,4 +82,3 @@ Output requirements (in chat):
   - the final report path
   - the top 3 improvement titles + ROI/effort/risk
 Do not paste the entire JSON into chat.
-

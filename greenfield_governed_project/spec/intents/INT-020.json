@@ -12,6 +12,15 @@
     "Implement pitch mapping that is robust to wide-angle distortion and imperfect markings.",
     "Gate BEV outputs on calibration quality; always still deliver overlay/video diagnostics."
   ],
+  "non_goals": [
+    "Build a full interactive calibration UI (V1 uses minimal input formats and diagnostics).",
+    "Guarantee calibration success for every venue; prefer explicit failure with diagnostics."
+  ],
+  "success_criteria": [
+    "Pitch templates + calibration input schemas are explicit, versioned, and support multiple venues/pitches.",
+    "Auto-fit emits reprojection error diagnostics and returns explicit failure semantics when uncertain.",
+    "Manual fallback + quality gating suppresses BEV output on low-quality calibration with clear reasons."
+  ],
   "requirements_in_scope": [
     "FUSBAL-V1-CAL-001",
     "FUSBAL-V1-BEV-001",
@@ -27,15 +36,15 @@
       "work_package_id": "INT-020-001",
       "title": "Pitch model + mapping",
       "items": [
-        "TASK-CAL-001 Define pitch templates and camera calibration inputs per venue/pitch.",
-        "TASK-CAL-002 Implement auto-fit from field markings where possible; record reprojection error diagnostics."
+        "TASK-CAL-001 Pitch templates + calibration input schema (multi-venue/pitch) + contract update.",
+        "TASK-CAL-002 Auto-fit from field markings + reprojection diagnostics + contract update."
       ]
     },
     {
       "work_package_id": "INT-020-002",
       "title": "Manual fallback + quality gates",
       "items": [
-        "TASK-CAL-003 Add a minimal correspondence-click fallback and explicit calibration quality gating."
+        "TASK-CAL-003 Manual correspondence fallback input + explicit calibration quality gating + contract update."
       ]
     }
   ]

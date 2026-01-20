@@ -12,6 +12,15 @@
     "Track the ball with explicit missing/unknown state; never hallucinate position when not visible.",
     "Infer shots/goals with high precision; mark candidates when uncertain."
   ],
+  "non_goals": [
+    "Full event taxonomy or match analytics beyond shots/goals for V1.",
+    "Maximizing recall at the expense of precision (trust-first, conservative outputs)."
+  ],
+  "success_criteria": [
+    "Ball detections and tracks include confidence, diagnostics, and explicit missing semantics.",
+    "Shots/goals events include confidence and evidence pointers; uncertain events are explicitly flagged.",
+    "Output contract template documents detection/track/event schemas and trust-first semantics."
+  ],
   "requirements_in_scope": [
     "FUSBAL-V1-BALL-001",
     "FUSBAL-V1-EVENT-001",
@@ -28,15 +37,15 @@
       "work_package_id": "INT-040-001",
       "title": "Ball detection + tracking",
       "items": [
-        "TASK-BALL-DET-001 Implement ball detector(s) and gating to avoid false positives.",
-        "TASK-BALL-TRACK-001 Implement intermittent ball tracking with explicit missing state and quality metrics."
+        "TASK-BALL-DET-001 Per-frame ball detections with confidence + conservative gating + contract update.",
+        "TASK-BALL-TRACK-001 Ball tracks with explicit missing spans + quality metrics/diagnostics + contract update."
       ]
     },
     {
       "work_package_id": "INT-040-002",
       "title": "Shots/goals inference",
       "items": [
-        "TASK-EVENT-001 Implement conservative shots/goals inference and emit events with confidence and evidence links."
+        "TASK-EVENT-001 Conservative shots/goals inference with confidence + evidence pointers + contract update."
       ]
     }
   ]

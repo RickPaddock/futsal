@@ -12,6 +12,15 @@
     "Codify the match output bundle and canonical track/event schemas.",
     "Create a minimal pipeline CLI and directory layout to make subsequent vision/calibration work incremental."
   ],
+  "non_goals": [
+    "Implement the full vision pipeline (detection/tracking/calibration) beyond scaffolding and contracts.",
+    "Add non-deterministic outputs or implicit schemas that require reading code to interpret."
+  ],
+  "success_criteria": [
+    "Bundle layout + required artifacts are explicit and validated by code.",
+    "Canonical record schemas are documented in the output contract template and mirrored in code types.",
+    "CLI can init/validate bundles with actionable errors suitable for CI/guardrails."
+  ],
   "requirements_in_scope": [
     "FUSBAL-V1-OUT-001",
     "FUSBAL-V1-DATA-001",
@@ -29,15 +38,15 @@
       "work_package_id": "INT-010-001",
       "title": "Output bundle + schemas",
       "items": [
-        "TASK-V1-OUT-001 Define match bundle layout and required artifacts (overlay, BEV, tracks, events, report).",
-        "TASK-V1-DATA-001 Define canonical track record and metadata needed for fusion and reporting."
+        "TASK-V1-OUT-001 Define bundle layout + required artifacts + deterministic manifests (code + contract).",
+        "TASK-V1-DATA-001 Define canonical record schemas + metadata (code + contract)."
       ]
     },
     {
       "work_package_id": "INT-010-002",
       "title": "Pipeline scaffolding",
       "items": [
-        "TASK-V1-CLI-001 Create a minimal CLI that initializes/validates bundle structure and manifests."
+        "TASK-V1-CLI-001 Minimal CLI for init/validate of bundle layout with clear errors."
       ]
     }
   ]

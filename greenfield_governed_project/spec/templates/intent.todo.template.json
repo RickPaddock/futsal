@@ -12,6 +12,12 @@
     "1–3 bullets describing the outcome.",
     "Prefer trust-first behavior: Unknown over wrong."
   ],
+  "non_goals": [
+    "Explicitly list what this intent does NOT do."
+  ],
+  "success_criteria": [
+    "Concrete acceptance for the intent (not task-level)."
+  ],
   "requirements_in_scope": [
     "SYS-ARCH-15"
   ],
@@ -28,4 +34,3 @@
     }
   ]
 }
-

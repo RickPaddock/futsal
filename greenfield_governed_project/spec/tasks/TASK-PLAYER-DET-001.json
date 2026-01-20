@@ -4,16 +4,80 @@
   "intent_id": "INT-030",
   "title": "Player detector(s) per frame + confidence",
   "status": "todo",
+  "scope": [
+    "Produce per-frame player detections with confidence and stable record fields.",
+    "Prefer missing/unknown over wrong: low-confidence detections are suppressed or explicitly flagged.",
+    "Do not attempt identity continuity here (handled by MOT task)."
+  ],
+  "acceptance": [
+    "Detections output includes at minimum frame/time, bbox/position, confidence, and diagnostic flags.",
+    "Detection output is deterministic for the same input (ordering + ids where applicable).",
+    "Output contract template documents detection schema and missing/unknown semantics."
+  ],
   "deliverables": [
     {
       "deliverable_id": "DELIV-TASK-PLAYER-DET-001-001",
       "title": "Per-frame player detections with confidence",
       "paths": [
-        "pipeline/",
-        "docs/data/OUTPUT_CONTRACT.md"
+        "pipeline/src/fusbal_pipeline/player/detections.py",
+        "pipeline/src/fusbal_pipeline/player/detector.py",
+        "pipeline/src/fusbal_pipeline/contract.py",
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Each frame emits 0..N player detections with bbox and confidence.",
+        "Low-confidence detections are gated or flagged (trust-first)."
+      ],
+      "evidence": [
+        "A minimal pipeline run produces player detections with confidence and diagnostics."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-PLAYER-DET-001-002",
+      "title": "Output contract template updated for player detections",
+      "paths": [
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Contract documents detection schema and missing/unknown semantics."
+      ],
+      "evidence": [
+        "`npm run generate` renders docs reflecting the updated contract template."
       ]
     }
   ],
-  "subtasks": []
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-PLAYER-DET-001-001",
+      "title": "Implement player detection output per frame (detections + confidence).",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_PLAYER_DET_001.SUB_001",
+      "done_when": [
+        "Detection record fields are explicit (frame/time, bbox/pos, confidence, flags).",
+        "Output ordering is deterministic."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-PLAYER-DET-001-002",
+      "title": "Update output contract template for player detections.",
+      "status": "todo",
+      "area": "spec",
+      "provenance_prefix": "FUSBAL.SPEC.TASK_PLAYER_DET_001.SUB_002",
+      "done_when": [
+        "Contract template includes schema and minimal examples."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-PLAYER-DET-001-003",
+      "title": "Add conservative gating + diagnostics for low-confidence detections.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_PLAYER_DET_001.SUB_003",
+      "done_when": [
+        "Low-confidence detections are suppressed or explicitly flagged (trust-first).",
+        "Diagnostics explain gating decisions."
+      ]
+    }
+  ]
 }
-

@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/intents/INT-001.json
-source_sha256: sha256:94ebcdd9ed98beeb3f6cd1d25c9115aab99cdfa7270c4f090a28ff4f64a2acf0
+source_sha256: sha256:d3a8fb233aa2ded5c678037e11d7203acb300cf59862650441ca6cc9fe872677
 intent_id: INT-001
 title: Bootstrap Fusbal governed project: requirements, provenance, evidence, portal
 status: todo
@@ -22,11 +22,11 @@ close_gate:
 
 ### INT-001-001 — Repo scaffolding + generation
 
-- TASK-BOOT-001 Create spec/templates and generators for all .md outputs
-- TASK-BOOT-002 Add guardrails to enforce generation (and document provenance tagging)
+- TASK-BOOT-001 Deterministic generators + canonical templates for governed surfaces (no .md hand-edits).
+- TASK-BOOT-002 Guardrails enforcing governance invariants + provenance/requirements discipline.
 
 ### INT-001-002 — Evidence + portal
 
-- TASK-BOOT-003 Add evidence run records + a minimal internal portal
-- TASK-BOOT-004 Add Fusbal product docs + high-level delivery plan surfaces
+- TASK-BOOT-003 Evidence run recorder + internal portal pages (intents/tasks + refresh).
+- TASK-BOOT-004 Generated docs templates for navigation, runbooks, and delivery plan surfaces.
 

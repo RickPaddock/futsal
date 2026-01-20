@@ -4,15 +4,79 @@
   "intent_id": "INT-020",
   "title": "Auto-fit from field markings + diagnostics",
   "status": "todo",
+  "scope": [
+    "Implement automatic camera-to-pitch fit using visible field markings where possible.",
+    "Record reprojection error diagnostics and calibration quality metrics for trust-first gating.",
+    "Do not attempt perfect robustness for every stadium/lighting in V1; prefer explicit failure with diagnostics."
+  ],
+  "acceptance": [
+    "Auto-fit produces a calibration result when confidence/quality is sufficient; otherwise returns explicit failure with diagnostics.",
+    "Diagnostics include reprojection error and enough evidence fields to debug calibration quality.",
+    "Output contract template documents auto-fit outputs and diagnostic fields."
+  ],
   "deliverables": [
     {
       "deliverable_id": "DELIV-TASK-CAL-002-001",
       "title": "Auto-calibration implementation with reprojection diagnostics",
       "paths": [
-        "pipeline/"
+        "pipeline/src/fusbal_pipeline/calibration/auto_fit.py",
+        "pipeline/src/fusbal_pipeline/calibration/diagnostics.py",
+        "pipeline/src/fusbal_pipeline/contract.py"
+      ],
+      "acceptance": [
+        "Auto-fit returns calibration parameters plus reprojection diagnostics when successful.",
+        "Failures are explicit and include diagnostic information (trust-first)."
+      ],
+      "evidence": [
+        "A minimal pipeline run produces calibration diagnostics (success or explicit failure)."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-CAL-002-002",
+      "title": "Output contract template updated for auto-fit calibration + diagnostics",
+      "paths": [
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Contract documents calibration result fields, reprojection error, and failure semantics."
+      ],
+      "evidence": [
+        "`npm run generate` renders docs reflecting the updated contract template."
       ]
     }
   ],
-  "subtasks": []
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-CAL-002-001",
+      "title": "Define calibration result + diagnostics record schema (including failure semantics).",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_CAL_002.SUB_001",
+      "done_when": [
+        "Schema is explicit and supports both success and failure outcomes.",
+        "Diagnostics include reprojection error and sufficient evidence fields."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-CAL-002-002",
+      "title": "Implement field-markings auto-fit and emit reprojection error diagnostics.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_CAL_002.SUB_002",
+      "done_when": [
+        "Auto-fit attempts calibration from available markings.",
+        "Reprojection error and quality metrics are computed and emitted."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-CAL-002-003",
+      "title": "Update output contract template for auto-fit calibration outputs.",
+      "status": "todo",
+      "area": "spec",
+      "provenance_prefix": "FUSBAL.SPEC.TASK_CAL_002.SUB_003",
+      "done_when": [
+        "Contract template documents calibration outputs, diagnostics, and failure semantics."
+      ]
+    }
+  ]
 }
-

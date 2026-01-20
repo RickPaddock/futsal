@@ -1,0 +1,51 @@
+---
+generated: true
+source: spec/md/docs/runbooks/intent-quality.mdt
+source_sha256: sha256:c9ff76ff4d49a06a90e8056e8cc3a69b801ac454f8809e12b2d89f65b02ab124
+---
+
+# Writing high-quality intents
+
+Intents are intentionally compact, but they must still be specific enough that:
+- Scope is unambiguous
+- Deliverables are concrete
+- Quality is measurable
+- Closing is auditable
+
+In this repo, most “real scope” lives in `spec/tasks/*.json` (deliverables + subtasks). The intent should still tell a clear story and link to the right requirements/tasks.
+
+## Intent checklist (`spec/intents/INT-*.json`)
+
+**Summary**
+- Include: user outcome + trust-first behavior + major constraints.
+- Add “what we will NOT do” as a bullet if there’s a common confusion.
+
+**Requirements**
+- `requirements_in_scope[]` should contain the exact requirement IDs that will be implemented or materially changed.
+- If something important isn’t captured by an existing requirement, create a `REQ-*` requirement via a task subtask and keep it `tracking.implementation: "todo"` until close.
+
+**Tasks**
+- `task_ids_planned[]` must be a full list of deliverables (not ideas).
+- `work_packages[].items[]` should read like “deliverable statements”, not “implement X”.
+
+Good example (better than “implement ball scanner”):
+- “Output per-frame ball detections with confidence + false-positive gating; update output contract template; include diagnostics for missing spans.”
+
+## Task checklist (`spec/tasks/TASK-*.json`)
+
+**Deliverables**
+- Every `todo` task must have at least 1 deliverable (enforced by guardrails).
+- Deliverable `paths[]` should point to canonical sources (e.g. `spec/md/**/*.mdt`, code under `pipeline/`, `scripts/`, `tools/`) not generated `.md`.
+
+**Subtasks**
+- Use `subtasks[]` to split by work area and make scope auditable:
+  - `SUB-*` for implementation subtasks
+  - `REQ-*` for “create a new requirement” subtasks
+
+## Quality + close readiness
+
+Before closing an intent:
+- Run `npm run audit:intent -- --intent-id INT-XXX`
+- If you want quality guidance, produce `status/audit/INT-XXX/runs/<run_id>/quality_audit.json` (see `spec/prompts/intent_quality_audit.prompt.txt`)
+- Close via `npm run intent:close -- --intent-id INT-XXX --closed-date YYYY-MM-DD --apply`
+

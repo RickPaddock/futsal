@@ -4,16 +4,78 @@
   "intent_id": "INT-010",
   "title": "Canonical track record format + metadata",
   "status": "todo",
+  "scope": [
+    "Define canonical record schemas for tracks and metadata sufficient for fusion/reporting.",
+    "Prefer explicit Unknown/missing semantics rather than implicit defaults.",
+    "Do not attempt to finalize domain-specific analytics (only the record formats and metadata)."
+  ],
+  "acceptance": [
+    "Contract types are explicit and versioned; fields are stable across runs.",
+    "Schemas include enough metadata for downstream fusion/reporting without reading code.",
+    "Output contract template documents record schemas and semantics."
+  ],
   "deliverables": [
     {
       "deliverable_id": "DELIV-TASK-V1-DATA-001-001",
       "title": "Track record schema and metadata sufficient for fusion/reporting",
       "paths": [
         "pipeline/src/fusbal_pipeline/contract.py",
-        "docs/data/OUTPUT_CONTRACT.md"
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Track record schema fields are explicit (ids, time, geometry, confidence, diagnostics).",
+        "Missing/unknown semantics are encoded, not implied."
+      ],
+      "evidence": [
+        "A minimal pipeline run produces a record file matching the documented schema."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-V1-DATA-001-002",
+      "title": "Output contract template updated for canonical record schemas",
+      "paths": [
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Contract documents the canonical record schemas with minimal examples."
+      ],
+      "evidence": [
+        "`npm run generate` renders docs reflecting the updated contract template."
       ]
     }
   ],
-  "subtasks": []
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-V1-DATA-001-001",
+      "title": "Define canonical track record types in pipeline contract code.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_V1_DATA_001.SUB_001",
+      "done_when": [
+        "Track record types include explicit missing/unknown semantics and diagnostics.",
+        "Field naming and units are consistent and documented."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-V1-DATA-001-002",
+      "title": "Update output contract template to mirror canonical track record schema.",
+      "status": "todo",
+      "area": "spec",
+      "provenance_prefix": "FUSBAL.SPEC.TASK_V1_DATA_001.SUB_002",
+      "done_when": [
+        "Contract template matches code types and includes minimal examples."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-V1-DATA-001-003",
+      "title": "Add schema-level validation helpers for record writing/reading.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_V1_DATA_001.SUB_003",
+      "done_when": [
+        "Validation fails with clear errors for missing/invalid required fields.",
+        "Validation can be used by CLI/guardrails without bespoke parsing."
+      ]
+    }
+  ]
 }
-

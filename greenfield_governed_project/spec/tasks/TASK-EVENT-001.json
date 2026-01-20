@@ -4,16 +4,80 @@
   "intent_id": "INT-040",
   "title": "Conservative shots/goals inference",
   "status": "todo",
+  "scope": [
+    "Infer shots and goals conservatively (high precision), with explicit Unknown/candidate states when uncertain.",
+    "Emit events with confidence and evidence pointers that allow users/audits to inspect supporting frames/segments.",
+    "Do not expand scope into full match analytics (only shots/goals for V1)."
+  ],
+  "acceptance": [
+    "Events include confidence and evidence pointers (frame/time span + artifact reference).",
+    "Uncertain events are explicitly marked as candidates/unknown rather than asserted as true.",
+    "Output contract template documents the events schema and evidence semantics."
+  ],
   "deliverables": [
     {
       "deliverable_id": "DELIV-TASK-EVENT-001-001",
       "title": "Event inference with confidence + evidence pointers",
       "paths": [
-        "pipeline/",
-        "docs/data/OUTPUT_CONTRACT.md"
+        "pipeline/src/fusbal_pipeline/events/shots_goals.py",
+        "pipeline/src/fusbal_pipeline/events/types.py",
+        "pipeline/src/fusbal_pipeline/contract.py",
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Events schema supports shots/goals with confidence and explicit evidence pointers.",
+        "Inference is conservative: prefer candidate/unknown over false positives."
+      ],
+      "evidence": [
+        "A minimal pipeline run produces an events stream with evidence pointers."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-EVENT-001-002",
+      "title": "Output contract template updated for events schema",
+      "paths": [
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Contract documents event record fields, confidence semantics, and evidence pointer format."
+      ],
+      "evidence": [
+        "`npm run generate` renders docs reflecting the updated contract template."
       ]
     }
   ],
-  "subtasks": []
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-EVENT-001-001",
+      "title": "Implement conservative shots/goals inference emitting confidence + evidence pointers.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_EVENT_001.SUB_001",
+      "done_when": [
+        "Inference rules are explicitly conservative; uncertain cases become candidate/unknown events.",
+        "Events include evidence pointers suitable for human/audit inspection."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-EVENT-001-002",
+      "title": "Update output contract template for events schema.",
+      "status": "todo",
+      "area": "spec",
+      "provenance_prefix": "FUSBAL.SPEC.TASK_EVENT_001.SUB_002",
+      "done_when": [
+        "Contract template includes event schema and minimal evidence pointer examples."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-EVENT-001-003",
+      "title": "Define evidence pointer format and link it to bundle artifacts.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_EVENT_001.SUB_003",
+      "done_when": [
+        "Evidence pointers reference time spans/frames and named artifacts consistently.",
+        "Consumers can locate evidence without reading code."
+      ]
+    }
+  ]
 }
-

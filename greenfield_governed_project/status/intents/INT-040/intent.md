@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/intents/INT-040.json
-source_sha256: sha256:eb7b8f78a3eb883092771e67947abd3a0f7c3d1023dc520eabef42661d3ccd7d
+source_sha256: sha256:8c97ac9ad3a5c5df49d4e4003bfd8e5eb2b46a755ce485b9a2f1380133813e31
 intent_id: INT-040
 title: Ball tracking + conservative shots/goals (V1)
 status: todo
@@ -21,10 +21,10 @@ close_gate:
 
 ### INT-040-001 — Ball detection + tracking
 
-- TASK-BALL-DET-001 Implement ball detector(s) and gating to avoid false positives.
-- TASK-BALL-TRACK-001 Implement intermittent ball tracking with explicit missing state and quality metrics.
+- TASK-BALL-DET-001 Per-frame ball detections with confidence + conservative gating + contract update.
+- TASK-BALL-TRACK-001 Ball tracks with explicit missing spans + quality metrics/diagnostics + contract update.
 
 ### INT-040-002 — Shots/goals inference
 
-- TASK-EVENT-001 Implement conservative shots/goals inference and emit events with confidence and evidence links.
+- TASK-EVENT-001 Conservative shots/goals inference with confidence + evidence pointers + contract update.
 

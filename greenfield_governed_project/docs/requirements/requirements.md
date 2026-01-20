@@ -1,7 +1,7 @@
 ---
 generated: true
-source: spec/requirements/index.json + spec/requirements/areas/core.json + spec/requirements/areas/v1.json
-source_sha256: sha256:e9cb8ff6bbea60d676b4f74b1878caecc649e202922041cff8a1d345892c994c
+source: spec/requirements/index.json + spec/requirements/areas/core.json + spec/requirements/areas/greenfield.json + spec/requirements/areas/v1.json
+source_sha256: sha256:29f64d4b5f67b28aeeccbdf199f6889970d031deab39d054b0f0562027a71906
 ---
 
 # Requirements (generated)
@@ -12,6 +12,7 @@ Source: `spec/requirements/index.json`
 
 - Status: `canonical`
 - Implementation: `todo`
+- Guardrails: `guardrails:req_tag_enforced_on_done`, `guardrails:repository_guardrails`
 - Owner: `platform`
 - Tags: `governance`, `traceability`
 
@@ -23,6 +24,7 @@ Acceptance:
 
 - Status: `canonical`
 - Implementation: `todo`
+- Guardrails: `guardrails:repository_guardrails`, `audit:intent`
 - Owner: `platform`
 - Tags: `governance`, `guardrails`
 
@@ -30,10 +32,144 @@ Acceptance:
 - Deterministic provenance scanner exists and is enforced by guardrails.
 - Derived reports exist and are never hand-edited.
 
+## GREENFIELD-GOV-001 — All human-readable .md outputs are generated; no hand-edits allowed.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:markdown_generated_only`, `generate:check`
+- Owner: `platform`
+- Tags: `governance`, `generation`
+
+Acceptance:
+- All `.md` files contain generated frontmatter and fail guardrails if missing.
+- Humans edit only canonical JSON sources and templates, then regenerate.
+
+## GREENFIELD-GOV-002 — Generation is deterministic and drift is detectable.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:deterministic_generation`, `generate:check`
+- Owner: `platform`
+- Tags: `governance`, `generation`
+
+Acceptance:
+- `npm run generate:check` fails if generated outputs drift from canonical sources.
+- `npm run guardrails` runs generate check before declaring success.
+
+## GREENFIELD-GOV-003 — Intent status model is enforced (draft → todo → closed).
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:intent_status_model`
+- Owner: `platform`
+- Tags: `governance`, `intents`
+
+Acceptance:
+- `draft` intents have no tasks/work packages.
+- `todo` intents have tasks wired.
+- `closed` intents require `closed_date`.
+
+## GREENFIELD-GOV-004 — Every non-draft intent must have task specs for all planned tasks.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:tasks_required_for_todo_intents`
+- Owner: `platform`
+- Tags: `governance`, `tasks`
+
+Acceptance:
+- For each `intent.task_ids_planned[]`, a matching `spec/tasks/<TASK_ID>.json` exists.
+- Task specs must reference the same `intent_id`.
+
+## GREENFIELD-GOV-005 — Every `todo` task has at least one deliverable.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:task_deliverables_required`
+- Owner: `platform`
+- Tags: `governance`, `tasks`
+
+Acceptance:
+- If a task is `status: todo`, `deliverables[]` is present and non-empty.
+- Each deliverable has a stable id and human title.
+
+## GREENFIELD-GOV-006 — New requirements are created and tracked via `REQ-*` subtasks.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:req_new_requirements_flow`
+- Owner: `platform`
+- Tags: `governance`, `requirements`
+
+Acceptance:
+- Any subtask id starting with `REQ-` must exist as a requirement entry.
+- New requirements start with `tracking.implementation: todo`.
+
+## GREENFIELD-GOV-007 — Closing an intent updates requirement implementation tracking only after code exists.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:close_updates_req_tracking`, `intent:close`
+- Owner: `platform`
+- Tags: `governance`, `close`
+
+Acceptance:
+- `npm run intent:close -- --apply` sets intent status to `closed` and writes `closed_date`.
+- For any `REQ-*` created by the intent, `tracking.implementation` is set to `done` only when code contains `REQ: REQ-*` references.
+
+## GREENFIELD-GOV-008 — Governance file size limits are enforced to prevent runaway specs.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:file_size_limits`
+- Owner: `platform`
+- Tags: `governance`, `scale`
+
+Acceptance:
+- File size limits are configured in `spec/project.json` and enforced by guardrails.
+
+## GREENFIELD-GOV-009 — Requirements are split into multiple area files via an index entrypoint.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:requirements_split_supported`
+- Owner: `platform`
+- Tags: `governance`, `requirements`
+
+Acceptance:
+- `spec/requirements/index.json` lists `spec/requirements/areas/*.json` files.
+- Generation and guardrails read from the index and treat the bundle as canonical.
+
+## GREENFIELD-GOV-010 — Every requirement declares at least one guardrail/coverage mechanism to detect regressions.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:requirement_guardrail_coverage_required`
+- Owner: `platform`
+- Tags: `governance`, `requirements`
+
+Acceptance:
+- All requirement entries include a non-empty `guardrails[]` list.
+- Guardrails enforce the presence of the `guardrails[]` list.
+
+## GREENFIELD-PORTAL-001 — Internal portal task pages are human-readable (not raw JSON).
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `portal:ui_smoke`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `ux`, `governance`
+
+Acceptance:
+- `/internal/tasks/<TASK_ID>` renders task scope, acceptance, deliverables, and subtasks as structured sections.
+- Raw canonical JSON remains accessible (e.g., via a collapsible section) for debugging and audits.
+- Task pages link back to the parent intent when `intent_id` is present.
+
 ## FUSBAL-V1-TRUST-001 — Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.
 
 - Status: `canonical`
 - Implementation: `todo`
+- Guardrails: `guardrails:req_tag_enforced_on_done`
 - Owner: `product`
 - Tags: `v1`, `trust`
 
@@ -46,6 +182,7 @@ Acceptance:
 
 - Status: `canonical`
 - Implementation: `todo`
+- Guardrails: `guardrails:req_tag_enforced_on_done`
 - Owner: `platform`
 - Tags: `v1`, `outputs`
 
@@ -58,6 +195,7 @@ Acceptance:
 
 - Status: `canonical`
 - Implementation: `todo`
+- Guardrails: `guardrails:req_tag_enforced_on_done`
 - Owner: `platform`
 - Tags: `v1`, `data`
 
@@ -69,6 +207,7 @@ Acceptance:
 
 - Status: `canonical`
 - Implementation: `todo`
+- Guardrails: `guardrails:req_tag_enforced_on_done`
 - Owner: `vision`
 - Tags: `v1`, `calibration`
 
@@ -80,6 +219,7 @@ Acceptance:
 
 - Status: `canonical`
 - Implementation: `todo`
+- Guardrails: `guardrails:req_tag_enforced_on_done`
 - Owner: `vision`
 - Tags: `v1`, `bev`
 
@@ -91,6 +231,7 @@ Acceptance:
 
 - Status: `canonical`
 - Implementation: `todo`
+- Guardrails: `guardrails:req_tag_enforced_on_done`
 - Owner: `vision`
 - Tags: `v1`, `players`
 
@@ -102,6 +243,7 @@ Acceptance:
 
 - Status: `canonical`
 - Implementation: `todo`
+- Guardrails: `guardrails:req_tag_enforced_on_done`
 - Owner: `vision`
 - Tags: `v1`, `teams`
 
@@ -113,6 +255,7 @@ Acceptance:
 
 - Status: `canonical`
 - Implementation: `todo`
+- Guardrails: `guardrails:req_tag_enforced_on_done`
 - Owner: `vision`
 - Tags: `v1`, `ball`
 
@@ -124,6 +267,7 @@ Acceptance:
 
 - Status: `canonical`
 - Implementation: `todo`
+- Guardrails: `guardrails:req_tag_enforced_on_done`
 - Owner: `vision`
 - Tags: `v1`, `events`
 
@@ -135,6 +279,7 @@ Acceptance:
 
 - Status: `canonical`
 - Implementation: `todo`
+- Guardrails: `guardrails:req_tag_enforced_on_done`
 - Owner: `platform`
 - Tags: `v1`, `sensors`
 

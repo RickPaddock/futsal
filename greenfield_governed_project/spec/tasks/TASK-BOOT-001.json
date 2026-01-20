@@ -4,16 +4,82 @@
   "intent_id": "INT-001",
   "title": "Spec/templates and generators for governed surfaces",
   "status": "todo",
+  "scope": [
+    "Define canonical spec sources (intents/tasks/requirements) and the generators that produce governed surfaces.",
+    "Ensure human-readable Markdown outputs are generated only from templates and JSON sources.",
+    "Do not introduce machine-specific paths or coupling to other repos."
+  ],
+  "acceptance": [
+    "`npm run generate` produces docs/status/portal surfaces deterministically from canonical sources.",
+    "No generated `.md` files require hand-edits; drift is detectable via `npm run generate:check`.",
+    "Generators are structured so adding a new surface is incremental."
+  ],
   "deliverables": [
     {
       "deliverable_id": "DELIV-TASK-BOOT-001-001",
       "title": "Generators for docs/status/portal surfaces from spec sources",
       "paths": [
         "scripts/generate_all.mjs",
-        "spec/md/"
+        "spec/md/README.mdt",
+        "spec/templates/intent.todo.template.json",
+        "spec/templates/task.template.json"
+      ],
+      "acceptance": [
+        "Generator reads canonical sources and emits governed surfaces deterministically.",
+        "Templates cover intents/tasks/requirements and key docs surfaces."
+      ],
+      "evidence": [
+        "`npm run generate` completes successfully and updates generated surfaces."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-BOOT-001-002",
+      "title": "Canonical templates for governed JSON specs (intent/task/requirements)",
+      "paths": [
+        "spec/templates/intent.template.json",
+        "spec/templates/intent.todo.template.json",
+        "spec/templates/task.template.json",
+        "spec/templates/requirements_index.template.json",
+        "spec/templates/requirements_area.template.json"
+      ],
+      "acceptance": [
+        "Templates reflect current governance standards (scope, acceptance, deliverables, subtasks)."
       ]
     }
   ],
-  "subtasks": []
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-BOOT-001-001",
+      "title": "Define canonical sources and ensure generators read only those sources.",
+      "status": "todo",
+      "area": "scripts",
+      "provenance_prefix": "FUSBAL.SCRIPTS.TASK_BOOT_001.SUB_001",
+      "done_when": [
+        "Generators read from `spec/intents/*.json`, `spec/tasks/*.json`, and requirements bundle entrypoint.",
+        "No generator depends on machine-specific paths."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-BOOT-001-002",
+      "title": "Generate human-readable docs surfaces from `.mdt` templates (no hand-edits).",
+      "status": "todo",
+      "area": "scripts",
+      "provenance_prefix": "FUSBAL.SCRIPTS.TASK_BOOT_001.SUB_002",
+      "done_when": [
+        "All `.md` outputs include generated frontmatter and are derived from templates.",
+        "Deterministic generation is verifiable via `npm run generate:check`."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-BOOT-001-003",
+      "title": "Generate portal/status JSON surfaces used by the internal portal.",
+      "status": "todo",
+      "area": "scripts",
+      "provenance_prefix": "FUSBAL.SCRIPTS.TASK_BOOT_001.SUB_003",
+      "done_when": [
+        "Portal/status JSON outputs are generated from canonical specs.",
+        "Outputs include enough data for portal navigation without reading the repo."
+      ]
+    }
+  ]
 }
-
