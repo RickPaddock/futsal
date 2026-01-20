@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-TEAM-001",
+  "intent_id": "INT-030",
+  "title": "Bib-color team assignment with smoothing",
+  "status": "todo",
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-TEAM-001-001",
+      "title": "Team assignment A/B/Unknown with diagnostics",
+      "paths": [
+        "pipeline/",
+        "docs/data/OUTPUT_CONTRACT.md"
+      ]
+    }
+  ],
+  "subtasks": []
+}
+

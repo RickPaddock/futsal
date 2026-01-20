@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-CAL-002",
+  "intent_id": "INT-020",
+  "title": "Auto-fit from field markings + diagnostics",
+  "status": "todo",
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-CAL-002-001",
+      "title": "Auto-calibration implementation with reprojection diagnostics",
+      "paths": [
+        "pipeline/"
+      ]
+    }
+  ],
+  "subtasks": []
+}
+

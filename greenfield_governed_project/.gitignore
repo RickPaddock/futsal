@@ -1,0 +1,7 @@
+node_modules/
+.next/
+.cache/
+dist/
+coverage/
+.DS_Store
+status/wizard/

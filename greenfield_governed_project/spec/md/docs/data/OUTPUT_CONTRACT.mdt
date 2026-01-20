@@ -1,0 +1,30 @@
+# Output contract (V1)
+
+V1 produces a deterministic per-match bundle under `output/<match_id>/`.
+
+## Required artifacts
+
+- `overlay.mp4`
+  - Player boxes + track IDs (ID breaks are acceptable; swaps are not).
+  - Team label (A/B/Unknown) + confidence.
+  - Ball marker when tracked + confidence; explicit “ball missing” state.
+- `bev.mp4` (best-effort)
+  - Bird’s-eye view animation in pitch meters; only when calibration quality passes.
+- `tracks.jsonl`
+  - Canonical time series; one JSON object per entity per time sample.
+- `events.json`
+  - Shots + goals only in V1; conservative (high precision).
+- `report.json` + `report.html`
+  - Summary stats + confidence + diagnostics and failure reasons.
+- `diagnostics/`
+  - `calibration.json`
+  - `sync.json` (if multi-camera or sensors are used)
+  - `quality_summary.json`
+
+## Canonical track record (JSONL)
+
+Each line is a single sample:
+
+```json
+{"t_ms":1234567,"entity_type":"player","entity_id":"camA_track_12","source":"vision_cam_A","frame":"pitch","x_m":8.3,"y_m":12.1,"sigma_m":0.25,"quality":0.86}
+```

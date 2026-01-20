@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-PLAYER-MOT-001",
+  "intent_id": "INT-030",
+  "title": "Multi-object tracking with swap avoidance",
+  "status": "todo",
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-PLAYER-MOT-001-001",
+      "title": "MOT tracking with break reasons and confidence",
+      "paths": [
+        "pipeline/",
+        "docs/data/OUTPUT_CONTRACT.md"
+      ]
+    }
+  ],
+  "subtasks": []
+}
+

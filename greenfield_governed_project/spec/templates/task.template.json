@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-AREA-001",
+  "intent_id": "INT-999",
+  "title": "Short task title (deliverable)",
+  "status": "todo",
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-AREA-001-001",
+      "title": "Concrete deliverable",
+      "paths": [
+        "path/to/code/or/spec"
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-AREA-001-001",
+      "title": "Concrete subtask",
+      "status": "todo",
+      "area": "area-name",
+      "provenance_prefix": "FUSBAL.AREA.TASK_AREA_001.SUB_001",
+      "notes": [
+        "If this subtask creates a new requirement, use a REQ-* subtask_id instead."
+      ]
+    },
+    {
+      "subtask_id": "REQ-0001",
+      "title": "New requirement title (created by this subtask)",
+      "status": "todo",
+      "area": "governance",
+      "requirements_to_add": [
+        {
+          "id": "REQ-0001",
+          "status": "draft",
+          "tracking": {
+            "implementation": "todo"
+          },
+          "title": "Requirement title",
+          "acceptance": [
+            "Acceptance criterion 1",
+            "Acceptance criterion 2"
+          ],
+          "owner": "platform",
+          "tags": [
+            "governance"
+          ]
+        }
+      ]
+    }
+  ]
+}

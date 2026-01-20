@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-V1-DATA-001",
+  "intent_id": "INT-010",
+  "title": "Canonical track record format + metadata",
+  "status": "todo",
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-V1-DATA-001-001",
+      "title": "Track record schema and metadata sufficient for fusion/reporting",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/contract.py",
+        "docs/data/OUTPUT_CONTRACT.md"
+      ]
+    }
+  ],
+  "subtasks": []
+}
+

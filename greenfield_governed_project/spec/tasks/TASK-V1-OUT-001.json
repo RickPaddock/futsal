@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-V1-OUT-001",
+  "intent_id": "INT-010",
+  "title": "Match bundle layout + required artifacts",
+  "status": "todo",
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-V1-OUT-001-001",
+      "title": "Bundle directory layout, required artifacts, and deterministic manifests",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/bundle.py",
+        "docs/data/OUTPUT_CONTRACT.md"
+      ]
+    }
+  ],
+  "subtasks": []
+}
+

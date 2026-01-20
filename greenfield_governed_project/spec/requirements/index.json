@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "type": "requirements_index",
+  "files": [
+    "spec/requirements/areas/core.json",
+    "spec/requirements/areas/v1.json"
+  ]
+}
+

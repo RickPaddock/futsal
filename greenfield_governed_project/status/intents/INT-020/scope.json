@@ -1,0 +1,22 @@
+{
+  "intent_id": "INT-020",
+  "title": "Calibration + BEV mapping MVP",
+  "requirements_in_scope": [
+    "FUSBAL-V1-CAL-001",
+    "FUSBAL-V1-BEV-001",
+    "FUSBAL-V1-TRUST-001"
+  ],
+  "task_ids_planned": [
+    "TASK-CAL-001",
+    "TASK-CAL-002",
+    "TASK-CAL-003"
+  ],
+  "close_gate": {
+    "commands": [
+      "npm run guardrails",
+      "npm run generate:check",
+      "npm run audit:intent -- --intent-id INT-020"
+    ],
+    "evidence_out_root": "status/audit/INT-020/runs"
+  }
+}

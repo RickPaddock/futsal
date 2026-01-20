@@ -1,0 +1,43 @@
+{
+  "intent_id": "INT-040",
+  "title": "Ball tracking + conservative shots/goals (V1)",
+  "status": "todo",
+  "created_date": "2026-01-20",
+  "close_gate": [
+    "npm run guardrails",
+    "npm run generate:check",
+    "npm run audit:intent -- --intent-id INT-040"
+  ],
+  "summary": [
+    "Track the ball with explicit missing/unknown state; never hallucinate position when not visible.",
+    "Infer shots/goals with high precision; mark candidates when uncertain."
+  ],
+  "requirements_in_scope": [
+    "FUSBAL-V1-BALL-001",
+    "FUSBAL-V1-EVENT-001",
+    "FUSBAL-V1-TRUST-001",
+    "FUSBAL-V1-SENSOR-001"
+  ],
+  "task_ids_planned": [
+    "TASK-BALL-DET-001",
+    "TASK-BALL-TRACK-001",
+    "TASK-EVENT-001"
+  ],
+  "work_packages": [
+    {
+      "work_package_id": "INT-040-001",
+      "title": "Ball detection + tracking",
+      "items": [
+        "TASK-BALL-DET-001 Implement ball detector(s) and gating to avoid false positives.",
+        "TASK-BALL-TRACK-001 Implement intermittent ball tracking with explicit missing state and quality metrics."
+      ]
+    },
+    {
+      "work_package_id": "INT-040-002",
+      "title": "Shots/goals inference",
+      "items": [
+        "TASK-EVENT-001 Implement conservative shots/goals inference and emit events with confidence and evidence links."
+      ]
+    }
+  ]
+}

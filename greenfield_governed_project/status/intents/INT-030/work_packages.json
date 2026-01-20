@@ -1,0 +1,20 @@
+{
+  "intent_id": "INT-030",
+  "work_packages": [
+    {
+      "work_package_id": "INT-030-001",
+      "title": "Detection + tracking",
+      "primary_task_ids": [
+        "TASK-PLAYER-DET-001",
+        "TASK-PLAYER-MOT-001"
+      ]
+    },
+    {
+      "work_package_id": "INT-030-002",
+      "title": "Team assignment",
+      "primary_task_ids": [
+        "TASK-TEAM-001"
+      ]
+    }
+  ]
+}

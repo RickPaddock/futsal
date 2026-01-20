@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-V1-CLI-001",
+  "intent_id": "INT-010",
+  "title": "Minimal CLI to init/validate bundle structure",
+  "status": "todo",
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-V1-CLI-001-001",
+      "title": "CLI commands for initializing and validating a match bundle",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/cli.py"
+      ]
+    }
+  ],
+  "subtasks": []
+}
+

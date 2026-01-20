@@ -1,0 +1,287 @@
+/*
+PROV: GREENFIELD.SCAFFOLD.GEN.01
+REQ: AUD-REQ-10, SYS-ARCH-15
+WHY: Deterministically generate all human-readable .md outputs and portal feeds from spec sources.
+*/
+
+import fs from "node:fs";
+import path from "node:path";
+import { repoRootFromHere, relPosix } from "./lib/paths.mjs";
+import { sha256Bytes, sha256File } from "./lib/sha256.mjs";
+
+function readJson(p) {
+  return JSON.parse(fs.readFileSync(p, "utf8"));
+}
+
+function sha256Sources(repoRoot, sourcesRel) {
+  const lines = sourcesRel
+    .slice()
+    .sort()
+    .map((rel) => `${rel} sha256:${sha256File(path.join(repoRoot, rel))}`);
+  return sha256Bytes(Buffer.from(lines.join("\n"), "utf8"));
+}
+
+function ensureDir(p) {
+  fs.mkdirSync(p, { recursive: true });
+}
+
+function renderTemplate(templatePath, vars) {
+  const raw = fs.readFileSync(templatePath, "utf8");
+  return raw.replace(/\$\{([a-zA-Z0-9_]+)\}/g, (_, k) => String(vars[k] ?? ""));
+}
+
+function iterFiles(root, predicate) {
+  const out = [];
+  for (const p of fs.readdirSync(root, { withFileTypes: true })) {
+    const abs = path.join(root, p.name);
+    if (p.isDirectory()) out.push(...iterFiles(abs, predicate));
+    else if (p.isFile() && predicate(abs)) out.push(abs);
+  }
+  return out;
+}
+
+function writeFileChecked(outPath, content, check) {
+  if (check) {
+    const existing = fs.existsSync(outPath) ? fs.readFileSync(outPath, "utf8") : null;
+    if (existing !== content) {
+      throw new Error(`drift:${relPosix(outPath)}`);
+    }
+    return;
+  }
+  ensureDir(path.dirname(outPath));
+  fs.writeFileSync(outPath, content, "utf8");
+}
+
+function generatedFrontmatter({ source, sourceHash }) {
+  return `---\ngenerated: true\nsource: ${source}\nsource_sha256: sha256:${sourceHash}\n---\n\n`;
+}
+
+function generateMdFromMdt({ repoRoot, templateRel, outRel, vars, check }) {
+  const templatePath = path.join(repoRoot, templateRel);
+  const sourceHash = sha256File(templatePath);
+  const rendered = renderTemplate(templatePath, vars);
+  // Ensure all .md outputs include deterministic generated frontmatter.
+  const body = rendered.replace(/^---\n[\s\S]*?\n---\n\n/, "");
+  const out = generatedFrontmatter({ source: templateRel, sourceHash }) + body;
+  writeFileChecked(path.join(repoRoot, outRel), out, check);
+}
+
+function generateAllMdTemplates({ repoRoot, templatesRootRel, vars, check }) {
+  const templatesRootAbs = path.join(repoRoot, templatesRootRel);
+  const reservedOut = new Set(["docs/requirements/requirements.md"]);
+  const templates = iterFiles(templatesRootAbs, (p) => p.endsWith(".mdt")).sort();
+  for (const abs of templates) {
+    const templateRel = relPosix(path.relative(repoRoot, abs));
+    const relFromTemplatesRoot = relPosix(path.relative(templatesRootAbs, abs));
+    const outRel = relFromTemplatesRoot.replace(/\.mdt$/, ".md");
+    if (reservedOut.has(outRel)) {
+      throw new Error(`template_output_reserved:${outRel}`);
+    }
+    generateMdFromMdt({ repoRoot, templateRel, outRel, vars, check });
+  }
+}
+
+function loadRequirementsBundle({ repoRoot, requirementsSourceRel }) {
+  const abs = path.join(repoRoot, requirementsSourceRel);
+  const root = readJson(abs);
+
+  if (root?.type === "requirements_index") {
+    const files = Array.isArray(root.files) ? root.files.map(String) : [];
+    if (!files.length) throw new Error(`requirements_index_empty:${requirementsSourceRel}`);
+
+    const requirements = [];
+    for (const f of files) {
+      const rel = path.isAbsolute(f) ? relPosix(path.relative(repoRoot, f)) : f;
+      const area = readJson(path.join(repoRoot, rel));
+      for (const r of area.requirements || []) requirements.push(r);
+    }
+    return { requirements, sourcesRel: [requirementsSourceRel, ...files] };
+  }
+
+  if (Array.isArray(root?.requirements)) {
+    return { requirements: root.requirements, sourcesRel: [requirementsSourceRel] };
+  }
+
+  throw new Error(`requirements_source_invalid:${requirementsSourceRel}`);
+}
+
+function generateRequirementsMd({ repoRoot, vars, check }) {
+  const bundle = loadRequirementsBundle({ repoRoot, requirementsSourceRel: vars.requirements_source });
+  const requirements = { requirements: bundle.requirements };
+  const lines = [];
+  lines.push(`# Requirements (generated)`);
+  lines.push("");
+  lines.push(`Source: \`${vars.requirements_source}\``);
+  lines.push("");
+  for (const r of requirements.requirements || []) {
+    lines.push(`## ${r.id} — ${r.title}`);
+    lines.push("");
+    lines.push(`- Status: \`${r.status}\``);
+    if (r.tracking?.implementation) lines.push(`- Implementation: \`${r.tracking.implementation}\``);
+    if (r.owner) lines.push(`- Owner: \`${r.owner}\``);
+    if (Array.isArray(r.tags) && r.tags.length) lines.push(`- Tags: ${r.tags.map((t) => `\`${t}\``).join(", ")}`);
+    lines.push("");
+    if (Array.isArray(r.acceptance) && r.acceptance.length) {
+      lines.push("Acceptance:");
+      for (const a of r.acceptance) lines.push(`- ${a}`);
+      lines.push("");
+    }
+  }
+  const outRel = "docs/requirements/requirements.md";
+  const source = bundle.sourcesRel.length === 1 ? bundle.sourcesRel[0] : bundle.sourcesRel.join(" + ");
+  const out = generatedFrontmatter({ source, sourceHash: sha256Sources(repoRoot, bundle.sourcesRel) }) + lines.join("\n") + "\n";
+  writeFileChecked(path.join(repoRoot, outRel), out, check);
+}
+
+function generateIntentFiles({ repoRoot, vars, check }) {
+  const intentsDir = path.join(repoRoot, "spec", "intents");
+  const entries = fs.readdirSync(intentsDir, { withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith(".json"));
+  for (const e of entries) {
+    const obj = readJson(path.join(intentsDir, e.name));
+    const intentId = String(obj.intent_id || "").trim();
+    if (!intentId) continue;
+
+    const statusDir = path.join(repoRoot, "status", "intents", intentId);
+    ensureDir(statusDir);
+
+    const scope = {
+      intent_id: intentId,
+      title: obj.title || "",
+      requirements_in_scope: obj.requirements_in_scope || [],
+      task_ids_planned: obj.task_ids_planned || [],
+      close_gate: { commands: obj.close_gate || [], evidence_out_root: `status/audit/${intentId}/runs` },
+    };
+    const scopeJson = JSON.stringify(scope, null, 2) + "\n";
+    writeFileChecked(path.join(statusDir, "scope.json"), scopeJson, check);
+
+    const workPackages = {
+      intent_id: intentId,
+      work_packages: (obj.work_packages || []).map((wp) => ({
+        work_package_id: wp.work_package_id,
+        title: wp.title,
+        primary_task_ids: (wp.items || []).map((x) => String(x).split(/\s+/)[0]),
+      })),
+    };
+    const workJson = JSON.stringify(workPackages, null, 2) + "\n";
+    writeFileChecked(path.join(statusDir, "work_packages.json"), workJson, check);
+
+    const mdLines = [];
+    mdLines.push("---");
+    mdLines.push(`generated: true`);
+    mdLines.push(`source: spec/intents/${e.name}`);
+    mdLines.push(`source_sha256: sha256:${sha256File(path.join(intentsDir, e.name))}`);
+    mdLines.push(`intent_id: ${intentId}`);
+    mdLines.push(`title: ${obj.title}`);
+    mdLines.push(`status: ${obj.status}`);
+    mdLines.push(`created_date: ${obj.created_date}`);
+    if (obj.closed_date) mdLines.push(`closed_date: ${obj.closed_date}`);
+    mdLines.push("close_gate:");
+    for (const c of obj.close_gate || []) mdLines.push(`  - \"${c}\"`);
+    mdLines.push("---");
+    mdLines.push("");
+    mdLines.push(`# Intent: ${intentId}`);
+    mdLines.push("");
+    for (const s of obj.summary || []) mdLines.push(`- ${s}`);
+    mdLines.push("");
+    mdLines.push("## Work packages");
+    mdLines.push("");
+    for (const wp of obj.work_packages || []) {
+      mdLines.push(`### ${wp.work_package_id} — ${wp.title}`);
+      mdLines.push("");
+      for (const item of wp.items || []) mdLines.push(`- ${item}`);
+      mdLines.push("");
+    }
+    writeFileChecked(path.join(statusDir, "intent.md"), mdLines.join("\n") + "\n", check);
+  }
+}
+
+function generateInternalIntentsFeed({ repoRoot, vars, check }) {
+  const requirementsBundle = loadRequirementsBundle({ repoRoot, requirementsSourceRel: vars.requirements_source });
+  const requirementsById = new Map(
+    (requirementsBundle.requirements || []).map((r) => [
+      String(r.id || "").trim(),
+      {
+        id: String(r.id || "").trim(),
+        title: r.title || "",
+        status: r.status || "",
+        tracking_implementation: r.tracking?.implementation || "todo",
+      },
+    ]),
+  );
+
+  const tasksDir = path.join(repoRoot, "spec", "tasks");
+  const taskFiles = fs.existsSync(tasksDir)
+    ? fs.readdirSync(tasksDir, { withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith(".json")).map((d) => d.name).sort()
+    : [];
+  const tasksByIntent = new Map();
+  for (const name of taskFiles) {
+    const t = readJson(path.join(tasksDir, name));
+    const intentId = String(t.intent_id || "").trim();
+    const taskId = String(t.task_id || "").trim();
+    if (!intentId || !taskId) continue;
+    if (!tasksByIntent.has(intentId)) tasksByIntent.set(intentId, []);
+    tasksByIntent.get(intentId).push({ task_id: taskId, title: t.title || "", status: t.status || "todo" });
+  }
+  for (const [k, v] of tasksByIntent.entries()) {
+    v.sort((a, b) => a.task_id.localeCompare(b.task_id));
+    tasksByIntent.set(k, v);
+  }
+
+  const intentsDir = path.join(repoRoot, "spec", "intents");
+  const intentFiles = fs.readdirSync(intentsDir, { withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith(".json")).map((d) => d.name).sort();
+  const intents = [];
+  for (const name of intentFiles) {
+    const obj = readJson(path.join(intentsDir, name));
+    const intentId = String(obj.intent_id || "").trim();
+    if (!intentId) continue;
+    const reqs = (obj.requirements_in_scope || []).map(String).map((id) => id.trim()).filter(Boolean).sort();
+    intents.push({
+      intent_id: intentId,
+      title: obj.title || "",
+      status: obj.status || "",
+      created_date: obj.created_date || "",
+      closed_date: obj.closed_date || "",
+      requirements_in_scope: reqs.map((id) => requirementsById.get(id) || { id, title: "", status: "", tracking_implementation: "todo" }),
+      tasks: tasksByIntent.get(intentId) || [],
+    });
+  }
+
+  const out = {
+    generated: true,
+    source: `spec/intents/*.json + spec/tasks/*.json + ${vars.requirements_source}`,
+    requirements_source: vars.requirements_source,
+    intents: intents.sort((a, b) => a.intent_id.localeCompare(b.intent_id)),
+  };
+  const outPath = path.join(repoRoot, "status", "portal", "internal_intents.json");
+  writeFileChecked(outPath, JSON.stringify(out, null, 2) + "\n", check);
+}
+
+function main() {
+  const repoRoot = repoRootFromHere(import.meta.url);
+  const check = process.argv.includes("--check");
+  const project = readJson(path.join(repoRoot, "spec", "project.json"));
+  const vars = {
+    project_name: project.project_name,
+    project_id: project.project_id,
+    intent_prefix: project.intent_prefix,
+    requirements_source: project.requirements_source,
+    md_templates_root: project.md_templates_root,
+  };
+
+  generateAllMdTemplates({ repoRoot, templatesRootRel: vars.md_templates_root, vars, check });
+
+  generateRequirementsMd({ repoRoot, vars, check });
+  generateIntentFiles({ repoRoot, vars, check });
+  generateInternalIntentsFeed({ repoRoot, vars, check });
+}
+
+try {
+  main();
+  if (process.argv.includes("--check")) {
+    process.stdout.write("[generate] ok\n");
+  }
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  process.stderr.write(`[generate:error] ${msg}\n`);
+  process.exitCode = 2;
+}

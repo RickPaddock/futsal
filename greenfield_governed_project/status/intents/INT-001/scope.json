@@ -1,0 +1,23 @@
+{
+  "intent_id": "INT-001",
+  "title": "Bootstrap Fusbal governed project: requirements, provenance, evidence, portal",
+  "requirements_in_scope": [
+    "SYS-ARCH-15",
+    "AUD-REQ-10",
+    "FUSBAL-V1-TRUST-001"
+  ],
+  "task_ids_planned": [
+    "TASK-BOOT-001",
+    "TASK-BOOT-002",
+    "TASK-BOOT-003",
+    "TASK-BOOT-004"
+  ],
+  "close_gate": {
+    "commands": [
+      "npm run guardrails",
+      "npm run generate:check",
+      "npm run audit:intent -- --intent-id INT-001"
+    ],
+    "evidence_out_root": "status/audit/INT-001/runs"
+  }
+}

@@ -1,0 +1,61 @@
+You are GitHub Copilot Chat running inside VS Code on a governed repository.
+
+GOAL: Close intent <INTENT_ID> end-to-end, only if audits pass and requirements tracking is correct.
+
+Hard rules:
+- Never hand-edit any `.md` files (generated).
+- Edit only canonical sources: `spec/intents/*.json`, `spec/tasks/*.json`, `spec/requirements/**.json`, plus code.
+- Evidence outputs MUST be JSON under `status/audit/<INTENT_ID>/runs/<run_id>/`.
+
+First ask me these questions (one at a time, max 6 total):
+1) What is `<INTENT_ID>`?
+2) What is `<run_id>`? (If I don’t care, propose `YYYYMMDD_HHMMSS`.)
+3) What is `<closed_date>`? (default: today, YYYY-MM-DD)
+4) Do you want a quality audit report too? (default: yes)
+
+Then execute this process in order:
+
+A) Preflight (do not modify anything yet)
+1) Open `spec/intents/<INTENT_ID>.json` and confirm:
+   - `status` is `todo` (must not be `draft`)
+   - `task_ids_planned[]` is non-empty
+   - `close_gate[]` includes `npm run audit:intent -- --intent-id <INTENT_ID>`
+2) For each task in `task_ids_planned[]`, open `spec/tasks/<TASK_ID>.json`.
+3) If any task/subtask indicates a new requirement (`REQ-*`), confirm that requirement exists in `spec/requirements/areas/*.json` with `tracking.implementation: "todo"`.
+   - If missing, add it to the appropriate area file (status must be `draft`, tracking.implementation must be `todo`).
+
+B) Governance audit (MUST pass before closing)
+1) Run:
+   `npm run audit:intent -- --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/audit_report.json`
+2) If the audit fails, stop and list the exact required fixes. Do NOT close.
+
+C) Optional quality audit (recommended)
+If enabled, produce:
+`status/audit/<INTENT_ID>/runs/<run_id>/quality_audit.json`
+Use the same scoring rubric as `spec/prompts/intent_quality_audit.prompt.txt`:
+- Exactly 10 improvements ranked by ROI (0–10), with effort (S/M/L) and risk (low/medium/high).
+
+D) Close intent (only if audits pass)
+1) Dry-run close check (no writes):
+   `npm run intent:close -- --intent-id <INTENT_ID> --closed-date <closed_date>`
+   - If this fails (e.g. missing `REQ:` code references), stop and list exact fixes.
+2) Apply close:
+   `npm run intent:close -- --intent-id <INTENT_ID> --closed-date <closed_date> --apply`
+This MUST:
+- Set `spec/intents/<INTENT_ID>.json` to `status: "closed"` and set `closed_date`
+- For any `REQ-*` created by this intent, set `tracking.implementation: "done"` ONLY when code exists and references `REQ: REQ-*`
+
+E) Refresh derived surfaces + validate
+1) `npm run generate`
+2) `npm run guardrails`
+
+F) Evidence (recommended)
+Record the full close run as evidence:
+`node tools/evidence/record_run.mjs --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/run.json --artefact status/audit/<INTENT_ID>/runs/<run_id>/audit_report.json --artefact status/audit/<INTENT_ID>/runs/<run_id>/quality_audit.json -- npm run intent:close -- --intent-id <INTENT_ID> --closed-date <closed_date> --apply`
+
+Output requirements (in chat):
+- Only show:
+  - The 3 evidence file paths written (`run.json`, `audit_report.json`, and `quality_audit.json` if produced)
+  - Confirmation that intent status is now `closed` and will show in the portal after Refresh
+Do not paste the full JSON reports into chat.
+

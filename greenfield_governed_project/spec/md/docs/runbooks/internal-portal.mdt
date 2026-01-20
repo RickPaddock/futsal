@@ -1,0 +1,16 @@
+# Internal portal
+
+The internal portal is a lightweight Next.js app that renders governance surfaces (intents, status) from generated JSON.
+
+## Run
+
+1) Generate: `npm run generate`
+2) Start: `npm run portal:dev`
+3) Open: `http://127.0.0.1:3015/internal/intents`
+
+## Data flow
+
+- Source intents: `spec/intents/*.json`
+- Generated intent markdown: `status/intents/<INT-ID>/intent.md`
+- Generated portal feed: `status/portal/internal_intents.json`
+

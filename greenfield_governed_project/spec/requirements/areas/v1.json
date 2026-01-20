@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "type": "requirements_area",
+  "area": "v1",
+  "requirements": [
+    {
+      "id": "FUSBAL-V1-TRUST-001",
+      "status": "canonical",
+      "tracking": {
+        "implementation": "todo"
+      },
+      "title": "Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.",
+      "acceptance": [
+        "Player tracking prefers track breaks over ID swaps when ambiguous.",
+        "Ball tracking explicitly supports missing/unknown state and does not fabricate positions.",
+        "Event inference is high-precision (low-recall acceptable) and emits confidence with evidence links."
+      ],
+      "owner": "product",
+      "tags": [
+        "v1",
+        "trust"
+      ]
+    },
+    {
+      "id": "FUSBAL-V1-OUT-001",
+      "status": "canonical",
+      "tracking": {
+        "implementation": "todo"
+      },
+      "title": "Produce a deterministic per-match output bundle (overlay, BEV, tracks, events, report) with diagnostics.",
+      "acceptance": [
+        "A match run outputs a stable directory layout under `output/<match_id>/`.",
+        "At minimum, an overlay video and a report describing confidence/known gaps are produced.",
+        "BEV outputs are produced only when calibration quality passes thresholds; otherwise disabled with reasons."
+      ],
+      "owner": "platform",
+      "tags": [
+        "v1",
+        "outputs"
+      ]
+    },
+    {
+      "id": "FUSBAL-V1-DATA-001",
+      "status": "canonical",
+      "tracking": {
+        "implementation": "todo"
+      },
+      "title": "All sources emit a canonical track record format suitable for fusion and reporting.",
+      "acceptance": [
+        "Tracks are stored as `.jsonl` (one record per entity per sample) plus JSON metadata.",
+        "Each sample includes timestamp, coordinate frame, uncertainty, and optional quality (0–1)."
+      ],
+      "owner": "platform",
+      "tags": [
+        "v1",
+        "data"
+      ]
+    },
+    {
+      "id": "FUSBAL-V1-CAL-001",
+      "status": "canonical",
+      "tracking": {
+        "implementation": "todo"
+      },
+      "title": "Calibration maps each camera to pitch coordinates with explicit quality gating and diagnostics.",
+      "acceptance": [
+        "Calibration outputs homographies (or equivalent) and a quality score with failure reasons.",
+        "If auto-calibration fails, a minimal manual fallback can produce a reusable calibration artifact."
+      ],
+      "owner": "vision",
+      "tags": [
+        "v1",
+        "calibration"
+      ]
+    },
+    {
+      "id": "FUSBAL-V1-BEV-001",
+      "status": "canonical",
+      "tracking": {
+        "implementation": "todo"
+      },
+      "title": "When calibration quality is sufficient, generate bird’s-eye-view (BEV) tracks and video in pitch meters.",
+      "acceptance": [
+        "Players (and ball when available) are projected into a consistent pitch coordinate system in meters.",
+        "BEV video renders movement with clear confidence cues and missing-state semantics."
+      ],
+      "owner": "vision",
+      "tags": [
+        "v1",
+        "bev"
+      ]
+    },
+    {
+      "id": "FUSBAL-V1-PLAYER-001",
+      "status": "canonical",
+      "tracking": {
+        "implementation": "todo"
+      },
+      "title": "Detect and track all players per match with conservative identity continuity.",
+      "acceptance": [
+        "Per-frame detections carry confidence and are filtered to the pitch area when possible.",
+        "Tracking produces track IDs and per-track confidence; ambiguous associations cause breaks, not swaps."
+      ],
+      "owner": "vision",
+      "tags": [
+        "v1",
+        "players"
+      ]
+    },
+    {
+      "id": "FUSBAL-V1-TEAM-001",
+      "status": "canonical",
+      "tracking": {
+        "implementation": "todo"
+      },
+      "title": "Assign players to Team A/B via bib colors (plus smoothing) with an Unknown state.",
+      "acceptance": [
+        "Team label is output per player sample (A/B/Unknown) with confidence.",
+        "Assignments are temporally smoothed and include diagnostics for ambiguous segments."
+      ],
+      "owner": "vision",
+      "tags": [
+        "v1",
+        "teams"
+      ]
+    },
+    {
+      "id": "FUSBAL-V1-BALL-001",
+      "status": "canonical",
+      "tracking": {
+        "implementation": "todo"
+      },
+      "title": "Track the ball when visible and explicitly represent missing/unknown spans without hallucination.",
+      "acceptance": [
+        "Ball detector/track output includes confidence and missing-state semantics.",
+        "Long ball-missing spans are allowed; output must prefer unknown over wrong."
+      ],
+      "owner": "vision",
+      "tags": [
+        "v1",
+        "ball"
+      ]
+    },
+    {
+      "id": "FUSBAL-V1-EVENT-001",
+      "status": "canonical",
+      "tracking": {
+        "implementation": "todo"
+      },
+      "title": "Infer shots and goals conservatively in V1 (high precision) and emit confidence + evidence pointers.",
+      "acceptance": [
+        "Events are emitted with timestamps and confidence; uncertain events are omitted or marked candidate.",
+        "Goal events include a best-effort evidence window reference (time range / frame ids)."
+      ],
+      "owner": "vision",
+      "tags": [
+        "v1",
+        "events"
+      ]
+    },
+    {
+      "id": "FUSBAL-V1-SENSOR-001",
+      "status": "canonical",
+      "tracking": {
+        "implementation": "todo"
+      },
+      "title": "Sensors are optional inputs that only improve outputs when healthy; camera-only output remains sellable.",
+      "acceptance": [
+        "The pipeline accepts sensor logs as additive TrackSources using the canonical track format.",
+        "If sensor ingestion fails or is low quality, outputs fall back to camera-only without contract changes."
+      ],
+      "owner": "platform",
+      "tags": [
+        "v1",
+        "sensors"
+      ]
+    }
+  ]
+}

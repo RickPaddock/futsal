@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-PLAYER-DET-001",
+  "intent_id": "INT-030",
+  "title": "Player detector(s) per frame + confidence",
+  "status": "todo",
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-PLAYER-DET-001-001",
+      "title": "Per-frame player detections with confidence",
+      "paths": [
+        "pipeline/",
+        "docs/data/OUTPUT_CONTRACT.md"
+      ]
+    }
+  ],
+  "subtasks": []
+}
+

@@ -1,0 +1,20 @@
+{
+  "intent_id": "INT-010",
+  "work_packages": [
+    {
+      "work_package_id": "INT-010-001",
+      "title": "Output bundle + schemas",
+      "primary_task_ids": [
+        "TASK-V1-OUT-001",
+        "TASK-V1-DATA-001"
+      ]
+    },
+    {
+      "work_package_id": "INT-010-002",
+      "title": "Pipeline scaffolding",
+      "primary_task_ids": [
+        "TASK-V1-CLI-001"
+      ]
+    }
+  ]
+}

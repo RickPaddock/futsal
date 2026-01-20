@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-CAL-001",
+  "intent_id": "INT-020",
+  "title": "Pitch templates + calibration inputs per venue/pitch",
+  "status": "todo",
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-CAL-001-001",
+      "title": "Pitch template and calibration input schema",
+      "paths": [
+        "pipeline/",
+        "docs/data/OUTPUT_CONTRACT.md"
+      ]
+    }
+  ],
+  "subtasks": []
+}
+

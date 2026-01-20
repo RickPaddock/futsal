@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-CAL-003",
+  "intent_id": "INT-020",
+  "title": "Manual fallback + explicit calibration quality gating",
+  "status": "todo",
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-CAL-003-001",
+      "title": "Manual correspondence fallback and quality gate",
+      "paths": [
+        "pipeline/"
+      ]
+    }
+  ],
+  "subtasks": []
+}
+

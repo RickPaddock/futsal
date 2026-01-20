@@ -1,0 +1,13 @@
+{
+  "intent_id": "INT-999",
+  "title": "Short intent title (optional in draft)",
+  "status": "draft",
+  "created_date": "YYYY-MM-DD",
+  "summary": [
+    "1–3 bullets describing the outcome.",
+    "Prefer trust-first behavior: Unknown over wrong."
+  ],
+  "requirements_in_scope": [],
+  "task_ids_planned": [],
+  "work_packages": []
+}

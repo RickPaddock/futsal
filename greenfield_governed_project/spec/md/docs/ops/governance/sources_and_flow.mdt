@@ -1,0 +1,23 @@
+# Governance: sources and flow
+
+This repository enforces a strict separation between **canonical sources** and **generated surfaces**.
+
+## Sources (edited by humans / LLMs)
+
+- Requirements: `${requirements_source}`
+- Intents: `spec/intents/*.json`
+- Markdown templates: `spec/md/**/*.mdt`
+- Runtime code: `apps/**`, `packages/**`, `scripts/**`, `tools/**`
+
+## Generated surfaces (never hand-edit)
+
+- All `.md` outside `spec/`
+- `docs/requirements/requirements.md`
+- `status/intents/**/{intent.md,scope.json,work_packages.json}`
+- `status/portal/internal_intents.json`
+
+## Enforcement
+
+- Generation is deterministic: `npm run generate` and `npm run generate:check`
+- Guardrails fail fast if any `.md` is not generated: `npm run guardrails`
+

@@ -1,0 +1,18 @@
+{
+  "project_name": "Fusbal (Futsal Tracking)",
+  "project_id": "FUSBAL",
+  "intent_prefix": "INT",
+  "requirements_source": "spec/requirements/index.json",
+  "md_templates_root": "spec/md",
+  "governance": {
+    "new_requirement_id_prefixes": [
+      "REQ-"
+    ],
+    "file_size_limits_bytes": {
+      "spec/intents/*.json": 51200,
+      "spec/tasks/*.json": 51200,
+      "spec/requirements/index.json": 10240,
+      "spec/requirements/areas/*.json": 102400
+    }
+  }
+}

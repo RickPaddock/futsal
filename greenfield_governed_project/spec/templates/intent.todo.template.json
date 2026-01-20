@@ -1,0 +1,31 @@
+{
+  "intent_id": "INT-999",
+  "title": "Short intent title",
+  "status": "todo",
+  "created_date": "YYYY-MM-DD",
+  "close_gate": [
+    "npm run guardrails",
+    "npm run generate:check",
+    "npm run audit:intent -- --intent-id INT-999"
+  ],
+  "summary": [
+    "1–3 bullets describing the outcome.",
+    "Prefer trust-first behavior: Unknown over wrong."
+  ],
+  "requirements_in_scope": [
+    "SYS-ARCH-15"
+  ],
+  "task_ids_planned": [
+    "TASK-AREA-001"
+  ],
+  "work_packages": [
+    {
+      "work_package_id": "INT-999-001",
+      "title": "Work package title",
+      "items": [
+        "TASK-AREA-001 One-line deliverable description."
+      ]
+    }
+  ]
+}
+

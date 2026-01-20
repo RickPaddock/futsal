@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-EVENT-001",
+  "intent_id": "INT-040",
+  "title": "Conservative shots/goals inference",
+  "status": "todo",
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-EVENT-001-001",
+      "title": "Event inference with confidence + evidence pointers",
+      "paths": [
+        "pipeline/",
+        "docs/data/OUTPUT_CONTRACT.md"
+      ]
+    }
+  ],
+  "subtasks": []
+}
+

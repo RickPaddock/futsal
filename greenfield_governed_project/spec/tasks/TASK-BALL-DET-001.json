@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-BALL-DET-001",
+  "intent_id": "INT-040",
+  "title": "Ball detector(s) + gating",
+  "status": "todo",
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-BALL-DET-001-001",
+      "title": "Ball detector output per frame with confidence + false-positive gating",
+      "paths": [
+        "pipeline/",
+        "docs/data/OUTPUT_CONTRACT.md"
+      ]
+    }
+  ],
+  "subtasks": []
+}
+

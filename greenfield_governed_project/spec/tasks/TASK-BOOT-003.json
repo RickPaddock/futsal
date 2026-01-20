@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-BOOT-003",
+  "intent_id": "INT-001",
+  "title": "Evidence run records + minimal internal portal",
+  "status": "todo",
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-BOOT-003-001",
+      "title": "Evidence recorder and a portal view for governance surfaces",
+      "paths": [
+        "tools/evidence/",
+        "apps/portal/"
+      ]
+    }
+  ],
+  "subtasks": []
+}
+

@@ -2,6 +2,7 @@
 videos/input/*.mp4
 videos/output/*.mp4
 models/*.pt
+.DS_Store
 
 ### Python ###
 # Byte-compiled / optimized / DLL files

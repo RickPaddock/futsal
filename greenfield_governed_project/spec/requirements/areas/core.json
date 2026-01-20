@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "type": "requirements_area",
+  "area": "core",
+  "requirements": [
+    {
+      "id": "SYS-ARCH-15",
+      "status": "canonical",
+      "tracking": {
+        "implementation": "todo"
+      },
+      "title": "All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.",
+      "acceptance": [
+        "No code unit can be merged without REQ mapping.",
+        "Shared/plumbing code uses SYS-ARCH-15 with a human WHY."
+      ],
+      "owner": "platform",
+      "tags": [
+        "governance",
+        "traceability"
+      ]
+    },
+    {
+      "id": "AUD-REQ-10",
+      "status": "canonical",
+      "tracking": {
+        "implementation": "todo"
+      },
+      "title": "Generate + enforce Requirement ↔ Code provenance (100% policy with guardrails).",
+      "acceptance": [
+        "Deterministic provenance scanner exists and is enforced by guardrails.",
+        "Derived reports exist and are never hand-edited."
+      ],
+      "owner": "platform",
+      "tags": [
+        "governance",
+        "guardrails"
+      ]
+    }
+  ]
+}

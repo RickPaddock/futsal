@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-BALL-TRACK-001",
+  "intent_id": "INT-040",
+  "title": "Intermittent ball tracking + missing state",
+  "status": "todo",
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-BALL-TRACK-001-001",
+      "title": "Ball tracks with explicit missing/unknown spans and quality metrics",
+      "paths": [
+        "pipeline/",
+        "docs/data/OUTPUT_CONTRACT.md"
+      ]
+    }
+  ],
+  "subtasks": []
+}
+

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "type": "requirements_area",
+  "area": "core",
+  "requirements": [
+    {
+      "id": "REQ-0001",
+      "status": "draft",
+      "tracking": {
+        "implementation": "todo"
+      },
+      "title": "Requirement title",
+      "acceptance": [
+        "Acceptance criterion"
+      ],
+      "owner": "platform",
+      "tags": [
+        "example"
+      ]
+    }
+  ]
+}

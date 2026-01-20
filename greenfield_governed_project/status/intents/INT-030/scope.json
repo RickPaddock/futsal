@@ -1,0 +1,22 @@
+{
+  "intent_id": "INT-030",
+  "title": "Player tracking MVP (trust-first)",
+  "requirements_in_scope": [
+    "FUSBAL-V1-PLAYER-001",
+    "FUSBAL-V1-TEAM-001",
+    "FUSBAL-V1-TRUST-001"
+  ],
+  "task_ids_planned": [
+    "TASK-PLAYER-DET-001",
+    "TASK-PLAYER-MOT-001",
+    "TASK-TEAM-001"
+  ],
+  "close_gate": {
+    "commands": [
+      "npm run guardrails",
+      "npm run generate:check",
+      "npm run audit:intent -- --intent-id INT-030"
+    ],
+    "evidence_out_root": "status/audit/INT-030/runs"
+  }
+}

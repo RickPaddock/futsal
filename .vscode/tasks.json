@@ -1,0 +1,85 @@
+{
+  "version": "2.0.0",
+  "inputs": [
+    {
+      "id": "greenfieldIntentId",
+      "type": "promptString",
+      "description": "Intent ID (INT-###). Leave blank to use status/wizard/ACTIVE.json",
+      "default": ""
+    },
+    {
+      "id": "greenfieldRunId",
+      "type": "promptString",
+      "description": "run_id for status/audit/<INT>/runs/<run_id> (blank = auto)",
+      "default": ""
+    },
+    {
+      "id": "greenfieldClosedDate",
+      "type": "promptString",
+      "description": "closed_date (YYYY-MM-DD) (blank = today)",
+      "default": ""
+    }
+  ],
+  "tasks": [
+    {
+      "label": "Greenfield: Copilot Intent Flow (continue/apply)",
+      "type": "shell",
+      "command": "node scripts/workflows/copilot_intent_flow.mjs",
+      "options": {
+        "cwd": "${workspaceFolder}/greenfield_governed_project"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": false,
+        "focus": true
+      }
+    },
+    {
+      "label": "Greenfield: Copilot Intent Flow (new intent)",
+      "type": "shell",
+      "command": "node scripts/workflows/copilot_intent_flow.mjs --new",
+      "options": {
+        "cwd": "${workspaceFolder}/greenfield_governed_project"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": false,
+        "focus": true
+      }
+    },
+    {
+      "label": "Greenfield: Copilot Prompt (Intent Audit + Quality Audit)",
+      "type": "shell",
+      "command": "node scripts/workflows/copilot_open_prompt.mjs --kind quality-audit --intent-id \"${input:greenfieldIntentId}\" --run-id \"${input:greenfieldRunId}\"",
+      "options": {
+        "cwd": "${workspaceFolder}/greenfield_governed_project"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": false,
+        "focus": true
+      }
+    },
+    {
+      "label": "Greenfield: Copilot Prompt (Close Intent End-to-End)",
+      "type": "shell",
+      "command": "node scripts/workflows/copilot_open_prompt.mjs --kind close-intent --intent-id \"${input:greenfieldIntentId}\" --run-id \"${input:greenfieldRunId}\" --closed-date \"${input:greenfieldClosedDate}\"",
+      "options": {
+        "cwd": "${workspaceFolder}/greenfield_governed_project"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": false,
+        "focus": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "intent_id": "INT-040",
+  "work_packages": [
+    {
+      "work_package_id": "INT-040-001",
+      "title": "Ball detection + tracking",
+      "primary_task_ids": [
+        "TASK-BALL-DET-001",
+        "TASK-BALL-TRACK-001"
+      ]
+    },
+    {
+      "work_package_id": "INT-040-002",
+      "title": "Shots/goals inference",
+      "primary_task_ids": [
+        "TASK-EVENT-001"
+      ]
+    }
+  ]
+}
