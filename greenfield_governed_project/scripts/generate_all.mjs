@@ -324,6 +324,8 @@ try {
   main();
   if (process.argv.includes("--check")) {
     process.stdout.write("[generate] ok\n");
+  } else if (!process.argv.includes("--dry-run")) {
+    process.stdout.write("[generate] ok\n");
   }
 } catch (err) {
   const msg = err instanceof Error ? err.message : String(err);

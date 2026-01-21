@@ -1,0 +1,85 @@
+{
+  "type": "intent_preflight_report",
+  "schema_version": 1,
+  "intent_id": "INT-010",
+  "run_id": "20260121_160557",
+  "timestamp": "2026-01-21T16:07:44Z",
+  "blockers_ranked": [
+    {
+      "issue": "Scope enforcement is underspecified (no explicit paths_allowed/paths_excluded).",
+      "why": "The preflight requires checking path scope boundaries to prevent repo creep, but the generated scope surface does not declare any path-level constraints. A reviewer would have to guess what code/spec areas are allowed.",
+      "exact_fix": "Add explicit path scoping to the intent model and generated scope surfaces (e.g., `paths_allowed[]` + `paths_excluded[]`), then enforce via guardrails/audit. At minimum for INT-010, specify `pipeline/`, `spec/md/docs/data/`, `tools/`, `scripts/`, and `apps/portal/` as allowed; exclude `docs/**` and `status/**` hand-edits."
+    },
+    {
+      "issue": "Close gates include `npm run generate:check` but evidence capture guidance focuses on `npm run generate`.",
+      "why": "If operators/LLMs record evidence for `generate` but closing requires `generate:check`, closure can fail or become inconsistent across runs. This is a common governance foot-gun that leads to manual investigation and broken audit trails.",
+      "exact_fix": "Align close gates and gold-standard prompts: either (a) add an explicit `generate:check` evidence capture step/path and enforce it at close, or (b) change the close gate to `npm run generate` (and keep `npm run generate:check` as an automated CI/guardrail check)."
+    },
+    {
+      "issue": "Requirements-in-scope do not reflect governance/portal work in planned tasks.",
+      "why": "INT-010 plans portal and governance tasks (e.g., per-task quality audit surfacing, generate evidence enforcement, runbook navigation), but `requirements_in_scope[]` lists only V1 output/data/trust and core arch/audit. This reduces traceability and weakens governance audits.",
+      "exact_fix": "Add the relevant governance/portal requirement IDs to `spec/intents/INT-010.json` `requirements_in_scope[]` (e.g., the portal preflight/prompt requirements and governance evidence-capture requirements that the planned tasks satisfy)."
+    }
+  ],
+  "ambiguities": [
+    {
+      "ambiguous_text": "“Create a minimal pipeline CLI … suitable for CI/guardrails.”",
+      "risk": "A “minimal” CLI can omit required flags/exit-code conventions, leading to non-automatable behavior.",
+      "proposed_rewrite": "Define required commands/flags and exit-code semantics explicitly (e.g., `python -m fusbal_pipeline init <dir>` and `python -m fusbal_pipeline validate <dir> [--json]`, with non-zero exit codes on any validation error and deterministic output ordering)."
+    },
+    {
+      "ambiguous_text": "“Actionable errors suitable for CI/guardrails.”",
+      "risk": "Without concrete requirements, errors can be human-readable but not machine-actionable (missing codes, missing paths, unstable formatting).",
+      "proposed_rewrite": "Require structured error codes and stable formatting, and ensure all validation failures include the relative path, expected artifact name, and (for JSONL) line number where applicable."
+    },
+    {
+      "ambiguous_text": "“Deterministic manifests … stable ordering + stable ids.”",
+      "risk": "Determinism can be broken by timestamps, environment-dependent ordering, or absolute paths.",
+      "proposed_rewrite": "Specify determinism inputs/outputs (sorting keys, normalization, and explicit exclusion of runtime timestamps and absolute paths), and state what constitutes “identical inputs”."
+    }
+  ],
+  "scope_alignment": {
+    "inferred_surfaces": [
+      "spec/intents/INT-010.json",
+      "spec/tasks/TASK-*.json (planned tasks)",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt (if referenced by tasks)",
+      "pipeline/ (CLI + validators + schemas)",
+      "scripts/ + tools/ (evidence capture, audits, guardrails)",
+      "apps/portal/ (audit discoverability surfaces)"
+    ],
+    "paths_allowed": [],
+    "paths_excluded": [],
+    "mismatches": [
+      "Generated `status/intents/INT-010/scope.json` does not declare any path boundaries, but the preflight checklist expects path-based scope enforcement."
+    ],
+    "recommended_edits": [
+      "Extend intent specs and generated scope surfaces to include `paths_allowed[]` and `paths_excluded[]`, then update the preflight prompt to reference the authoritative fields.",
+      "Ensure generated artefacts (`status/**`, `docs/**`) are explicitly excluded from hand-edits in scope guidance."
+    ]
+  },
+  "closeability": {
+    "tasks": {
+      "status": "PASS",
+      "notes": "All planned task IDs listed in `spec/intents/INT-010.json` exist under `spec/tasks/`."
+    },
+    "work_packages": {
+      "status": "PASS",
+      "notes": "Generated work packages enumerate all planned tasks and are grouped coherently."
+    },
+    "close_gates": {
+      "status": "FAIL",
+      "notes": "Close gates are present, but `npm run generate:check` vs generate evidence capture conventions need alignment to avoid governance drift."
+    },
+    "guardrail_plan": {
+      "status": "FAIL",
+      "notes": "Guardrail expectations for scope boundaries and governance/portal requirement traceability are not explicit in intent artifacts."
+    }
+  },
+  "minimum_next_steps": [
+    "Add explicit path scope fields (`paths_allowed[]`, `paths_excluded[]`) to the intent model and generated scope surfaces, then enforce them in `npm run guardrails`/`npm run audit:intent`.",
+    "Align INT-010 close gates with evidence capture conventions for generation (`generate` vs `generate:check`) so closure does not require manual interpretation.",
+    "Update `requirements_in_scope[]` in `spec/intents/INT-010.json` to include the governance/portal requirements that the planned tasks implement.",
+    "Re-run `npm run generate` and confirm the generated intent scope/work packages reflect the new scope fields and requirement set.",
+    "Re-run `npm run audit:intent -- --intent-id INT-010` to validate the updated intent artifacts and guardrails expectations."
+  ]
+}
