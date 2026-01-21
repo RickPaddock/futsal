@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Intent Scope",
+  "description": "Generated scope.json for an intent",
+  "type": "object",
+  "required": ["intent_id", "title", "requirements_in_scope", "task_ids_planned", "close_gate"],
+  "properties": {
+    "intent_id": {
+      "type": "string",
+      "pattern": "^[A-Z]+-[0-9]{3,}$",
+      "description": "Intent identifier"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Intent title"
+    },
+    "requirements_in_scope": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z0-9_-]+-[0-9]+$"
+      },
+      "description": "List of requirement IDs in scope"
+    },
+    "task_ids_planned": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^TASK-[A-Z0-9_-]+-[0-9]{3,}$"
+      },
+      "description": "List of planned task IDs"
+    },
+    "runbooks": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["decision", "notes", "paths_mdt"],
+          "properties": {
+            "decision": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "string"
+            },
+            "paths_mdt": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "close_gate": {
+      "type": "object",
+      "required": ["commands", "evidence_out_root"],
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence_out_root": {
+          "type": "string",
+          "pattern": "^status/audit/"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Work Packages",
+  "description": "Generated work_packages.json for an intent",
+  "type": "object",
+  "required": ["intent_id", "work_packages"],
+  "properties": {
+    "intent_id": {
+      "type": "string",
+      "pattern": "^[A-Z]+-[0-9]{3,}$"
+    },
+    "work_packages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["work_package_id", "title", "primary_task_ids"],
+        "properties": {
+          "work_package_id": {
+            "type": "string",
+            "pattern": "^[A-Z]+-[0-9]+-[0-9]+$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "primary_task_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^TASK-[A-Z0-9_-]+-[0-9]{3,}$"
+            }
+          }
+        }
+      }
+    }
+  }
+}

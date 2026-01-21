@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/md/docs/runbooks/evidence.mdt
-source_sha256: sha256:f973091a753b2660d3dbce6fd4671c3b89c4dea2106838af403d8328e6a41b91
+source_sha256: sha256:a56e9985b24f884f3933622e7deb548e61e3836e5eeea316c6df6dfc8f95841c
 ---
 
 # Evidence
@@ -16,3 +16,8 @@ Evidence is captured as machine-readable JSON under `status/audit/<INTENT_ID>/ru
 
 `node tools/evidence/record_run.mjs --intent-id INT-001 --out status/audit/INT-001/runs/<run_id>/run.json -- npm run generate:check`
 
+## Record a preflight review report
+
+Preflight reviews should write a machine-readable JSON report that future humans/LLMs can reference:
+
+`status/audit/<INTENT_ID>/runs/<run_id>/preflight/preflight_report.json`

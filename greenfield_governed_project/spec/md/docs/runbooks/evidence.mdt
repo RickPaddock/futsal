@@ -10,3 +10,8 @@ Evidence is captured as machine-readable JSON under `status/audit/<INTENT_ID>/ru
 
 `node tools/evidence/record_run.mjs --intent-id INT-001 --out status/audit/INT-001/runs/<run_id>/run.json -- npm run generate:check`
 
+## Record a preflight review report
+
+Preflight reviews should write a machine-readable JSON report that future humans/LLMs can reference:
+
+`status/audit/<INTENT_ID>/runs/<run_id>/preflight/preflight_report.json`

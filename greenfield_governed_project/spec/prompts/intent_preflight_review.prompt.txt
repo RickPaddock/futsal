@@ -9,6 +9,13 @@ Hard rule: this prompt is intent-artifacts-only.
 - You MAY propose edits to canonical sources under spec/ (intents, tasks, requirements).
 - You MUST NOT implement runtime/product code changes while running this preflight.
 
+CONTEXT (provided by the caller; do not ask for these):
+- `intent_id`: `<INTENT_ID>`
+- `run_id`: `<run_id>`
+
+SANITY CHECK:
+- If `<INTENT_ID>` or `<run_id>` still contains angle-bracket placeholder markers, STOP: this prompt was not rendered with real values.
+
 Repo governance constraints (must follow)
 - Canonical sources: spec/project.json, spec/requirements/**, spec/intents/*.json, spec/tasks/*.json, spec/md/**/*.mdt
 - Generated surfaces (never hand-edit): status/** and docs/**
@@ -59,4 +66,36 @@ Return your result in this exact structure:
 6) Clarifying questions (only if truly blocking)
 	- Ask 1–3 questions at a time.
 
-Start now by reading the inputs for intent <INTENT_ID> and producing sections 1–4, then 6 if needed.
+HARD REQUIREMENT: write the report file first
+1) BEFORE printing anything else to chat, you MUST write a machine-readable JSON report to:
+   `status/audit/<INTENT_ID>/runs/<run_id>/preflight/preflight_report.json`
+2) Then paste sections 1–4 into the chat window (do not paste the entire JSON file).
+3) End your chat output with a final section:
+   `Minimum next steps to achieve preflight pass` (5–10 bullets, ordered, actionable, and limited to the smallest set needed).
+
+Preflight report JSON schema (write to file)
+{
+  "type": "intent_preflight_report",
+  "schema_version": 1,
+  "intent_id": "<INTENT_ID>",
+  "run_id": "<run_id>",
+  "timestamp": "YYYY-MM-DDTHH:MM:SSZ",
+  "blockers_ranked": [ { "issue": "...", "why": "...", "exact_fix": "..." } ],
+  "ambiguities": [ { "ambiguous_text": "...", "risk": "...", "proposed_rewrite": "..." } ],
+  "scope_alignment": {
+    "inferred_surfaces": ["..."],
+    "paths_allowed": ["..."],
+    "paths_excluded": ["..."],
+    "mismatches": ["..."],
+    "recommended_edits": ["..."]
+  },
+  "closeability": {
+    "tasks": { "status": "PASS|FAIL", "notes": "..." },
+    "work_packages": { "status": "PASS|FAIL", "notes": "..." },
+    "close_gates": { "status": "PASS|FAIL", "notes": "..." },
+    "guardrail_plan": { "status": "PASS|FAIL", "notes": "..." }
+  },
+  "minimum_next_steps": ["..."]
+}
+
+Start now by reading the inputs for intent <INTENT_ID>, writing the JSON report file, and then producing sections 1–4, then 6 if needed, followed by `Minimum next steps to achieve preflight pass`.

@@ -117,7 +117,7 @@ export default async function handler(req, res) {
   }
 
   const finalRunId = runId || utcRunId();
-  if ((kind === "implement" || kind === "audit" || kind === "close") && !isValidRunId(finalRunId)) {
+  if ((kind === "preflight" || kind === "implement" || kind === "audit" || kind === "close") && !isValidRunId(finalRunId)) {
     badRequest(res, "invalid_run_id", { expected: "YYYYMMDD_HHMMSS" });
     return;
   }

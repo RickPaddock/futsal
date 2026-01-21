@@ -14,5 +14,8 @@
     "portal:dev": "npm --workspace apps/portal run dev",
     "portal:build": "npm --workspace apps/portal run build",
     "portal:start": "npm --workspace apps/portal run start"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1"
   }
 }

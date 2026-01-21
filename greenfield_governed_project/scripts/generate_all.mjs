@@ -1,16 +1,33 @@
 /*
 PROV: GREENFIELD.SCAFFOLD.GEN.01
-REQ: AUD-REQ-10, SYS-ARCH-15, GREENFIELD-GOV-018, GREENFIELD-GEN-001
+REQ: AUD-REQ-10, SYS-ARCH-15, GREENFIELD-GOV-018, GREENFIELD-GEN-001, GREENFIELD-SCHEMA-001
 WHY: Deterministically generate all human-readable .md outputs and portal feeds from spec sources (including runbook navigation cues).
 */
 
 import fs from "node:fs";
 import path from "node:path";
+import Ajv from "ajv";
 import { repoRootFromHere, relPosix } from "./lib/paths.mjs";
 import { sha256Bytes, sha256File } from "./lib/sha256.mjs";
 
+const ajv = new Ajv({ allErrors: true });
+
 function readJson(p) {
   return JSON.parse(fs.readFileSync(p, "utf8"));
+}
+
+function validateJson(repoRoot, data, schemaName) {
+  const schemaPath = path.join(repoRoot, "spec", "schemas", `${schemaName}.schema.json`);
+  if (!fs.existsSync(schemaPath)) return; // Skip validation if schema doesn't exist
+  
+  const schema = readJson(schemaPath);
+  const validate = ajv.compile(schema);
+  const valid = validate(data);
+  
+  if (!valid) {
+    const errors = validate.errors.map(e => `${e.instancePath} ${e.message}`).join("; ");
+    throw new Error(`schema_validation_failed:${schemaName}:${errors}`);
+  }
 }
 
 function sha256Sources(repoRoot, sourcesRel) {
@@ -158,6 +175,7 @@ function generateIntentFiles({ repoRoot, vars, check, dryRun }) {
       runbooks: obj.runbooks || null,
       close_gate: { commands: obj.close_gate || [], evidence_out_root: `status/audit/${intentId}/runs` },
     };
+    validateJson(repoRoot, scope, "intent_scope");
     const scopeJson = JSON.stringify(scope, null, 2) + "\n";
     writeFileChecked(path.join(statusDir, "scope.json"), scopeJson, check, dryRun);
 
@@ -169,6 +187,7 @@ function generateIntentFiles({ repoRoot, vars, check, dryRun }) {
         primary_task_ids: (wp.items || []).map((x) => String(x).split(/\s+/)[0]),
       })),
     };
+    validateJson(repoRoot, workPackages, "work_packages");
     const workJson = JSON.stringify(workPackages, null, 2) + "\n";
     writeFileChecked(path.join(statusDir, "work_packages.json"), workJson, check, dryRun);
 
@@ -272,6 +291,7 @@ function generateInternalIntentsFeed({ repoRoot, vars, check, dryRun }) {
     requirements_source: vars.requirements_source,
     intents: intents.sort((a, b) => a.intent_id.localeCompare(b.intent_id)),
   };
+  validateJson(repoRoot, out, "internal_intents");
   const outPath = path.join(repoRoot, "status", "portal", "internal_intents.json");
   writeFileChecked(outPath, JSON.stringify(out, null, 2) + "\n", check, dryRun);
 }
