@@ -469,9 +469,11 @@
       "title": "Portal provides an interactive preflight review prompt for intents before implementation.",
       "acceptance": [
         "Intent list and intent detail pages expose a 'Preflight' action for non-closed intents.",
-        "Preflight opens a copy-ready prompt overlay that instructs the LLM to review the intent and ask clarifying questions before implementation.",
+        "Preflight opens a copy-ready prompt overlay that instructs the LLM to review the intent and ask clarifying questions before implementation, and to write a machine-readable preflight report JSON file before pasting the summary to chat.",
         "Preflight prompt is sourced from `spec/prompts/*.prompt.txt` via the prompt API (not hardcoded).",
-        "Prompt API rejects prompts with leftover placeholders (e.g., `<...>`)."
+        "Prompt overlays include a `run_id` (editable) and rendered prompts reuse that run id.",
+        "Prompt API rejects prompts with leftover placeholders (e.g., `<...>`).",
+        "Portal surfaces the latest preflight report at `status/audit/<INTENT_ID>/runs/<run_id>/preflight/preflight_report.json` when it exists."
       ],
       "owner": "platform",
       "tags": ["portal", "ux", "workflows", "prompts"]

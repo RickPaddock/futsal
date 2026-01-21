@@ -11,6 +11,8 @@
     "guardrails": "node scripts/guardrails/validate_repository.mjs",
     "audit:intent": "node scripts/audit/audit_intent.mjs",
     "intent:close": "node scripts/audit/close_intent.mjs",
+    "test": "node --test scripts/**/*.test.mjs",
+    "test:watch": "node --test --watch scripts/**/*.test.mjs",
     "portal:dev": "npm --workspace apps/portal run dev",
     "portal:build": "npm --workspace apps/portal run build",
     "portal:start": "npm --workspace apps/portal run start"

@@ -163,7 +163,7 @@ function PromptOverlay({ title, kind, defaultIntentId, defaultRunId, defaultClos
         <div className="grid" style={{ margin: "10px 0" }}>
           <div className="panel" style={{ padding: 12 }}>
             <div className="kv"><span>intentId</span><span><input value={intentId} onChange={(e) => setIntentId(e.target.value)} /></span></div>
-            {(kind === "implement" || kind === "audit" || kind === "close") ? (
+            {(kind === "preflight" || kind === "implement" || kind === "audit" || kind === "close") ? (
               <div className="kv"><span>runId</span><span><input value={runId} onChange={(e) => setRunId(e.target.value)} /></span></div>
             ) : null}
             {kind === "close" ? (
@@ -226,7 +226,7 @@ export default function IntentsIndex({ intents, nextIntentId }) {
   }
 
   function openPreflightPrompt(intentId) {
-    setOverlay({ title: `Preflight review prompt (${intentId})`, kind: "preflight", intentId });
+    setOverlay({ title: `Preflight review prompt (${intentId})`, kind: "preflight", intentId, runId: utcRunId() });
   }
 
   function openImplementPrompt(intentId) {

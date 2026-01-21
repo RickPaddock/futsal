@@ -96,11 +96,12 @@ export async function getServerSideProps(ctx) {
 
   const auditReportInfo = latestJsonUnderRuns({ candidates: ["audit/audit_report.json", "audit_report.json"] });
   const qualityReportInfo = latestJsonUnderRuns({ candidates: ["quality_audit.json"] });
+  const preflightReportInfo = latestJsonUnderRuns({ candidates: ["preflight/preflight_report.json"] });
 
   const feedTaskIds = Array.isArray(feedIntent?.tasks) ? feedIntent.tasks.map((t) => String(t.task_id || "")).filter(Boolean) : [];
   const missingFromFeed = plannedTaskIds.filter((tid) => !feedTaskIds.includes(tid));
 
-  return { props: { intentId, feedIntent, intentSpec, tasks, scope, workPackages, md, runs, readiness, auditReportInfo, qualityReportInfo, perTask, missingFromFeed } };
+  return { props: { intentId, feedIntent, intentSpec, tasks, scope, workPackages, md, runs, readiness, auditReportInfo, qualityReportInfo, preflightReportInfo, perTask, missingFromFeed } };
 }
 
 function PromptOverlay({ title, kind, defaultIntentId, defaultRunId, defaultClosedDate, onClose }) {
@@ -188,7 +189,7 @@ function PromptOverlay({ title, kind, defaultIntentId, defaultRunId, defaultClos
   );
 }
 
-export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, scope, workPackages, md, runs, readiness, auditReportInfo, qualityReportInfo, perTask, missingFromFeed }) {
+export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, scope, workPackages, md, runs, readiness, auditReportInfo, qualityReportInfo, preflightReportInfo, perTask, missingFromFeed }) {
   const router = useRouter();
   const requirements = feedIntent?.requirements_in_scope || [];
   const tasksDone = tasks.filter((t) => String(t?.status || "").trim() === "done").length;
@@ -389,6 +390,16 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
 
       <section className="panel">
         <h2>Audit</h2>
+        <h2 style={{ marginTop: 0 }}>Preflight</h2>
+        {preflightReportInfo ? (
+          <div className="kv">
+            <span>Latest preflight_report.json</span>
+            <span>
+              <a href={`/api/internal/file?rel=${encodeURIComponent(preflightReportInfo.rel)}`} target="_blank" rel="noreferrer">raw</a>
+            </span>
+          </div>
+        ) : <div className="muted">No preflight_report.json found in status/audit.</div>}
+
         {auditReportInfo ? (
           <div className="kv">
             <span>Latest audit_report.json</span>

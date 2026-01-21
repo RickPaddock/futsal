@@ -1,6 +1,6 @@
 /*
 PROV: GREENFIELD.SCAFFOLD.GUARDRAILS.01
-REQ: AUD-REQ-10, SYS-ARCH-15, GREENFIELD-GOV-018, GREENFIELD-GOV-019
+REQ: AUD-REQ-10, SYS-ARCH-15, GREENFIELD-GOV-018, GREENFIELD-GOV-019, GREENFIELD-TEST-001
 WHY: Enforce governance invariants (generated markdown only, deterministic outputs, evidence format, runbook navigation hygiene) with inline error recovery guidance.
 */
 

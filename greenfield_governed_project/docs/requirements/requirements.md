@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/requirements/index.json + spec/requirements/areas/core.json + spec/requirements/areas/greenfield.json + spec/requirements/areas/v1.json
-source_sha256: sha256:0861b21bb8e59bbb37292ea1ba57133e53fcebbe288ddbb022dae1ca49214b7d
+source_sha256: sha256:1f3656ac5f0a96b9e76cb4d3adbe78d1cc8e78e6bc404aca82ab7f86dfec1615
 ---
 
 # Requirements (generated)
@@ -466,9 +466,11 @@ Acceptance:
 
 Acceptance:
 - Intent list and intent detail pages expose a 'Preflight' action for non-closed intents.
-- Preflight opens a copy-ready prompt overlay that instructs the LLM to review the intent and ask clarifying questions before implementation.
+- Preflight opens a copy-ready prompt overlay that instructs the LLM to review the intent and ask clarifying questions before implementation, and to write a machine-readable preflight report JSON file before pasting the summary to chat.
 - Preflight prompt is sourced from `spec/prompts/*.prompt.txt` via the prompt API (not hardcoded).
+- Prompt overlays include a `run_id` (editable) and rendered prompts reuse that run id.
 - Prompt API rejects prompts with leftover placeholders (e.g., `<...>`).
+- Portal surfaces the latest preflight report at `status/audit/<INTENT_ID>/runs/<run_id>/preflight/preflight_report.json` when it exists.
 
 ## GREENFIELD-GOV-011 — All governed workflows are prompt-driven with explicit evidence capture (no undocumented manual steps).
 
