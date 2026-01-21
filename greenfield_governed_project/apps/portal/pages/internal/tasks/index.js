@@ -1,6 +1,6 @@
 /*
 PROV: GREENFIELD.GOV.PORTAL.TASKS.01
-REQ: SYS-ARCH-15, GREENFIELD-PORTAL-001
+REQ: SYS-ARCH-15, GREENFIELD-PORTAL-001, GREENFIELD-PORTAL-021
 WHY: List task specs from spec/tasks/*.json.
 */
 
@@ -45,6 +45,13 @@ export async function getServerSideProps() {
 export default function TasksIndex({ tasks }) {
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
+  const [page, setPage] = useState(1);
+  const itemsPerPage = 20;
+  
+  const totalPages = Math.ceil(tasks.length / itemsPerPage);
+  const startIdx = (page - 1) * itemsPerPage;
+  const endIdx = startIdx + itemsPerPage;
+  const paginatedTasks = tasks.slice(startIdx, endIdx);
 
   async function refreshAndReload() {
     setRefreshing(true);
@@ -83,7 +90,7 @@ export default function TasksIndex({ tasks }) {
         </div>
       </div>
       <div className="list">
-        {tasks.map((t) => (
+        {paginatedTasks.map((t) => (
           <Link key={t.task_id} className="card" href={`/internal/tasks/${encodeURIComponent(t.task_id)}`}>
             <div className="row">
               <strong>{t.task_id}</strong>
@@ -98,6 +105,28 @@ export default function TasksIndex({ tasks }) {
           </Link>
         ))}
       </div>
+
+      {totalPages > 1 ? (
+        <div className="pagination" style={{ display: "flex", gap: "8px", justifyContent: "center", marginTop: "20px", alignItems: "center" }}>
+          <button 
+            className="btn btnSmall" 
+            disabled={page === 1} 
+            onClick={() => setPage(page - 1)}
+          >
+            Previous
+          </button>
+          <span style={{ padding: "0 12px" }}>
+            Page {page} of {totalPages} ({tasks.length} total)
+          </span>
+          <button 
+            className="btn btnSmall" 
+            disabled={page === totalPages} 
+            onClick={() => setPage(page + 1)}
+          >
+            Next
+          </button>
+        </div>
+      ) : null}
     </main>
   );
 }

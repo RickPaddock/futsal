@@ -1,6 +1,6 @@
 /*
 PROV: GREENFIELD.SCAFFOLD.PORTAL.04
-REQ: SYS-ARCH-15, GREENFIELD-PORTAL-002, GREENFIELD-PORTAL-005, GREENFIELD-PORTAL-011, GREENFIELD-PORTAL-014, GREENFIELD-PORTAL-018, GREENFIELD-PORTAL-020
+REQ: SYS-ARCH-15, GREENFIELD-PORTAL-002, GREENFIELD-PORTAL-005, GREENFIELD-PORTAL-011, GREENFIELD-PORTAL-014, GREENFIELD-PORTAL-018, GREENFIELD-PORTAL-020, GREENFIELD-PORTAL-021
 WHY: List intents, compute readiness from evidence, and provide copy-ready prompt overlays via API.
 */
 
@@ -182,6 +182,13 @@ export default function IntentsIndex({ intents, nextIntentId }) {
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
   const [overlay, setOverlay] = useState(null);
+  const [page, setPage] = useState(1);
+  const itemsPerPage = 20;
+  
+  const totalPages = Math.ceil(intents.length / itemsPerPage);
+  const startIdx = (page - 1) * itemsPerPage;
+  const endIdx = startIdx + itemsPerPage;
+  const paginatedIntents = intents.slice(startIdx, endIdx);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -254,7 +261,7 @@ export default function IntentsIndex({ intents, nextIntentId }) {
         </div>
       </div>
       <div className="list">
-        {intents.map((i) => {
+        {paginatedIntents.map((i) => {
           const intentId = i.intent_id;
           const href = `/internal/intents/${encodeURIComponent(intentId)}`;
           const readiness = i.readiness || {};
@@ -302,6 +309,28 @@ export default function IntentsIndex({ intents, nextIntentId }) {
           );
         })}
       </div>
+
+      {totalPages > 1 ? (
+        <div className="pagination" style={{ display: "flex", gap: "8px", justifyContent: "center", marginTop: "20px", alignItems: "center" }}>
+          <button 
+            className="btn btnSmall" 
+            disabled={page === 1} 
+            onClick={() => setPage(page - 1)}
+          >
+            Previous
+          </button>
+          <span style={{ padding: "0 12px" }}>
+            Page {page} of {totalPages} ({intents.length} total)
+          </span>
+          <button 
+            className="btn btnSmall" 
+            disabled={page === totalPages} 
+            onClick={() => setPage(page + 1)}
+          >
+            Next
+          </button>
+        </div>
+      ) : null}
 
       {overlay ? (
         <PromptOverlay
