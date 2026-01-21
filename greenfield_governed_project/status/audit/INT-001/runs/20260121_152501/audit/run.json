@@ -1,0 +1,25 @@
+{
+  "run_id": "20260121_152501",
+  "timestamp_start": "2026-01-21T15:26:00Z",
+  "timestamp_end": "2026-01-21T15:26:01Z",
+  "command": "npm run audit:intent -- --intent-id INT-001 --out status/audit/INT-001/runs/20260121_152501/audit/audit_report.json",
+  "args": [
+    "npm",
+    "run",
+    "audit:intent",
+    "--",
+    "--intent-id",
+    "INT-001",
+    "--out",
+    "status/audit/INT-001/runs/20260121_152501/audit/audit_report.json"
+  ],
+  "exit_code": 0,
+  "cwd": ".",
+  "actor": "llm",
+  "intent_id": "INT-001",
+  "artefacts": [
+    {
+      "path": "status/audit/INT-001/runs/20260121_152501/audit/audit_report.json"
+    }
+  ]
+}

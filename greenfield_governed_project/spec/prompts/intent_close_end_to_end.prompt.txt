@@ -31,6 +31,8 @@ A) Preflight (do not modify anything yet)
 1) Open `spec/intents/<INTENT_ID>.json` and confirm:
    - `status` is `todo` (must not be `draft`)
    - `task_ids_planned[]` is non-empty
+   - `runbooks` section exists with explicit decision (`none` | `create` | `update`) and non-empty `notes`
+     - If `decision` is `create` or `update`, `runbooks.paths_mdt[]` lists impacted `spec/md/docs/runbooks/*.mdt` templates
    - `close_gate[]` includes `npm run audit:intent -- --intent-id <INTENT_ID>`
 2) For each task in `task_ids_planned[]`, open `spec/tasks/TASK_ID.json`.
    - If any task is `status: todo`, confirm it has `deliverables[]` and at least one deliverable.

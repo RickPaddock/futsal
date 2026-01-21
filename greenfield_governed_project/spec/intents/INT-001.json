@@ -3,6 +3,11 @@
   "title": "Bootstrap Fusbal governed project: requirements, provenance, evidence, portal",
   "status": "closed",
   "created_date": "2026-01-20",
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
   "close_gate": [
     "npm run guardrails",
     "npm run generate:check",

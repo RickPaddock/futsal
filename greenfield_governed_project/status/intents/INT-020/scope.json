@@ -11,6 +11,11 @@
     "TASK-CAL-002",
     "TASK-CAL-003"
   ],
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
   "close_gate": {
     "commands": [
       "npm run guardrails",

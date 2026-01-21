@@ -3,6 +3,15 @@
   "title": "Define V1 output contract + pipeline scaffolding",
   "status": "todo",
   "created_date": "2026-01-20",
+  "runbooks": {
+    "decision": "update",
+    "paths_mdt": [
+      "spec/md/docs/runbooks/evidence.mdt",
+      "spec/md/docs/runbooks/intent-quality.mdt",
+      "spec/md/docs/runbooks/intent-and-task-workflow.mdt"
+    ],
+    "notes": "This intent updates audit/runbook guidance so future LLMs understand evidence capture, generation writes, and portal navigation expectations."
+  },
   "close_gate": [
     "npm run guardrails",
     "npm run generate:check",

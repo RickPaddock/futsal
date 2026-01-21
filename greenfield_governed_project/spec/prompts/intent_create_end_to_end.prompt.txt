@@ -39,6 +39,10 @@ B) Write canonical spec JSON files (edit the repo)
      - `npm run generate:check`
      - `npm run audit:intent -- --intent-id <INTENT_ID>`
    - `task_ids_planned[]` listing all task ids
+   - `runbooks` section declaring the intent’s runbook/navigation impact:
+     - `decision`: one of `none`, `create`, `update`
+     - `paths_mdt[]`: list of impacted `spec/md/docs/runbooks/*.mdt` template paths (empty if `decision: none`)
+     - `notes`: non-empty rationale for future LLMs navigating the repo
    - `quality_areas[]` defining BOTH:
      - `area_id: "functional"` with non-empty `task_ids[]`
      - `area_id: "nonfunctional"` with non-empty `task_ids[]` and `categories_required` including:

@@ -3,6 +3,11 @@
   "title": "Calibration + BEV mapping MVP",
   "status": "todo",
   "created_date": "2026-01-20",
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
   "close_gate": [
     "npm run guardrails",
     "npm run generate:check",

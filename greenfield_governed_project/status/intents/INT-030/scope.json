@@ -11,6 +11,11 @@
     "TASK-PLAYER-MOT-001",
     "TASK-TEAM-001"
   ],
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
   "close_gate": {
     "commands": [
       "npm run guardrails",

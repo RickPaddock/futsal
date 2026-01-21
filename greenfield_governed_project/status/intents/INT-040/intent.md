@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/intents/INT-040.json
-source_sha256: sha256:f557af1bb1dfc4cada3798ab41f01e079386c27fbc99bbac7b573beb3b46e53b
+source_sha256: sha256:9f0e480956d8c64fc5fd17f9ff1cd27a0ee591fb111a2ea75545edc004be2cb3
 intent_id: INT-040
 title: Ball tracking + conservative shots/goals (V1)
 status: todo
@@ -27,4 +27,10 @@ close_gate:
 ### INT-040-002 — Shots/goals inference
 
 - TASK-EVENT-001 Conservative shots/goals inference with confidence + evidence pointers + contract update.
+
+## Runbooks (LLM navigation)
+
+- Decision: `none`
+- Templates: (none)
+- Notes: No runbook changes required for this intent.
 

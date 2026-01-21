@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/intents/INT-030.json
-source_sha256: sha256:da43467b03ccd2c85571a94553310f7a04f1448e6a891c1fb601b71a4e8f78c2
+source_sha256: sha256:31d48bb4853ec66097c60616b4fece1bd84d787baa7e2f8280d4a5640c5efc39
 intent_id: INT-030
 title: Player tracking MVP (trust-first)
 status: todo
@@ -27,4 +27,10 @@ close_gate:
 ### INT-030-002 — Team assignment
 
 - TASK-TEAM-001 Bib-color team assignment A/B/Unknown with smoothing + diagnostics + contract update.
+
+## Runbooks (LLM navigation)
+
+- Decision: `none`
+- Templates: (none)
+- Notes: No runbook changes required for this intent.
 

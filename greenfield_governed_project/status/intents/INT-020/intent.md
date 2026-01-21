@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/intents/INT-020.json
-source_sha256: sha256:096a7cb4a058df958559047d1b2adf0f000a166695eac94477549c609abda7ac
+source_sha256: sha256:f28987cddeebade10b6b6a25e47901ac44411b115db42be5760eb024d32336cf
 intent_id: INT-020
 title: Calibration + BEV mapping MVP
 status: todo
@@ -27,4 +27,10 @@ close_gate:
 ### INT-020-002 — Manual fallback + quality gates
 
 - TASK-CAL-003 Manual correspondence fallback input + explicit calibration quality gating + contract update.
+
+## Runbooks (LLM navigation)
+
+- Decision: `none`
+- Templates: (none)
+- Notes: No runbook changes required for this intent.
 

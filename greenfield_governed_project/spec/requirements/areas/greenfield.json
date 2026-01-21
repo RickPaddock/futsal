@@ -533,6 +533,161 @@
       ],
       "owner": "platform",
       "tags": ["governance", "audit", "close", "quality", "evidence"]
+    },
+    {
+      "id": "GREENFIELD-GOV-018",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["guardrails:intent_runbook_decision", "audit:intent", "intent:close"],
+      "title": "Each intent explicitly decides runbook/documentation impact for LLM navigation.",
+      "acceptance": [
+        "Every non-draft intent includes a `runbooks` section in `spec/intents/<INTENT_ID>.json` with an explicit decision: `none`, `create`, or `update`.",
+        "If decision is `create` or `update`, intent lists the impacted runbook template paths under `runbooks.paths_mdt[]` (file-level `spec/md/docs/runbooks/*.mdt`) and provides a non-empty `runbooks.notes` rationale.",
+        "Guardrails and intent audit validate that referenced runbook templates exist and their generated outputs are present after generation, improving future LLM navigation."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "runbooks", "documentation", "llm-navigation"]
+    },
+    {
+      "id": "GREENFIELD-TEST-001",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["manual:code_review"],
+      "title": "Unit tests exist for core guardrails validation functions.",
+      "acceptance": [
+        "Test coverage exists for validateIntentRunbooks(), scanRepoReqTags(), hasGeneratedFrontmatter(), and other core validation logic.",
+        "Tests cover valid/invalid cases and edge cases (e.g., missing fields, malformed JSON).",
+        "Tests run as part of CI (when CI is configured)."
+      ],
+      "owner": "platform",
+      "tags": ["testing", "guardrails", "quality"]
+    },
+    {
+      "id": "GREENFIELD-EVIDENCE-001",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["manual:code_review"],
+      "title": "Evidence recorder captures stdout/stderr for debugging failed runs.",
+      "acceptance": [
+        "tools/evidence/record_run.mjs captures stdout/stderr using spawnSync.stdout/stderr.",
+        "run.json schema includes optional stdout/stderr fields when present.",
+        "Output size is capped (e.g., 50KB tail) to avoid huge evidence files."
+      ],
+      "owner": "platform",
+      "tags": ["evidence", "observability", "debugging"]
+    },
+    {
+      "id": "GREENFIELD-SCHEMA-001",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["generate:schema_validation"],
+      "title": "Generated portal JSON outputs are validated against schemas.",
+      "acceptance": [
+        "JSON schemas exist for status/portal/internal_intents.json and status/intents/*/scope.json.",
+        "Schema validation runs in scripts/generate_all.mjs after generation.",
+        "Generation fails with actionable errors if schema validation fails."
+      ],
+      "owner": "platform",
+      "tags": ["generation", "schemas", "validation"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-021",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["portal:ui_smoke", "manual:portal_review"],
+      "title": "Portal intents/tasks lists support pagination for large repos.",
+      "acceptance": [
+        "Portal adds ?page=N query param support to intents/tasks list pages.",
+        "Lists are sliced by page offset in getServerSideProps (e.g., 20 per page).",
+        "UI includes pagination controls (Prev/Next buttons)."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "ux", "performance"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-022",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["portal:ui_smoke", "manual:portal_review"],
+      "title": "Portal audit runs view includes 'Copy evidence command' button.",
+      "acceptance": [
+        "Intent detail page shows a 'Copy command' button next to each audit run.",
+        "Button pre-fills evidence recorder command with correct intent_id, run_id, and npm command.",
+        "Uses navigator.clipboard.writeText() to copy to clipboard."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "ux", "evidence"]
+    },
+    {
+      "id": "GREENFIELD-GOV-019",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["guardrails:error_guidance"],
+      "title": "Guardrails failures include inline error recovery guidance.",
+      "acceptance": [
+        "Error messages in scripts/guardrails/validate_repository.mjs include fix guidance.",
+        "For intent_missing_runbooks, suggest adding runbooks: {decision: 'none', notes: '...', paths_mdt: []}.",
+        "For requirements_done_missing_refs, suggest adding REQ: tags to code."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "ux", "observability"]
+    },
+    {
+      "id": "GREENFIELD-GEN-001",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["generate:dry_run_check"],
+      "title": "Generation supports dry-run mode to preview diffs without writing files.",
+      "acceptance": [
+        "scripts/generate_all.mjs supports --dry-run flag.",
+        "In dry-run mode, compare existing vs new content and print diffs.",
+        "Exit with non-zero if diffs are found (suitable for CI checks)."
+      ],
+      "owner": "platform",
+      "tags": ["generation", "workflows"]
+    },
+    {
+      "id": "GREENFIELD-GOV-020",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["guardrails:intent_status_transition"],
+      "title": "Intent status transitions are validated (cannot skip states).",
+      "acceptance": [
+        "Guardrails validate intent status transitions (draft→todo→closed).",
+        "Intents cannot go directly from draft to closed without passing through todo.",
+        "Validation uses git history or closed_date as signal."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "intents"]
+    },
+    {
+      "id": "GREENFIELD-OPS-003",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["manual:ops_runbook"],
+      "title": "Audit run retention policy is documented.",
+      "acceptance": [
+        "spec/md/docs/runbooks/evidence-retention.mdt template documents retention policy.",
+        "Recommended policy: keep latest 10 runs per intent, archive rest.",
+        "Optional pruning script: scripts/prune_old_evidence.mjs exists."
+      ],
+      "owner": "platform",
+      "tags": ["ops", "evidence", "documentation"]
+    },
+    {
+      "id": "GREENFIELD-WORKFLOWS-001",
+      "status": "canonical",
+      "tracking": { "implementation": "todo" },
+      "guardrails": ["manual:workflow_review"],
+      "title": "Intent archival workflow exists for completed work.",
+      "acceptance": [
+        "npm run intent:archive -- --intent-id INT-001 command exists.",
+        "Archives spec/intents/<INTENT_ID>.json to spec/intents/archive/<INTENT_ID>.json.",
+        "Generation skips archived intents in portal feed.",
+        "Portal has optional archived intents view."
+      ],
+      "owner": "platform",
+      "tags": ["workflows", "intents", "archival"]
     }
   ]
 }

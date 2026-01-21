@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/requirements/index.json + spec/requirements/areas/core.json + spec/requirements/areas/greenfield.json + spec/requirements/areas/v1.json
-source_sha256: sha256:feb34c62b6a85ba9b2633f4438b00371d6a2dec67080d4103fe933087541afb8
+source_sha256: sha256:0861b21bb8e59bbb37292ea1ba57133e53fcebbe288ddbb022dae1ca49214b7d
 ---
 
 # Requirements (generated)
@@ -523,6 +523,150 @@ Acceptance:
 - Audit runs produce per-task reports at `status/audit/<INTENT_ID>/runs/<run_id>/tasks/<TASK_ID>/quality_audit.json` that include both `functional` and `nonfunctional` sections.
 - Per-task non-functional validation covers: correctness/safety, performance, security, maintainability.
 - Close fails if any planned task is missing the per-task quality audit report, or if any report does not pass functional + non-functional gates.
+
+## GREENFIELD-GOV-018 — Each intent explicitly decides runbook/documentation impact for LLM navigation.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `guardrails:intent_runbook_decision`, `audit:intent`, `intent:close`
+- Owner: `platform`
+- Tags: `governance`, `runbooks`, `documentation`, `llm-navigation`
+
+Acceptance:
+- Every non-draft intent includes a `runbooks` section in `spec/intents/<INTENT_ID>.json` with an explicit decision: `none`, `create`, or `update`.
+- If decision is `create` or `update`, intent lists the impacted runbook template paths under `runbooks.paths_mdt[]` (file-level `spec/md/docs/runbooks/*.mdt`) and provides a non-empty `runbooks.notes` rationale.
+- Guardrails and intent audit validate that referenced runbook templates exist and their generated outputs are present after generation, improving future LLM navigation.
+
+## GREENFIELD-TEST-001 — Unit tests exist for core guardrails validation functions.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `manual:code_review`
+- Owner: `platform`
+- Tags: `testing`, `guardrails`, `quality`
+
+Acceptance:
+- Test coverage exists for validateIntentRunbooks(), scanRepoReqTags(), hasGeneratedFrontmatter(), and other core validation logic.
+- Tests cover valid/invalid cases and edge cases (e.g., missing fields, malformed JSON).
+- Tests run as part of CI (when CI is configured).
+
+## GREENFIELD-EVIDENCE-001 — Evidence recorder captures stdout/stderr for debugging failed runs.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `manual:code_review`
+- Owner: `platform`
+- Tags: `evidence`, `observability`, `debugging`
+
+Acceptance:
+- tools/evidence/record_run.mjs captures stdout/stderr using spawnSync.stdout/stderr.
+- run.json schema includes optional stdout/stderr fields when present.
+- Output size is capped (e.g., 50KB tail) to avoid huge evidence files.
+
+## GREENFIELD-SCHEMA-001 — Generated portal JSON outputs are validated against schemas.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `generate:schema_validation`
+- Owner: `platform`
+- Tags: `generation`, `schemas`, `validation`
+
+Acceptance:
+- JSON schemas exist for status/portal/internal_intents.json and status/intents/*/scope.json.
+- Schema validation runs in scripts/generate_all.mjs after generation.
+- Generation fails with actionable errors if schema validation fails.
+
+## GREENFIELD-PORTAL-021 — Portal intents/tasks lists support pagination for large repos.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `portal:ui_smoke`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `ux`, `performance`
+
+Acceptance:
+- Portal adds ?page=N query param support to intents/tasks list pages.
+- Lists are sliced by page offset in getServerSideProps (e.g., 20 per page).
+- UI includes pagination controls (Prev/Next buttons).
+
+## GREENFIELD-PORTAL-022 — Portal audit runs view includes 'Copy evidence command' button.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `portal:ui_smoke`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `ux`, `evidence`
+
+Acceptance:
+- Intent detail page shows a 'Copy command' button next to each audit run.
+- Button pre-fills evidence recorder command with correct intent_id, run_id, and npm command.
+- Uses navigator.clipboard.writeText() to copy to clipboard.
+
+## GREENFIELD-GOV-019 — Guardrails failures include inline error recovery guidance.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:error_guidance`
+- Owner: `platform`
+- Tags: `governance`, `ux`, `observability`
+
+Acceptance:
+- Error messages in scripts/guardrails/validate_repository.mjs include fix guidance.
+- For intent_missing_runbooks, suggest adding runbooks: {decision: 'none', notes: '...', paths_mdt: []}.
+- For requirements_done_missing_refs, suggest adding REQ: tags to code.
+
+## GREENFIELD-GEN-001 — Generation supports dry-run mode to preview diffs without writing files.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `generate:dry_run_check`
+- Owner: `platform`
+- Tags: `generation`, `workflows`
+
+Acceptance:
+- scripts/generate_all.mjs supports --dry-run flag.
+- In dry-run mode, compare existing vs new content and print diffs.
+- Exit with non-zero if diffs are found (suitable for CI checks).
+
+## GREENFIELD-GOV-020 — Intent status transitions are validated (cannot skip states).
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:intent_status_transition`
+- Owner: `platform`
+- Tags: `governance`, `intents`
+
+Acceptance:
+- Guardrails validate intent status transitions (draft→todo→closed).
+- Intents cannot go directly from draft to closed without passing through todo.
+- Validation uses git history or closed_date as signal.
+
+## GREENFIELD-OPS-003 — Audit run retention policy is documented.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `manual:ops_runbook`
+- Owner: `platform`
+- Tags: `ops`, `evidence`, `documentation`
+
+Acceptance:
+- spec/md/docs/runbooks/evidence-retention.mdt template documents retention policy.
+- Recommended policy: keep latest 10 runs per intent, archive rest.
+- Optional pruning script: scripts/prune_old_evidence.mjs exists.
+
+## GREENFIELD-WORKFLOWS-001 — Intent archival workflow exists for completed work.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `manual:workflow_review`
+- Owner: `platform`
+- Tags: `workflows`, `intents`, `archival`
+
+Acceptance:
+- npm run intent:archive -- --intent-id INT-001 command exists.
+- Archives spec/intents/<INTENT_ID>.json to spec/intents/archive/<INTENT_ID>.json.
+- Generation skips archived intents in portal feed.
+- Portal has optional archived intents view.
 
 ## FUSBAL-V1-TRUST-001 — Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.
 

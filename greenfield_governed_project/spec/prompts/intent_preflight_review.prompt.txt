@@ -19,7 +19,7 @@ Inputs (read first)
 2) status/intents/<INTENT_ID>/intent.md (read-only; generated)
 3) status/intents/<INTENT_ID>/scope.json (read-only; generated)
 4) status/intents/<INTENT_ID>/work_packages.json (read-only; generated)
-5) For each planned task id in spec/intents/<INTENT_ID>.json, read spec/tasks/<TASK_ID>.json
+5) For each planned task id in spec/intents/<INTENT_ID>.json, read spec/tasks/TASK_ID.json
 6) Requirements sources: spec/project.json (requirements_source) plus the referenced spec/requirements/*.json
 
 The 10 things this preflight MUST do
@@ -27,7 +27,7 @@ The 10 things this preflight MUST do
 2) Ambiguity scan: quote vague phrases and rewrite them into measurable, testable statements.
 3) Define terms + boundaries: list repo-specific terms used without definition and propose definitions/out-of-scope boundaries.
 4) Acceptance criteria sanity: ensure acceptance criteria are objective; add missing negative paths/edge cases.
-5) Task validity check: verify every planned task id in spec/intents/<INTENT_ID>.json exists as spec/tasks/<TASK_ID>.json and is spelled exactly.
+5) Task validity check: verify every planned task id in spec/intents/<INTENT_ID>.json exists as spec/tasks/TASK_ID.json and is spelled exactly.
 6) Requirement validity check: verify every requirement id referenced is a real requirement id (no ranges) and consistent with the intent narrative.
 7) Work package completeness: ensure generated work_packages cover all planned tasks (no unassigned tasks) and titles are clear.
 8) Scope enforcement check: review paths_allowed vs paths_excluded for creep risk; ensure derived artefacts are excluded; ensure no workspace-specific path assumptions.
@@ -52,7 +52,7 @@ Return your result in this exact structure:
 5) Suggested patch (optional but preferred)
 	- If you can fix issues without asking questions, propose an apply_patch patch that edits only canonical sources:
 	  - spec/intents/<INTENT_ID>.json
-	  - spec/tasks/<TASK_ID>.json (only if needed)
+	  - spec/tasks/TASK_ID.json (only if needed)
 	  - spec/requirements/** (only if needed)
 	  - spec/project.json (only if needed)
 

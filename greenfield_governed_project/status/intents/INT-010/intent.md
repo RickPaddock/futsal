@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/intents/INT-010.json
-source_sha256: sha256:ba04410838a8681d0588e33d391b5d76b06ca606249b5c57e1a0c11bed2342a1
+source_sha256: sha256:29ef0bce8287c5218cc444f25f11f5809f41edcb9337801ae30c09130a34d3da
 intent_id: INT-010
 title: Define V1 output contract + pipeline scaffolding
 status: todo
@@ -40,4 +40,10 @@ close_gate:
 - TASK-INT-010-IMP-008 Show per-task quality audit results in the internal portal UI.
 - TASK-INT-010-IMP-009 Capture evidence for `npm run generate` runs and enforce at close.
 - TASK-INT-010-IMP-010 Add lightweight formatting/linting for the pipeline Python package.
+
+## Runbooks (LLM navigation)
+
+- Decision: `update`
+- Templates: `spec/md/docs/runbooks/evidence.mdt`, `spec/md/docs/runbooks/intent-quality.mdt`, `spec/md/docs/runbooks/intent-and-task-workflow.mdt`
+- Notes: This intent updates audit/runbook guidance so future LLMs understand evidence capture, generation writes, and portal navigation expectations.
 

@@ -10,14 +10,14 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useState } from "react";
 
-import { isValidTaskId, repoRootFromPortalCwd } from "../../../lib/portal_read_model.js";
-
 function safeReadJson(p) {
   if (!fs.existsSync(p)) return null;
   return JSON.parse(fs.readFileSync(p, "utf8"));
 }
 
 export async function getServerSideProps(ctx) {
+  const { isValidTaskId, repoRootFromPortalCwd } = await import("../../../lib/portal_read_model.js");
+
   const taskId = String(ctx.params?.taskId || "");
   if (!isValidTaskId(taskId)) return { notFound: true };
   const repoRoot = repoRootFromPortalCwd();

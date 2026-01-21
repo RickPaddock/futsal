@@ -39,6 +39,7 @@ QUALITY AUDIT SCOPE (default, no questions):
 MUST DO (checklist):
 1) Read `spec/intents/<INTENT_ID>.json` and confirm it exists.
    - Confirm intent declares `quality_areas[]` with both `functional` and `nonfunctional` areas and tasks assigned to both.
+   - Confirm intent includes `runbooks` decision (`none`|`create`|`update`) with non-empty `notes`; if `create`/`update`, verify `paths_mdt[]` lists the impacted `spec/md/docs/runbooks/*.mdt` templates.
 2) Read every task spec in `task_ids_planned[]` from `spec/tasks/TASK_ID.json`.
 3) Build a list of deliverable file paths from all tasks’ `deliverables[].paths[]`.
 4) Read generated intent scope (do not edit):

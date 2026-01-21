@@ -17,6 +17,10 @@ This repo treats planning artefacts as canonical JSON and generates all human-re
    - `closed`: passed audit and close process completed successfully
 2) Populate required fields:
    - `intent_id`, `title`, `status`, `created_date`
+   - `runbooks` (LLM navigation decision; required for all non-draft intents):
+     - `decision`: `none` | `create` | `update`
+     - `paths_mdt[]`: impacted runbook template paths (`spec/md/docs/runbooks/*.mdt`); empty if `decision: none`
+     - `notes`: non-empty rationale so future LLMs understand what changed (or why nothing changed)
    - `requirements_in_scope[]`
    - `task_ids_planned[]`
    - `work_packages[]` with `items[]` lines starting with the task id

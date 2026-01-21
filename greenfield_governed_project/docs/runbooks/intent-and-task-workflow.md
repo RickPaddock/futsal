@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/md/docs/runbooks/intent-and-task-workflow.mdt
-source_sha256: sha256:0012c73f78f987c5bccc29f3990f35bf33f4efacfe04a8b856b133cd0c86d10d
+source_sha256: sha256:b16bd0bd9e243897bd7f6a5a9fa81c9efcdd026c2af125714e39f004e104d7f3
 ---
 
 # Intent and task workflow
@@ -23,6 +23,10 @@ This repo treats planning artefacts as canonical JSON and generates all human-re
    - `closed`: passed audit and close process completed successfully
 2) Populate required fields:
    - `intent_id`, `title`, `status`, `created_date`
+   - `runbooks` (LLM navigation decision; required for all non-draft intents):
+     - `decision`: `none` | `create` | `update`
+     - `paths_mdt[]`: impacted runbook template paths (`spec/md/docs/runbooks/*.mdt`); empty if `decision: none`
+     - `notes`: non-empty rationale so future LLMs understand what changed (or why nothing changed)
    - `requirements_in_scope[]`
    - `task_ids_planned[]`
    - `work_packages[]` with `items[]` lines starting with the task id

@@ -23,6 +23,15 @@
     "TASK-INT-010-IMP-009",
     "TASK-INT-010-IMP-010"
   ],
+  "runbooks": {
+    "decision": "update",
+    "paths_mdt": [
+      "spec/md/docs/runbooks/evidence.mdt",
+      "spec/md/docs/runbooks/intent-quality.mdt",
+      "spec/md/docs/runbooks/intent-and-task-workflow.mdt"
+    ],
+    "notes": "This intent updates audit/runbook guidance so future LLMs understand evidence capture, generation writes, and portal navigation expectations."
+  },
   "close_gate": {
     "commands": [
       "npm run guardrails",

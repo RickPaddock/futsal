@@ -1,7 +1,7 @@
 /*
 PROV: GREENFIELD.SCAFFOLD.EVIDENCE.01
-REQ: SYS-ARCH-15
-WHY: Run a command and write a deterministic run.json evidence record.
+REQ: SYS-ARCH-15, GREENFIELD-EVIDENCE-001
+WHY: Run a command and write a deterministic run.json evidence record with stdout/stderr capture.
 */
 
 import crypto from "node:crypto";
@@ -63,8 +63,18 @@ if (!args.cmd.length) {
 
 const outPath = path.isAbsolute(args.out) ? args.out : path.join(repoRoot, args.out);
 const timestampStart = utcNow();
-const res = spawnSync(args.cmd[0], args.cmd.slice(1), { cwd: repoRoot, stdio: "inherit" });
+const res = spawnSync(args.cmd[0], args.cmd.slice(1), { cwd: repoRoot, stdio: ["inherit", "pipe", "pipe"] });
 const timestampEnd = utcNow();
+
+const MAX_OUTPUT = 50_000;
+let stdout = res.stdout ? res.stdout.toString("utf8") : "";
+let stderr = res.stderr ? res.stderr.toString("utf8") : "";
+if (stdout.length > MAX_OUTPUT) stdout = stdout.slice(stdout.length - MAX_OUTPUT);
+if (stderr.length > MAX_OUTPUT) stderr = stderr.slice(stderr.length - MAX_OUTPUT);
+
+// Print captured output to console so it's still visible
+if (stdout) process.stdout.write(stdout);
+if (stderr) process.stderr.write(stderr);
 
 ensureDir(path.dirname(outPath));
 const payload = {
@@ -79,6 +89,8 @@ const payload = {
   intent_id: args.intentId || undefined,
   artefacts: collectArtefacts(repoRoot, args.artefacts),
 };
+if (stdout) payload.stdout = stdout;
+if (stderr) payload.stderr = stderr;
 fs.writeFileSync(outPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
 process.exit(res.status ?? 1);
 

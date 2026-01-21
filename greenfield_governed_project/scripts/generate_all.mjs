@@ -1,7 +1,7 @@
 /*
 PROV: GREENFIELD.SCAFFOLD.GEN.01
-REQ: AUD-REQ-10, SYS-ARCH-15
-WHY: Deterministically generate all human-readable .md outputs and portal feeds from spec sources.
+REQ: AUD-REQ-10, SYS-ARCH-15, GREENFIELD-GOV-018
+WHY: Deterministically generate all human-readable .md outputs and portal feeds from spec sources (including runbook navigation cues).
 */
 
 import fs from "node:fs";
@@ -150,6 +150,7 @@ function generateIntentFiles({ repoRoot, vars, check }) {
       title: obj.title || "",
       requirements_in_scope: obj.requirements_in_scope || [],
       task_ids_planned: obj.task_ids_planned || [],
+      runbooks: obj.runbooks || null,
       close_gate: { commands: obj.close_gate || [], evidence_out_root: `status/audit/${intentId}/runs` },
     };
     const scopeJson = JSON.stringify(scope, null, 2) + "\n";
@@ -192,6 +193,19 @@ function generateIntentFiles({ repoRoot, vars, check }) {
       for (const item of wp.items || []) mdLines.push(`- ${item}`);
       mdLines.push("");
     }
+
+    mdLines.push("## Runbooks (LLM navigation)");
+    mdLines.push("");
+    const rb = obj.runbooks || {};
+    mdLines.push(`- Decision: \`${rb.decision || "missing"}\``);
+    if (Array.isArray(rb.paths_mdt) && rb.paths_mdt.length) {
+      mdLines.push(`- Templates: ${rb.paths_mdt.map((p) => `\`${p}\``).join(", ")}`);
+    } else {
+      mdLines.push(`- Templates: (none)`);
+    }
+    mdLines.push(`- Notes: ${rb.notes || ""}`);
+    mdLines.push("");
+
     writeFileChecked(path.join(statusDir, "intent.md"), mdLines.join("\n") + "\n", check);
   }
 }

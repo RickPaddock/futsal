@@ -1,0 +1,88 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-001",
+  "run_id": "20260121_152501",
+  "task_id": "TASK-BOOT-003",
+  "timestamp": "2026-01-21T15:27:00Z",
+  "functional": {
+    "status": "pass",
+    "notes": "Evidence recorder captures command runs with timestamps + exit codes. Portal lists intents/tasks and triggers refresh.",
+    "evidence": [
+      "tools/evidence/record_run.mjs writes run.json with command, args, timestamps, exit_code",
+      "apps/portal/pages/internal/intents/index.js lists intents sorted by status",
+      "apps/portal/pages/internal/intents/[intentId].js shows intent details + linked tasks + audit runs",
+      "apps/portal/pages/api/internal/refresh.js triggers npm run generate and writes evidence"
+    ],
+    "findings": []
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "notes": "Evidence recorder uses deterministic JSON schema. Portal validates intent/run IDs before filesystem access.",
+      "evidence": [
+        "record_run.mjs uses spawnSync + structured payload (no shell)",
+        "collectArtefacts() validates file existence before SHA256",
+        "apps/portal/lib/portal_read_model.js: isValidIntentId/isValidRunId prevent path injection",
+        "writeRunEvidence() creates deterministic paths (status/audit/INTENT_ID/runs/RUN_ID/stage/run.json)"
+      ],
+      "findings": []
+    },
+    "performance": {
+      "status": "pass",
+      "notes": "Portal uses server-side rendering with bounded IO. Evidence recorder is fast (spawnSync + single JSON write).",
+      "evidence": [
+        "Portal uses Next.js getServerSideProps with limited file reads",
+        "listAuditRunsDeep() recursively discovers run.json files but is bounded by run count",
+        "safeReadJson() catches parse errors gracefully",
+        "Portal refresh caps stdout/stderr at 200KB (MAX constant)"
+      ],
+      "findings": []
+    },
+    "security": {
+      "status": "pass",
+      "notes": "Refresh is same-origin hardened; no arbitrary command execution. Evidence recorder uses safe path construction.",
+      "evidence": [
+        "refresh.js: isSameOrigin() blocks cross-origin requests",
+        "refresh.js: allowRefresh() checks NODE_ENV before allowing refresh",
+        "isValidIntentId/isValidRunId validate inputs before path construction",
+        "record_run.mjs: relPosix() normalizes paths safely"
+      ],
+      "findings": []
+    },
+    "maintainability": {
+      "status": "pass",
+      "notes": "Portal uses a shared read-model module (portal_read_model.js); evidence recorder is simple and auditable.",
+      "evidence": [
+        "apps/portal/lib/portal_read_model.js centralizes file reads + validation logic",
+        "listAuditRunsDeep() is reusable for all run discovery needs",
+        "evaluateCloseGates() is a pure function (testable)",
+        "record_run.mjs is < 100 LOC; single responsibility"
+      ],
+      "findings": []
+    },
+    "overall_status": "pass"
+  },
+  "gate": {
+    "status": "pass",
+    "blockers": []
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-BOOT-003.json",
+    "deliverable_paths": [
+      "tools/evidence/record_run.mjs",
+      "apps/portal/pages/internal/intents/index.js",
+      "apps/portal/pages/internal/intents/[intentId].js",
+      "apps/portal/pages/api/internal/refresh.js"
+    ],
+    "code_paths_reviewed": [
+      "tools/evidence/record_run.mjs",
+      "apps/portal/lib/portal_read_model.js",
+      "apps/portal/pages/api/internal/refresh.js"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 9,
+    "notes": "Strong evidence + portal foundation; same-origin hardened, validated inputs."
+  }
+}

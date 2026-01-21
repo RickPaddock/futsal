@@ -1,0 +1,217 @@
+{
+  "type": "intent_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-001",
+  "run_id": "20260121_152501",
+  "timestamp": "2026-01-21T15:27:30Z",
+  "scope": {
+    "areas_in_scope": [
+      "pipeline",
+      "portal",
+      "scripts",
+      "tools"
+    ]
+  },
+  "audit_inputs": {
+    "intent_spec_path": "spec/intents/INT-001.json",
+    "task_spec_paths": [
+      "spec/tasks/TASK-BOOT-001.json",
+      "spec/tasks/TASK-BOOT-002.json",
+      "spec/tasks/TASK-BOOT-003.json",
+      "spec/tasks/TASK-BOOT-004.json"
+    ],
+    "code_paths_reviewed": [
+      "scripts/generate_all.mjs",
+      "scripts/guardrails/validate_repository.mjs",
+      "scripts/lib/paths.mjs",
+      "scripts/lib/sha256.mjs",
+      "tools/evidence/record_run.mjs",
+      "apps/portal/pages/internal/intents/index.js",
+      "apps/portal/pages/internal/intents/[intentId].js",
+      "apps/portal/pages/api/internal/refresh.js",
+      "apps/portal/lib/portal_read_model.js"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 9,
+    "top_risks": [
+      "Guardrails do not validate that runbooks decision='none' is used consistently (could allow unintended changes)",
+      "Portal refresh does not validate generation output before exposing it (no schema validation on generated JSON)",
+      "Evidence recorder does not capture stdout/stderr (harder to debug failed runs)"
+    ],
+    "top_quick_wins": [
+      "Add unit tests for core guardrails validation functions",
+      "Add portal pagination for large intent/task lists",
+      "Add a 'Copy evidence command' button in portal for audit runs"
+    ]
+  },
+  "verification": {
+    "functional": {
+      "status": "pass",
+      "notes": "All 4 tasks meet their functional objectives: generators work end-to-end, guardrails enforce invariants, evidence recorder + portal are usable, docs templates exist."
+    },
+    "nonfunctional": {
+      "correctness_safety": {
+        "status": "pass",
+        "notes": "Code uses explicit validation, safe path handling, deterministic error codes. No shell injection or path traversal risks."
+      },
+      "performance": {
+        "status": "pass",
+        "notes": "Generation and guardrails are fast for typical repo sizes. Portal uses bounded IO and caps stdout/stderr at 200KB."
+      },
+      "security": {
+        "status": "pass",
+        "notes": "Portal refresh is same-origin hardened. Input validation (isValidIntentId/isValidRunId) prevents path injection. No unsafe command execution."
+      },
+      "maintainability": {
+        "status": "pass",
+        "notes": "Clear structure; shared read-model for portal; generators/guardrails use reusable helpers. Easy to extend with new templates/checks."
+      },
+      "overall_status": "pass"
+    }
+  },
+  "improvements": [
+    {
+      "id": "IMP-001",
+      "title": "Add unit tests for guardrails validation functions",
+      "area": "guardrails",
+      "roi_0_to_10": 9,
+      "effort": "S",
+      "risk": "low",
+      "why": "Guardrails are the safety net for governance. Testing validateIntentRunbooks(), scanRepoReqTags(), and other core validation logic reduces risk of regressions when adding new checks.",
+      "proposed_changes": [
+        "Create scripts/guardrails/__tests__/validate_repository.test.mjs",
+        "Test validateIntentRunbooks() with valid/invalid runbooks decision values",
+        "Test scanRepoReqTags() with sample files containing REQ: tags",
+        "Test hasGeneratedFrontmatter() with valid/invalid markdown"
+      ]
+    },
+    {
+      "id": "IMP-002",
+      "title": "Add stdout/stderr capture to evidence recorder",
+      "area": "tools",
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "low",
+      "why": "Evidence runs currently only capture exit code + timestamps. Capturing stdout/stderr makes debugging failed runs much easier and increases audit traceability.",
+      "proposed_changes": [
+        "Update tools/evidence/record_run.mjs to capture stdout/stderr using spawnSync.stdout/stderr",
+        "Add stdout/stderr fields to run.json schema (optional, only when present)",
+        "Cap output size (e.g., 50KB tail) to avoid huge evidence files"
+      ]
+    },
+    {
+      "id": "IMP-003",
+      "title": "Validate generated portal JSON outputs against schemas",
+      "area": "portal",
+      "roi_0_to_10": 8,
+      "effort": "M",
+      "risk": "low",
+      "why": "Portal refresh triggers generation but does not validate the schema of status/portal/internal_intents.json. Schema validation catches breaking changes early.",
+      "proposed_changes": [
+        "Add JSON schemas for status/portal/internal_intents.json and status/intents/*/scope.json",
+        "Run schema validation in scripts/generate_all.mjs after generation",
+        "Fail generation if schema validation fails (actionable error)"
+      ]
+    },
+    {
+      "id": "IMP-004",
+      "title": "Add pagination to portal intents/tasks lists",
+      "area": "portal",
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "low",
+      "why": "Portal currently renders all intents/tasks in one page. For repos with 50+ intents, page load will be slow. Simple pagination (e.g., 20 per page) keeps portal fast.",
+      "proposed_changes": [
+        "Add ?page=N query param to apps/portal/pages/internal/intents/index.js",
+        "Slice intents array by page offset in getServerSideProps",
+        "Add pagination controls to UI (Prev/Next buttons)"
+      ]
+    },
+    {
+      "id": "IMP-005",
+      "title": "Add 'Copy evidence command' button in portal audit runs view",
+      "area": "portal",
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "low",
+      "why": "Portal shows audit runs but users need to manually construct evidence recorder commands. A 'Copy command' button improves UX for repeat audits.",
+      "proposed_changes": [
+        "Add a 'Copy evidence command' button next to each audit run in intent detail page",
+        "Pre-fill command with correct intent_id, run_id, and npm command",
+        "Use navigator.clipboard.writeText() to copy to clipboard"
+      ]
+    },
+    {
+      "id": "IMP-006",
+      "title": "Add error recovery guidance to guardrails failures",
+      "area": "guardrails",
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "low",
+      "why": "Guardrails fail with error codes but do not suggest fixes. Adding inline guidance (e.g., 'Add runbooks decision to spec/intents/INT-001.json') reduces operator friction.",
+      "proposed_changes": [
+        "Update error messages in scripts/guardrails/validate_repository.mjs to include fix guidance",
+        "For intent_missing_runbooks, suggest adding runbooks: {decision: 'none', notes: '...', paths_mdt: []}",
+        "For requirements_done_missing_refs, suggest adding REQ: tags to code"
+      ]
+    },
+    {
+      "id": "IMP-007",
+      "title": "Add a 'dry-run' mode to generation",
+      "area": "scripts",
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "low",
+      "why": "Currently, npm run generate:check detects drift but does not show what would change. A dry-run mode (e.g., --dry-run) shows diffs without writing files.",
+      "proposed_changes": [
+        "Add --dry-run flag to scripts/generate_all.mjs",
+        "When --dry-run is set, compare existing vs new content and print diffs",
+        "Exit with non-zero if diffs are found (for CI checks)"
+      ]
+    },
+    {
+      "id": "IMP-008",
+      "title": "Add intent status transition validation to guardrails",
+      "area": "guardrails",
+      "roi_0_to_10": 6,
+      "effort": "M",
+      "risk": "medium",
+      "why": "Guardrails enforce draft→todo→closed model but do not validate transitions (e.g., cannot go directly from draft to closed). Explicit transition checks prevent invalid states.",
+      "proposed_changes": [
+        "Add validateIntentStatusTransition() to scripts/guardrails/validate_repository.mjs",
+        "Read git history to detect status changes (or use closed_date as signal)",
+        "Fail if intent goes from draft to closed without passing through todo"
+      ]
+    },
+    {
+      "id": "IMP-009",
+      "title": "Add audit run retention policy documentation",
+      "area": "docs",
+      "roi_0_to_10": 5,
+      "effort": "S",
+      "risk": "low",
+      "why": "Evidence runs accumulate under status/audit/*/runs/ but no policy defines when to prune old runs. Documenting retention (e.g., keep latest 10 per intent) prevents bloat.",
+      "proposed_changes": [
+        "Add spec/md/docs/runbooks/evidence-retention.mdt template",
+        "Document recommended retention policy (e.g., keep latest 10 runs per intent, archive rest)",
+        "Add optional pruning script: scripts/prune_old_evidence.mjs"
+      ]
+    },
+    {
+      "id": "IMP-010",
+      "title": "Add intent/task archival workflow for completed work",
+      "area": "workflows",
+      "roi_0_to_10": 5,
+      "effort": "L",
+      "risk": "medium",
+      "why": "Closed intents remain in spec/intents/ forever. For large repos, archiving old intents (move to spec/intents/archive/) keeps the active set small and portal fast.",
+      "proposed_changes": [
+        "Add npm run intent:archive -- --intent-id INT-001 command",
+        "Move spec/intents/INT-001.json to spec/intents/archive/INT-001.json",
+        "Update generation to skip archived intents in portal feed",
+        "Add archived intents view in portal (optional)"
+      ]
+    }
+  ]
+}

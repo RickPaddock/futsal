@@ -1,6 +1,6 @@
 /*
 PROV: GREENFIELD.SCAFFOLD.PORTAL.05
-REQ: SYS-ARCH-15, GREENFIELD-PORTAL-002, GREENFIELD-PORTAL-005, GREENFIELD-PORTAL-006, GREENFIELD-PORTAL-007, GREENFIELD-PORTAL-008, GREENFIELD-PORTAL-009, GREENFIELD-PORTAL-011, GREENFIELD-PORTAL-014, GREENFIELD-PORTAL-015, GREENFIELD-PORTAL-016, GREENFIELD-PORTAL-019, GREENFIELD-PORTAL-020
+REQ: SYS-ARCH-15, GREENFIELD-PORTAL-002, GREENFIELD-PORTAL-005, GREENFIELD-PORTAL-006, GREENFIELD-PORTAL-007, GREENFIELD-PORTAL-008, GREENFIELD-PORTAL-009, GREENFIELD-PORTAL-011, GREENFIELD-PORTAL-014, GREENFIELD-PORTAL-015, GREENFIELD-PORTAL-016, GREENFIELD-PORTAL-019, GREENFIELD-PORTAL-020, GREENFIELD-PORTAL-022
 WHY: Intent detail view (surfaces specs/audits, evidence-based readiness, and prompt-driven actions).
 */
 
@@ -9,16 +9,6 @@ import path from "node:path";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
-
-import {
-  repoRootFromPortalCwd,
-  relPosix,
-  safeReadJson,
-  listAuditRunsDeep,
-  computeIntentReadiness,
-  loadPerTaskQualityAudits,
-  isValidIntentId,
-} from "../../../lib/portal_read_model.js";
 
 function formatUkDateTime(value) {
   if (!value) return "";
@@ -46,25 +36,17 @@ function utcDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function latestJsonUnderRuns({ repoRoot, intentId, candidates }) {
-  const runsDir = path.join(repoRoot, "status", "audit", intentId, "runs");
-  if (!fs.existsSync(runsDir)) return null;
-  let best = null;
-  for (const d of fs.readdirSync(runsDir, { withFileTypes: true }).filter((x) => x.isDirectory()).map((x) => x.name)) {
-    for (const rel of candidates) {
-      const abs = path.join(runsDir, d, rel);
-      const rep = safeReadJson(abs);
-      if (!rep) continue;
-      const ts = String(rep.timestamp || rep.timestamp_end || "");
-      if (!best || ts.localeCompare(String(best.timestamp || "")) > 0) {
-        best = { report: rep, timestamp: ts, rel: relPosix(path.join("status", "audit", intentId, "runs", d, rel)) };
-      }
-    }
-  }
-  return best;
-}
-
 export async function getServerSideProps(ctx) {
+  const {
+    repoRootFromPortalCwd,
+    relPosix,
+    safeReadJson,
+    listAuditRunsDeep,
+    computeIntentReadiness,
+    loadPerTaskQualityAudits,
+    isValidIntentId,
+  } = await import("../../../lib/portal_read_model.js");
+
   const intentId = String(ctx.params?.intentId || "");
   if (!isValidIntentId(intentId)) return { notFound: true };
   const repoRoot = repoRootFromPortalCwd();
@@ -94,8 +76,26 @@ export async function getServerSideProps(ctx) {
     ? loadPerTaskQualityAudits({ repoRoot, intentId, runId, taskIds: plannedTaskIds })
     : { audits: [], missing: plannedTaskIds.map((task_id) => ({ task_id, path: "" })) };
 
-  const auditReportInfo = latestJsonUnderRuns({ repoRoot, intentId, candidates: ["audit/audit_report.json", "audit_report.json"] });
-  const qualityReportInfo = latestJsonUnderRuns({ repoRoot, intentId, candidates: ["quality_audit.json"] });
+  function latestJsonUnderRuns({ candidates }) {
+    const runsDir = path.join(repoRoot, "status", "audit", intentId, "runs");
+    if (!fs.existsSync(runsDir)) return null;
+    let best = null;
+    for (const d of fs.readdirSync(runsDir, { withFileTypes: true }).filter((x) => x.isDirectory()).map((x) => x.name)) {
+      for (const rel of candidates) {
+        const abs = path.join(runsDir, d, rel);
+        const rep = safeReadJson(abs);
+        if (!rep) continue;
+        const ts = String(rep.timestamp || rep.timestamp_end || "");
+        if (!best || ts.localeCompare(String(best.timestamp || "")) > 0) {
+          best = { report: rep, timestamp: ts, rel: relPosix(path.join("status", "audit", intentId, "runs", d, rel)) };
+        }
+      }
+    }
+    return best;
+  }
+
+  const auditReportInfo = latestJsonUnderRuns({ candidates: ["audit/audit_report.json", "audit_report.json"] });
+  const qualityReportInfo = latestJsonUnderRuns({ candidates: ["quality_audit.json"] });
 
   const feedTaskIds = Array.isArray(feedIntent?.tasks) ? feedIntent.tasks.map((t) => String(t.task_id || "")).filter(Boolean) : [];
   const missingFromFeed = plannedTaskIds.filter((tid) => !feedTaskIds.includes(tid));
@@ -196,6 +196,18 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
   const status = String(feedIntent?.status || intentSpec?.status || "unknown").toLowerCase();
   const [refreshing, setRefreshing] = useState(false);
   const [overlay, setOverlay] = useState(null);
+  const [copiedCommand, setCopiedCommand] = useState("");
+
+  async function copyEvidenceCommand(runId, command) {
+    try {
+      const evidenceCmd = `node tools/evidence/record_run.mjs --intent-id ${intentId} --out status/audit/${intentId}/runs/${runId}/run.json -- ${command}`;
+      await navigator.clipboard.writeText(evidenceCmd);
+      setCopiedCommand(runId);
+      setTimeout(() => setCopiedCommand(""), 1200);
+    } catch {
+      // ignore
+    }
+  }
 
   async function refreshAndReload() {
     setRefreshing(true);
@@ -414,7 +426,7 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
             const nfr = String(a?.report?.nonfunctional?.overall_status || "unknown");
             const blockers = Array.isArray(a?.report?.gate?.blockers) ? a.report.gate.blockers : [];
             const ts = formatUkDateTime(a?.report?.timestamp || "");
-            const runLinkRel = relPosix(path.join("status", "audit", intentId, "runs", runId, "quality_audit.json"));
+            const runLinkRel = `status/audit/${intentId}/runs/${runId}/quality_audit.json`;
             return (
               <div key={`ok:${a.task_id}`} className="trow">
                 <div><code>{a.task_id}</code></div>
@@ -450,6 +462,7 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
               <div>End</div>
               <div>Exit</div>
               <div>Command</div>
+              <div>Action</div>
             </div>
             {runs.map((r) => (
               <div key={`${r.run_id}:${r.stage}:${r.run_json_path || ""}`} className="trow">
@@ -458,6 +471,15 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
                 <div>{formatUkDateTime(r.timestamp_end || "")}</div>
                 <div>{String(r.exit_code ?? "")}</div>
                 <div><code>{r.command || ""}</code></div>
+                <div>
+                  <button 
+                    className="btn" 
+                    style={{ fontSize: "11px", padding: "2px 8px" }}
+                    onClick={() => copyEvidenceCommand(r.run_id, r.command || "")}
+                  >
+                    {copiedCommand === r.run_id ? "Copied!" : "Copy evidence cmd"}
+                  </button>
+                </div>
               </div>
             ))}
           </div>

@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/intents/INT-001.json
-source_sha256: sha256:b9e0a8f448ef96ef93fe28cfdbb33cd93117e82c27dbcdac70a834287c640f10
+source_sha256: sha256:0c20c7d99d9183e6b7b6a971e00d66e2a850fefefdae6852fe5b859be14134a5
 intent_id: INT-001
 title: Bootstrap Fusbal governed project: requirements, provenance, evidence, portal
 status: closed
@@ -30,4 +30,10 @@ close_gate:
 
 - TASK-BOOT-003 Evidence run recorder + internal portal pages (intents/tasks + refresh).
 - TASK-BOOT-004 Generated docs templates for navigation, runbooks, and delivery plan surfaces.
+
+## Runbooks (LLM navigation)
+
+- Decision: `none`
+- Templates: (none)
+- Notes: No runbook changes required for this intent.
 

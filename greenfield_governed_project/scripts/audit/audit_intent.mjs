@@ -1,7 +1,7 @@
 /*
 PROV: GREENFIELD.GOV.AUDIT_INTENT.01
-REQ: SYS-ARCH-15, AUD-REQ-10, GREENFIELD-GOV-016
-WHY: Audit an intent for governance completeness (task specs, quality areas, new requirements tracked, and REQ tags in code).
+REQ: SYS-ARCH-15, AUD-REQ-10, GREENFIELD-GOV-016, GREENFIELD-GOV-018
+WHY: Audit an intent for governance completeness (task specs, quality areas, runbooks decision, new requirements tracked, and REQ tags in code).
 */
 
 import fs from "node:fs";
@@ -119,6 +119,45 @@ function uniqueStrings(values) {
   return [...new Set(normalizeStringList(values))];
 }
 
+function validateRunbooksDecision({ intentId, intent }) {
+  const issues = [];
+  const status = String(intent?.status || "").trim();
+  if (status === "draft") return issues;
+
+  const runbooks = intent?.runbooks;
+  if (!runbooks || typeof runbooks !== "object") {
+    issues.push({ issue: "missing_runbooks_section", intent_id: intentId });
+    return issues;
+  }
+
+  const decision = String(runbooks.decision || "").trim();
+  const allowed = ["none", "create", "update"];
+  if (!allowed.includes(decision)) {
+    issues.push({ issue: "invalid_runbooks_decision", intent_id: intentId, allowed, got: decision || "missing" });
+  }
+
+  const notes = String(runbooks.notes || "").trim();
+  if (!notes) issues.push({ issue: "runbooks_notes_required", intent_id: intentId });
+
+  const paths = Array.isArray(runbooks.paths_mdt) ? runbooks.paths_mdt.map(String).map((s) => s.trim()).filter(Boolean) : null;
+  if (!paths) {
+    issues.push({ issue: "runbooks_paths_required", intent_id: intentId });
+    return issues;
+  }
+
+  if ((decision === "create" || decision === "update") && paths.length === 0) {
+    issues.push({ issue: "runbooks_paths_empty_for_decision", intent_id: intentId, decision });
+  }
+
+  for (const rel of paths) {
+    if (!rel.startsWith("spec/md/docs/runbooks/") || !rel.endsWith(".mdt")) {
+      issues.push({ issue: "runbooks_path_invalid_scope", intent_id: intentId, path: rel });
+    }
+  }
+
+  return issues;
+}
+
 function validateQualityAreas({ intent, plannedTasks }) {
   const issues = [];
   const planned = uniqueStrings(plannedTasks);
@@ -220,6 +259,7 @@ function main() {
   const newReqIds = new Set();
 
   const qualityAreaIssues = validateQualityAreas({ intent, plannedTasks });
+  const runbookIssues = validateRunbooksDecision({ intentId, intent });
 
   for (const tid of plannedTasks) {
     const taskPath = path.join(tasksDir, `${tid}.json`);
@@ -262,6 +302,7 @@ function main() {
   const errors = [];
   if (missingTaskSpecs.length) errors.push({ code: "missing_task_specs", items: missingTaskSpecs });
   if (qualityAreaIssues.length) errors.push({ code: "quality_areas_invalid", items: qualityAreaIssues });
+  if (runbookIssues.length) errors.push({ code: "runbooks_invalid", items: runbookIssues });
   if (missingNewReqs.length) errors.push({ code: "missing_new_requirements", items: missingNewReqs });
   if (newReqImplMismatches.length) errors.push({ code: "new_requirement_tracking_mismatch", items: newReqImplMismatches });
 
@@ -276,6 +317,7 @@ function main() {
       planned_tasks: plannedTasks.length,
       missing_task_specs: missingTaskSpecs.length,
       quality_areas_issues: qualityAreaIssues.length,
+      runbooks_issues: runbookIssues.length,
       new_requirements_declared: newReqIds.size,
       new_requirements_with_code_refs: newReqsWithCodeRefs.length,
       new_requirements_missing_code_refs: newReqsMissingCodeRefs.length,

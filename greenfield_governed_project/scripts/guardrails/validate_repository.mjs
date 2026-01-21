@@ -1,7 +1,7 @@
 /*
 PROV: GREENFIELD.SCAFFOLD.GUARDRAILS.01
-REQ: AUD-REQ-10, SYS-ARCH-15
-WHY: Enforce governance invariants (generated markdown only, deterministic outputs, evidence format).
+REQ: AUD-REQ-10, SYS-ARCH-15, GREENFIELD-GOV-018, GREENFIELD-GOV-019
+WHY: Enforce governance invariants (generated markdown only, deterministic outputs, evidence format, runbook navigation hygiene) with inline error recovery guidance.
 */
 
 import fs from "node:fs";
@@ -105,6 +105,61 @@ function looksLikeFilePath(rel) {
   return ["Makefile", "Dockerfile", "LICENSE", "NOTICE"].includes(base);
 }
 
+function validateIntentRunbooks({ repoRoot, intentId, intent }) {
+  const status = String(intent?.status || "").trim();
+  if (status === "draft") return [];
+
+  const errors = [];
+  const runbooks = intent?.runbooks;
+  if (!runbooks || typeof runbooks !== "object") {
+    errors.push(`intent_missing_runbooks:${intentId} → Fix: Add runbooks section to spec/intents/${intentId}.json: {"decision": "none", "notes": "...", "paths_mdt": []}`);
+    return errors;
+  }
+
+  const decision = String(runbooks.decision || "").trim();
+  const allowed = new Set(["none", "create", "update"]);
+  if (!allowed.has(decision)) {
+    errors.push(`intent_invalid_runbooks_decision:${intentId}:${decision || "missing"} → Fix: Set runbooks.decision to one of: "none", "create", "update"`);
+  }
+
+  const notes = String(runbooks.notes || "").trim();
+  if (!notes) errors.push(`intent_runbooks_notes_required:${intentId} → Fix: Add runbooks.notes with rationale for decision`);
+
+  const paths = Array.isArray(runbooks.paths_mdt) ? runbooks.paths_mdt.map(String).map((s) => s.trim()).filter(Boolean) : null;
+  if (!paths) {
+    errors.push(`intent_runbooks_paths_required:${intentId} → Fix: Add runbooks.paths_mdt array (can be empty for decision="none")`);
+    return errors;
+  }
+
+  if ((decision === "create" || decision === "update") && paths.length === 0) {
+    errors.push(`intent_runbooks_paths_empty_for_decision:${intentId}:${decision} → Fix: Add template paths to runbooks.paths_mdt (e.g., ["spec/md/docs/runbooks/my-topic.mdt"])`);
+  }
+
+  for (const rel of paths) {
+    if (!looksLikeFilePath(rel)) {
+      errors.push(`intent_runbooks_path_not_file:${intentId}:${rel}`);
+      continue;
+    }
+    if (!rel.startsWith("spec/md/docs/runbooks/") || !rel.endsWith(".mdt")) {
+      errors.push(`intent_runbooks_path_invalid_scope:${intentId}:${rel}`);
+      continue;
+    }
+    const abs = path.join(repoRoot, rel);
+    if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) {
+      errors.push(`intent_runbooks_template_missing:${intentId}:${rel}`);
+      continue;
+    }
+    const outRel = rel.replace(/^spec\/md\/docs\/runbooks\//, "docs/runbooks/").replace(/\.mdt$/, ".md");
+    const outAbs = path.join(repoRoot, outRel);
+    if (!fs.existsSync(outAbs) || fs.statSync(outAbs).isDirectory()) {
+      errors.push(`intent_runbooks_generated_missing:${intentId}:${outRel}`);
+      continue;
+    }
+  }
+
+  return errors;
+}
+
 function scanRepoReqTags(repoRoot) {
   const exts = new Set([".js", ".mjs", ".ts", ".tsx", ".py", ".sh"]);
   const files = iterFiles(repoRoot, (p) => exts.has(path.extname(p)));
@@ -162,7 +217,7 @@ function validateGovernanceSpec(repoRoot) {
     const impl = String(tracking.implementation || "todo").trim();
     if (!["todo", "done"].includes(impl)) throw new Error(`requirements_invalid_tracking_implementation:${id}:${impl}`);
     if (impl === "done" && !referencedReqIdsInCode.has(id)) {
-      throw new Error(`requirements_implementation_done_without_code_ref:${id}`);
+      throw new Error(`requirements_implementation_done_without_code_ref:${id} → Fix: Add REQ: tags to code that implements this requirement (e.g., // REQ: ${id}) or set tracking.implementation to "todo"`);
     }
 
     const isNewReq = [...newReqPrefixes].some((pfx) => id.startsWith(pfx));
@@ -186,6 +241,8 @@ function validateGovernanceSpec(repoRoot) {
     intentIds.add(intentId);
     intents.push(obj);
     intentById.set(intentId, obj);
+    const runbookErrors = validateIntentRunbooks({ repoRoot, intentId, intent: obj });
+    if (runbookErrors.length) throw new Error(`intent_runbooks_invalid:${runbookErrors[0]}`);
   }
 
   const tasksDir = path.join(repoRoot, "spec", "tasks");

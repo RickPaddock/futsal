@@ -1,7 +1,7 @@
 /*
 PROV: GREENFIELD.GOV.CLOSE_INTENT.01
-REQ: SYS-ARCH-15, AUD-REQ-10, GREENFIELD-GOV-015, GREENFIELD-GOV-017
-WHY: Close an intent by applying status updates to canonical sources after a successful audit.
+REQ: SYS-ARCH-15, AUD-REQ-10, GREENFIELD-GOV-015, GREENFIELD-GOV-017, GREENFIELD-GOV-018
+WHY: Close an intent by applying status updates to canonical sources after a successful audit (including runbook navigation hygiene).
 */
 
 import fs from "node:fs";
@@ -137,6 +137,33 @@ function requireTaskQualityAuditPass(repoRoot, abs, { intentId, runId, taskId })
   return rep;
 }
 
+function requireRunbooksDecisionOk(repoRoot, intentId, intent) {
+  const runbooks = intent?.runbooks;
+  if (!runbooks || typeof runbooks !== "object") {
+    throw new Error(`intent_missing_runbooks:${intentId}`);
+  }
+  const decision = String(runbooks.decision || "").trim();
+  if (!["none", "create", "update"].includes(decision)) {
+    throw new Error(`intent_invalid_runbooks_decision:${intentId}:${decision || "missing"}`);
+  }
+  const notes = String(runbooks.notes || "").trim();
+  if (!notes) throw new Error(`intent_runbooks_notes_required:${intentId}`);
+  const paths = Array.isArray(runbooks.paths_mdt) ? runbooks.paths_mdt.map(String).map((s) => s.trim()).filter(Boolean) : null;
+  if (!paths) throw new Error(`intent_runbooks_paths_required:${intentId}`);
+  if ((decision === "create" || decision === "update") && paths.length === 0) {
+    throw new Error(`intent_runbooks_paths_empty_for_decision:${intentId}:${decision}`);
+  }
+  for (const rel of paths || []) {
+    if (!rel.startsWith("spec/md/docs/runbooks/") || !rel.endsWith(".mdt")) {
+      throw new Error(`intent_runbooks_path_invalid_scope:${intentId}:${rel}`);
+    }
+    const abs = path.join(repoRoot, rel);
+    if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) {
+      throw new Error(`intent_runbooks_template_missing:${intentId}:${rel}`);
+    }
+  }
+}
+
 function scanRepoReqTags(repoRoot) {
   const exts = new Set([".js", ".mjs", ".ts", ".tsx", ".py", ".sh"]);
   const skip = new Set([
@@ -229,6 +256,8 @@ function main() {
     process.stderr.write(`[close:error] intent already closed (refusing to re-apply): ${intentId}\n`);
     process.exit(2);
   }
+
+  requireRunbooksDecisionOk(repoRoot, intentId, intent);
 
   const requirementsIndexPath = path.join(repoRoot, requirementsSourceRel);
   const index = readJson(requirementsIndexPath);

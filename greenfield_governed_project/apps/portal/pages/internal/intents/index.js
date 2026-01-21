@@ -10,14 +10,6 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
-import {
-  repoRootFromPortalCwd,
-  safeReadJson,
-  listAuditRunsDeep,
-  isIntentAuditRun,
-  computeIntentReadiness,
-} from "../../../lib/portal_read_model.js";
-
 function nextNumericSuffix(existingIds, prefix, pad) {
   let max = 0;
   for (const id of existingIds) {
@@ -38,6 +30,14 @@ const STATUS_ORDER = {
 };
 
 export async function getServerSideProps() {
+  const {
+    repoRootFromPortalCwd,
+    safeReadJson,
+    listAuditRunsDeep,
+    isIntentAuditRun,
+    computeIntentReadiness,
+  } = await import("../../../lib/portal_read_model.js");
+
   const repoRoot = repoRootFromPortalCwd();
   const feedPath = path.join(repoRoot, "status", "portal", "internal_intents.json");
   const feed = safeReadJson(feedPath) || { intents: [] };
