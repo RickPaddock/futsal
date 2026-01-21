@@ -1,6 +1,6 @@
 /*
 PROV: GREENFIELD.SCAFFOLD.PORTAL.04
-REQ: SYS-ARCH-15, GREENFIELD-PORTAL-002, GREENFIELD-PORTAL-005, GREENFIELD-PORTAL-011, GREENFIELD-PORTAL-014, GREENFIELD-PORTAL-018
+REQ: SYS-ARCH-15, GREENFIELD-PORTAL-002, GREENFIELD-PORTAL-005, GREENFIELD-PORTAL-011, GREENFIELD-PORTAL-014, GREENFIELD-PORTAL-018, GREENFIELD-PORTAL-020
 WHY: List intents, compute readiness from evidence, and provide copy-ready prompt overlays via API.
 */
 
@@ -218,6 +218,10 @@ export default function IntentsIndex({ intents, nextIntentId }) {
     setOverlay({ title: `Audit + quality audit prompt (${intentId})`, kind: "audit", intentId, runId });
   }
 
+  function openPreflightPrompt(intentId) {
+    setOverlay({ title: `Preflight review prompt (${intentId})`, kind: "preflight", intentId });
+  }
+
   function openImplementPrompt(intentId) {
     const runId = utcRunId();
     setOverlay({ title: `Implement intent prompt (${intentId})`, kind: "implement", intentId, runId });
@@ -254,6 +258,8 @@ export default function IntentsIndex({ intents, nextIntentId }) {
           const intentId = i.intent_id;
           const href = `/internal/intents/${encodeURIComponent(intentId)}`;
           const readiness = i.readiness || {};
+          const status = String(i.status || "unknown").toLowerCase();
+          const canPreflight = status !== "closed";
           return (
             <div key={intentId} className="card">
               <div className="row">
@@ -262,6 +268,9 @@ export default function IntentsIndex({ intents, nextIntentId }) {
                   <span className="badge">{i.status}</span>
                 </div>
                 <div className="rowRight">
+                  {canPreflight ? (
+                    <button className="btn btnSmall" type="button" onClick={() => openPreflightPrompt(intentId)}>Preflight</button>
+                  ) : null}
                   {readiness.canImplement ? (
                     <button className="btn btnSmall" type="button" onClick={() => openImplementPrompt(intentId)}>Implement</button>
                   ) : null}

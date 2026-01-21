@@ -1,6 +1,6 @@
 /*
 PROV: GREENFIELD.SCAFFOLD.PORTAL.05
-REQ: SYS-ARCH-15, GREENFIELD-PORTAL-002, GREENFIELD-PORTAL-005, GREENFIELD-PORTAL-006, GREENFIELD-PORTAL-007, GREENFIELD-PORTAL-008, GREENFIELD-PORTAL-009, GREENFIELD-PORTAL-011, GREENFIELD-PORTAL-014, GREENFIELD-PORTAL-015, GREENFIELD-PORTAL-016
+REQ: SYS-ARCH-15, GREENFIELD-PORTAL-002, GREENFIELD-PORTAL-005, GREENFIELD-PORTAL-006, GREENFIELD-PORTAL-007, GREENFIELD-PORTAL-008, GREENFIELD-PORTAL-009, GREENFIELD-PORTAL-011, GREENFIELD-PORTAL-014, GREENFIELD-PORTAL-015, GREENFIELD-PORTAL-016, GREENFIELD-PORTAL-019, GREENFIELD-PORTAL-020
 WHY: Intent detail view (surfaces specs/audits, evidence-based readiness, and prompt-driven actions).
 */
 
@@ -19,6 +19,22 @@ import {
   loadPerTaskQualityAudits,
   isValidIntentId,
 } from "../../../lib/portal_read_model.js";
+
+function formatUkDateTime(value) {
+  if (!value) return "";
+  const d = new Date(String(value));
+  if (Number.isNaN(d.getTime())) return String(value);
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(d);
+}
 
 function utcRunId() {
   const d = new Date();
@@ -177,6 +193,7 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
   const requirements = feedIntent?.requirements_in_scope || [];
   const tasksDone = tasks.filter((t) => String(t?.status || "").trim() === "done").length;
   const requirementsImplemented = requirements.filter((r) => String(r?.tracking_implementation || "").trim() === "done").length;
+  const status = String(feedIntent?.status || intentSpec?.status || "unknown").toLowerCase();
   const [refreshing, setRefreshing] = useState(false);
   const [overlay, setOverlay] = useState(null);
 
@@ -206,6 +223,10 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
     setOverlay({ title: `Implement intent prompt (${intentId})`, kind: "implement", intentId, runId: utcRunId() });
   }
 
+  function openPreflightPrompt() {
+    setOverlay({ title: `Preflight review prompt (${intentId})`, kind: "preflight", intentId });
+  }
+
   function openAuditPrompt() {
     setOverlay({ title: `Audit + quality audit prompt (${intentId})`, kind: "audit", intentId, runId: utcRunId() });
   }
@@ -229,6 +250,7 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
         </div>
         <div className="toolbarActions">
           <Link className="btn" href="/internal/intents?create=1">Create intent</Link>
+          {status !== "closed" ? <button className="btn" type="button" onClick={openPreflightPrompt}>Preflight</button> : null}
           {readiness?.canImplement ? <button className="btn" type="button" onClick={openImplementPrompt}>Implement</button> : null}
           {readiness?.canAudit ? <button className="btn" type="button" onClick={openAuditPrompt}>Audit</button> : null}
           {readiness?.canClose ? <button className="btn" type="button" onClick={openClosePrompt}>Close</button> : null}
@@ -375,30 +397,51 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
         ) : <div className="muted">No quality_audit.json found in status/audit.</div>}
 
         <h3 style={{ marginTop: 16 }}>Per-task quality audits</h3>
-        {(perTask?.missing || []).length ? (
-          <div className="muted" style={{ color: "#b91c1c" }}>
-            Missing: {(perTask.missing || []).map((m) => m.task_id).join(", ")}
+        <div className="table">
+          <div className="thead">
+            <div>Task</div>
+            <div>Run</div>
+            <div>Timestamp (UK)</div>
+            <div>Gate</div>
+            <div>Functional</div>
+            <div>Non-functional</div>
+            <div>Blockers</div>
+            <div>Report</div>
           </div>
-        ) : null}
-        {(perTask?.audits || []).length ? (
-          <div className="table">
-            <div className="thead">
-              <div>Task</div>
-              <div>Gate</div>
-              <div>Raw</div>
+          {(perTask?.audits || []).map((a) => {
+            const gate = String(a?.report?.gate?.status || "unknown");
+            const functional = String(a?.report?.functional?.status || "unknown");
+            const nfr = String(a?.report?.nonfunctional?.overall_status || "unknown");
+            const blockers = Array.isArray(a?.report?.gate?.blockers) ? a.report.gate.blockers : [];
+            const ts = formatUkDateTime(a?.report?.timestamp || "");
+            const runLinkRel = relPosix(path.join("status", "audit", intentId, "runs", runId, "quality_audit.json"));
+            return (
+              <div key={`ok:${a.task_id}`} className="trow">
+                <div><code>{a.task_id}</code></div>
+                <div><a href={`/api/internal/file?rel=${encodeURIComponent(runLinkRel)}`} target="_blank" rel="noreferrer"><code>{runId}</code></a></div>
+                <div>{ts}</div>
+                <div>{gate}</div>
+                <div>{functional}</div>
+                <div>{nfr}</div>
+                <div>{blockers.length ? blockers.join("; ") : ""}</div>
+                <div><a href={`/api/internal/file?rel=${encodeURIComponent(a.path)}`} target="_blank" rel="noreferrer">raw</a></div>
+              </div>
+            );
+          })}
+          {(perTask?.missing || []).map((m) => (
+            <div key={`missing:${m.task_id}`} className="trow">
+              <div><code>{m.task_id}</code></div>
+              <div><code>{runId || ""}</code></div>
+              <div />
+              <div style={{ color: "#b91c1c" }}>missing</div>
+              <div />
+              <div />
+              <div />
+              <div><code>{m.path || ""}</code></div>
             </div>
-            {(perTask.audits || []).map((a) => {
-              const gate = String(a?.report?.gate?.status || "unknown");
-              return (
-                <div key={a.task_id} className="trow">
-                  <div><code>{a.task_id}</code></div>
-                  <div>{gate}</div>
-                  <div><a href={`/api/internal/file?rel=${encodeURIComponent(a.path)}`} target="_blank" rel="noreferrer">raw</a></div>
-                </div>
-              );
-            })}
-          </div>
-        ) : <div className="muted">No per-task quality audits found.</div>}
+          ))}
+        </div>
+        {!(perTask?.audits || []).length && !(perTask?.missing || []).length ? <div className="muted">No per-task quality audits found.</div> : null}
         {runs?.length ? (
           <div className="table">
             <div className="thead">
@@ -412,7 +455,7 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
               <div key={`${r.run_id}:${r.stage}:${r.run_json_path || ""}`} className="trow">
                 <div><code>{r.run_id}</code></div>
                 <div>{r.stage || ""}</div>
-                <div>{r.timestamp_end || ""}</div>
+                <div>{formatUkDateTime(r.timestamp_end || "")}</div>
                 <div>{String(r.exit_code ?? "")}</div>
                 <div><code>{r.command || ""}</code></div>
               </div>

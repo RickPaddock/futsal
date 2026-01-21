@@ -1,6 +1,6 @@
 /*
 PROV: GREENFIELD.PORTAL.PROMPT_API.01
-REQ: SYS-ARCH-15, GREENFIELD-PORTAL-011, GREENFIELD-PORTAL-015
+REQ: SYS-ARCH-15, GREENFIELD-PORTAL-011, GREENFIELD-PORTAL-015, GREENFIELD-PORTAL-020
 WHY: Serve rendered prompt templates via a stable API with explicit substitution validation.
 */
 
@@ -84,6 +84,7 @@ export default async function handler(req, res) {
 
   const templateByKind = {
     create: "intent_create_end_to_end.prompt.txt",
+    preflight: "intent_preflight_review.prompt.txt",
     implement: "intent_implement_end_to_end.prompt.txt",
     audit: "intent_quality_audit.prompt.txt",
     close: "intent_close_end_to_end.prompt.txt",
@@ -142,8 +143,12 @@ export default async function handler(req, res) {
   const areaChoices = listAreaChoices(requirementsBundle.areaFilesRel || []);
   const areasList = areaChoices.map((a) => `- ${a.label}: \`${a.rel}\``).join("\n");
 
+  const intentSpec = intentId ? safeReadJson(path.join(repoRoot, "spec", "intents", `${intentId}.json`)) : null;
+  const intentTitle = String(intentSpec?.title || "").trim();
+
   const vars = {
     INTENT_ID: intentId,
+    INTENT_TITLE: intentTitle,
     run_id: finalRunId,
     closed_date: finalClosedDate,
     TODAY: utcDate(),

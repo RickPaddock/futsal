@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/requirements/index.json + spec/requirements/areas/core.json + spec/requirements/areas/greenfield.json + spec/requirements/areas/v1.json
-source_sha256: sha256:5ee975cd309e31367967565a90e99719666f8100f2fb8f2f0ea0f516102b35a5
+source_sha256: sha256:feb34c62b6a85ba9b2633f4438b00371d6a2dec67080d4103fe933087541afb8
 ---
 
 # Requirements (generated)
@@ -443,6 +443,32 @@ Acceptance:
 Acceptance:
 - Prompt overlays default to a generated UTC run id but allow the user to edit it.
 - Rendered prompts use the chosen run id when filling templates.
+
+## GREENFIELD-PORTAL-019 — Portal renders audit timestamps in UK-local format for intent/task views.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `ux`, `audits`
+
+Acceptance:
+- Intent detail page renders per-task audit timestamps in UK format (Europe/London) and links to the run report.
+- Audit run timestamps in portal tables are consistently shown in UK format.
+
+## GREENFIELD-PORTAL-020 — Portal provides an interactive preflight review prompt for intents before implementation.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `portal:ui_smoke`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `ux`, `workflows`, `prompts`
+
+Acceptance:
+- Intent list and intent detail pages expose a 'Preflight' action for non-closed intents.
+- Preflight opens a copy-ready prompt overlay that instructs the LLM to review the intent and ask clarifying questions before implementation.
+- Preflight prompt is sourced from `spec/prompts/*.prompt.txt` via the prompt API (not hardcoded).
+- Prompt API rejects prompts with leftover placeholders (e.g., `<...>`).
 
 ## GREENFIELD-GOV-011 — All governed workflows are prompt-driven with explicit evidence capture (no undocumented manual steps).
 

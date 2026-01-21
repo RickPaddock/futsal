@@ -449,6 +449,34 @@
       "tags": ["portal", "ux", "workflows"]
     },
     {
+      "id": "GREENFIELD-PORTAL-019",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["manual:portal_review"],
+      "title": "Portal renders audit timestamps in UK-local format for intent/task views.",
+      "acceptance": [
+        "Intent detail page renders per-task audit timestamps in UK format (Europe/London) and links to the run report.",
+        "Audit run timestamps in portal tables are consistently shown in UK format."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "ux", "audits"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-020",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["portal:ui_smoke", "manual:portal_review"],
+      "title": "Portal provides an interactive preflight review prompt for intents before implementation.",
+      "acceptance": [
+        "Intent list and intent detail pages expose a 'Preflight' action for non-closed intents.",
+        "Preflight opens a copy-ready prompt overlay that instructs the LLM to review the intent and ask clarifying questions before implementation.",
+        "Preflight prompt is sourced from `spec/prompts/*.prompt.txt` via the prompt API (not hardcoded).",
+        "Prompt API rejects prompts with leftover placeholders (e.g., `<...>`)."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "ux", "workflows", "prompts"]
+    },
+    {
       "id": "GREENFIELD-GOV-011",
       "status": "canonical",
       "tracking": { "implementation": "todo" },

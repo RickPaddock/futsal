@@ -1,0 +1,62 @@
+LLM Audit Prompt: Intent Preflight Review (ambiguity + scope alignment + risk traps)
+
+Perform an evidence-first preflight review of Project Intent <INTENT_ID> ("<INTENT_TITLE>").
+
+This runs after Create Intent and before implementation starts.
+Primary objective: eliminate ambiguity and scope mistakes before any code is changed.
+
+Hard rule: this prompt is intent-artifacts-only.
+- You MAY propose edits to canonical sources under spec/ (intents, tasks, requirements).
+- You MUST NOT implement runtime/product code changes while running this preflight.
+
+Repo governance constraints (must follow)
+- Canonical sources: spec/project.json, spec/requirements/**, spec/intents/*.json, spec/tasks/*.json, spec/md/**/*.mdt
+- Generated surfaces (never hand-edit): status/** and docs/**
+- Reference docs: docs/runbooks/single-source-of-truth.md and docs/ops/governance/sources_and_flow.md
+
+Inputs (read first)
+1) spec/intents/<INTENT_ID>.json
+2) status/intents/<INTENT_ID>/intent.md (read-only; generated)
+3) status/intents/<INTENT_ID>/scope.json (read-only; generated)
+4) status/intents/<INTENT_ID>/work_packages.json (read-only; generated)
+5) For each planned task id in spec/intents/<INTENT_ID>.json, read spec/tasks/<TASK_ID>.json
+6) Requirements sources: spec/project.json (requirements_source) plus the referenced spec/requirements/*.json
+
+The 10 things this preflight MUST do
+1) Confirm the intent is closeable in principle: identify what would be needed to close (tasks, quality audits, close gates, guardrail policy) and flag anything that requires guessing.
+2) Ambiguity scan: quote vague phrases and rewrite them into measurable, testable statements.
+3) Define terms + boundaries: list repo-specific terms used without definition and propose definitions/out-of-scope boundaries.
+4) Acceptance criteria sanity: ensure acceptance criteria are objective; add missing negative paths/edge cases.
+5) Task validity check: verify every planned task id in spec/intents/<INTENT_ID>.json exists as spec/tasks/<TASK_ID>.json and is spelled exactly.
+6) Requirement validity check: verify every requirement id referenced is a real requirement id (no ranges) and consistent with the intent narrative.
+7) Work package completeness: ensure generated work_packages cover all planned tasks (no unassigned tasks) and titles are clear.
+8) Scope enforcement check: review paths_allowed vs paths_excluded for creep risk; ensure derived artefacts are excluded; ensure no workspace-specific path assumptions.
+9) Guardrail policy plan: for each in-scope requirement, state the expected guardrail outcome (code reference vs tracked decision) and flag gaps.
+10) Output a preflight report + unblock questions: provide a concise report and ask only the minimum clarifying questions needed.
+
+Output requirements (in chat)
+Return your result in this exact structure:
+
+1) Preflight blockers (ranked): up to 10 items
+	- For each: Issue, Why it matters, Exact fix (wording/config change)
+
+2) Ambiguities & rewrites (table)
+	- Columns: Ambiguous text, Risk / likely mistake, Proposed rewrite
+
+3) Scope alignment report
+	- Inferred surfaces, paths_allowed, paths_excluded, Mismatches, Recommended edits
+
+4) Closeability checklist
+	- Tasks, Work packages, Close gates, Guardrail plan (PASS/FAIL with notes)
+
+5) Suggested patch (optional but preferred)
+	- If you can fix issues without asking questions, propose an apply_patch patch that edits only canonical sources:
+	  - spec/intents/<INTENT_ID>.json
+	  - spec/tasks/<TASK_ID>.json (only if needed)
+	  - spec/requirements/** (only if needed)
+	  - spec/project.json (only if needed)
+
+6) Clarifying questions (only if truly blocking)
+	- Ask 1–3 questions at a time.
+
+Start now by reading the inputs for intent <INTENT_ID> and producing sections 1–4, then 6 if needed.
