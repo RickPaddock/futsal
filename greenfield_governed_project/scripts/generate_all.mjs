@@ -1,6 +1,6 @@
 /*
 PROV: GREENFIELD.SCAFFOLD.GEN.01
-REQ: AUD-REQ-10, SYS-ARCH-15, GREENFIELD-GOV-018
+REQ: AUD-REQ-10, SYS-ARCH-15, GREENFIELD-GOV-018, GREENFIELD-GEN-001
 WHY: Deterministically generate all human-readable .md outputs and portal feeds from spec sources (including runbook navigation cues).
 */
 
@@ -40,12 +40,17 @@ function iterFiles(root, predicate) {
   return out;
 }
 
-function writeFileChecked(outPath, content, check) {
+function writeFileChecked(outPath, content, check, dryRun) {
   if (check) {
     const existing = fs.existsSync(outPath) ? fs.readFileSync(outPath, "utf8") : null;
     if (existing !== content) {
       throw new Error(`drift:${relPosix(outPath)}`);
     }
+    return;
+  }
+  if (dryRun) {
+    const action = fs.existsSync(outPath) ? "UPDATE" : "CREATE";
+    process.stdout.write(`[dry-run] ${action}: ${relPosix(outPath)}\n`);
     return;
   }
   ensureDir(path.dirname(outPath));
@@ -56,17 +61,17 @@ function generatedFrontmatter({ source, sourceHash }) {
   return `---\ngenerated: true\nsource: ${source}\nsource_sha256: sha256:${sourceHash}\n---\n\n`;
 }
 
-function generateMdFromMdt({ repoRoot, templateRel, outRel, vars, check }) {
+function generateMdFromMdt({ repoRoot, templateRel, outRel, vars, check, dryRun }) {
   const templatePath = path.join(repoRoot, templateRel);
   const sourceHash = sha256File(templatePath);
   const rendered = renderTemplate(templatePath, vars);
   // Ensure all .md outputs include deterministic generated frontmatter.
   const body = rendered.replace(/^---\n[\s\S]*?\n---\n\n/, "");
   const out = generatedFrontmatter({ source: templateRel, sourceHash }) + body;
-  writeFileChecked(path.join(repoRoot, outRel), out, check);
+  writeFileChecked(path.join(repoRoot, outRel), out, check, dryRun);
 }
 
-function generateAllMdTemplates({ repoRoot, templatesRootRel, vars, check }) {
+function generateAllMdTemplates({ repoRoot, templatesRootRel, vars, check, dryRun }) {
   const templatesRootAbs = path.join(repoRoot, templatesRootRel);
   const reservedOut = new Set(["docs/requirements/requirements.md"]);
   const templates = iterFiles(templatesRootAbs, (p) => p.endsWith(".mdt")).sort();
@@ -77,7 +82,7 @@ function generateAllMdTemplates({ repoRoot, templatesRootRel, vars, check }) {
     if (reservedOut.has(outRel)) {
       throw new Error(`template_output_reserved:${outRel}`);
     }
-    generateMdFromMdt({ repoRoot, templateRel, outRel, vars, check });
+    generateMdFromMdt({ repoRoot, templateRel, outRel, vars, check, dryRun });
   }
 }
 
@@ -105,7 +110,7 @@ function loadRequirementsBundle({ repoRoot, requirementsSourceRel }) {
   throw new Error(`requirements_source_invalid:${requirementsSourceRel}`);
 }
 
-function generateRequirementsMd({ repoRoot, vars, check }) {
+function generateRequirementsMd({ repoRoot, vars, check, dryRun }) {
   const bundle = loadRequirementsBundle({ repoRoot, requirementsSourceRel: vars.requirements_source });
   const requirements = { requirements: bundle.requirements };
   const lines = [];
@@ -131,10 +136,10 @@ function generateRequirementsMd({ repoRoot, vars, check }) {
   const outRel = "docs/requirements/requirements.md";
   const source = bundle.sourcesRel.length === 1 ? bundle.sourcesRel[0] : bundle.sourcesRel.join(" + ");
   const out = generatedFrontmatter({ source, sourceHash: sha256Sources(repoRoot, bundle.sourcesRel) }) + lines.join("\n") + "\n";
-  writeFileChecked(path.join(repoRoot, outRel), out, check);
+  writeFileChecked(path.join(repoRoot, outRel), out, check, dryRun);
 }
 
-function generateIntentFiles({ repoRoot, vars, check }) {
+function generateIntentFiles({ repoRoot, vars, check, dryRun }) {
   const intentsDir = path.join(repoRoot, "spec", "intents");
   const entries = fs.readdirSync(intentsDir, { withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith(".json"));
   for (const e of entries) {
@@ -143,7 +148,7 @@ function generateIntentFiles({ repoRoot, vars, check }) {
     if (!intentId) continue;
 
     const statusDir = path.join(repoRoot, "status", "intents", intentId);
-    ensureDir(statusDir);
+    if (!dryRun) ensureDir(statusDir);
 
     const scope = {
       intent_id: intentId,
@@ -154,7 +159,7 @@ function generateIntentFiles({ repoRoot, vars, check }) {
       close_gate: { commands: obj.close_gate || [], evidence_out_root: `status/audit/${intentId}/runs` },
     };
     const scopeJson = JSON.stringify(scope, null, 2) + "\n";
-    writeFileChecked(path.join(statusDir, "scope.json"), scopeJson, check);
+    writeFileChecked(path.join(statusDir, "scope.json"), scopeJson, check, dryRun);
 
     const workPackages = {
       intent_id: intentId,
@@ -165,7 +170,7 @@ function generateIntentFiles({ repoRoot, vars, check }) {
       })),
     };
     const workJson = JSON.stringify(workPackages, null, 2) + "\n";
-    writeFileChecked(path.join(statusDir, "work_packages.json"), workJson, check);
+    writeFileChecked(path.join(statusDir, "work_packages.json"), workJson, check, dryRun);
 
     const mdLines = [];
     mdLines.push("---");
@@ -206,11 +211,11 @@ function generateIntentFiles({ repoRoot, vars, check }) {
     mdLines.push(`- Notes: ${rb.notes || ""}`);
     mdLines.push("");
 
-    writeFileChecked(path.join(statusDir, "intent.md"), mdLines.join("\n") + "\n", check);
+    writeFileChecked(path.join(statusDir, "intent.md"), mdLines.join("\n") + "\n", check, dryRun);
   }
 }
 
-function generateInternalIntentsFeed({ repoRoot, vars, check }) {
+function generateInternalIntentsFeed({ repoRoot, vars, check, dryRun }) {
   const requirementsBundle = loadRequirementsBundle({ repoRoot, requirementsSourceRel: vars.requirements_source });
   const requirementsById = new Map(
     (requirementsBundle.requirements || []).map((r) => [
@@ -268,12 +273,13 @@ function generateInternalIntentsFeed({ repoRoot, vars, check }) {
     intents: intents.sort((a, b) => a.intent_id.localeCompare(b.intent_id)),
   };
   const outPath = path.join(repoRoot, "status", "portal", "internal_intents.json");
-  writeFileChecked(outPath, JSON.stringify(out, null, 2) + "\n", check);
+  writeFileChecked(outPath, JSON.stringify(out, null, 2) + "\n", check, dryRun);
 }
 
 function main() {
   const repoRoot = repoRootFromHere(import.meta.url);
   const check = process.argv.includes("--check");
+  const dryRun = process.argv.includes("--dry-run");
   const project = readJson(path.join(repoRoot, "spec", "project.json"));
   const vars = {
     project_name: project.project_name,
@@ -283,11 +289,15 @@ function main() {
     md_templates_root: project.md_templates_root,
   };
 
-  generateAllMdTemplates({ repoRoot, templatesRootRel: vars.md_templates_root, vars, check });
+  if (dryRun) {
+    process.stdout.write("[generate] DRY-RUN MODE: listing files that would be generated\n");
+  }
 
-  generateRequirementsMd({ repoRoot, vars, check });
-  generateIntentFiles({ repoRoot, vars, check });
-  generateInternalIntentsFeed({ repoRoot, vars, check });
+  generateAllMdTemplates({ repoRoot, templatesRootRel: vars.md_templates_root, vars, check, dryRun });
+
+  generateRequirementsMd({ repoRoot, vars, check, dryRun });
+  generateIntentFiles({ repoRoot, vars, check, dryRun });
+  generateInternalIntentsFeed({ repoRoot, vars, check, dryRun });
 }
 
 try {
