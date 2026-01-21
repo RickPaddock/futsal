@@ -1,0 +1,16 @@
+{
+  "run_id": "20260120_225108",
+  "timestamp_start": "2026-01-20T23:02:08Z",
+  "timestamp_end": "2026-01-20T23:02:08Z",
+  "command": "npm run guardrails",
+  "args": [
+    "npm",
+    "run",
+    "guardrails"
+  ],
+  "exit_code": 0,
+  "cwd": ".",
+  "actor": "human",
+  "intent_id": "INT-010",
+  "artefacts": []
+}

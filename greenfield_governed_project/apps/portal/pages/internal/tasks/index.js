@@ -68,14 +68,19 @@ export default function TasksIndex({ tasks }) {
     <main className="page">
       <div className="toolbar">
         <div>
-          <div className="muted">
-            <Link href="/internal">Internal</Link> · <Link href="/internal/intents">Intents</Link>
+          <div className="navPills">
+            <Link className="btn btnSmall" href="/internal">Internal</Link>
+            <Link className="btn btnSmall" href="/internal/intents">Intents</Link>
+            <Link className="btn btnSmall btnActive" href="/internal/tasks">Tasks</Link>
           </div>
           <h1 style={{ margin: "6px 0 0 0" }}>Tasks</h1>
         </div>
-        <button className="btn" type="button" disabled={refreshing} onClick={refreshAndReload}>
-          {refreshing ? "Refreshing…" : "Refresh"}
-        </button>
+        <div className="toolbarActions">
+          <Link className="btn" href="/internal/intents?create=1">Create intent</Link>
+          <button className="btn" type="button" disabled={refreshing} onClick={refreshAndReload}>
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </div>
       <div className="list">
         {tasks.map((t) => (

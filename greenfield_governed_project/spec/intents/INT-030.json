@@ -31,6 +31,37 @@
     "TASK-PLAYER-MOT-001",
     "TASK-TEAM-001"
   ],
+  "quality_areas": [
+    {
+      "area_id": "functional",
+      "title": "Functional objectives",
+      "task_ids": [
+        "TASK-PLAYER-DET-001",
+        "TASK-TEAM-001"
+      ],
+      "objectives": [
+        "Per-frame player detections are produced with confidence and diagnostics.",
+        "Team assignment outputs A/B/Unknown with smoothing and diagnostics."
+      ]
+    },
+    {
+      "area_id": "nonfunctional",
+      "title": "Non-functional objectives",
+      "categories_required": [
+        "correctness_safety",
+        "performance",
+        "security",
+        "maintainability"
+      ],
+      "task_ids": [
+        "TASK-PLAYER-MOT-001"
+      ],
+      "objectives": [
+        "Tracking is trust-first: breaks are preferred over identity swaps (correctness/safety).",
+        "Diagnostics and schemas are stable and suitable for audits and downstream tooling."
+      ]
+    }
+  ],
   "work_packages": [
     {
       "work_package_id": "INT-030-001",

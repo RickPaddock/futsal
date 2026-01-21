@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-010-IMP-008",
+  "intent_id": "INT-010",
+  "title": "Show per-task quality audit results in the internal portal UI",
+  "status": "todo",
+  "scope": [
+    "Extend the internal portal intent detail view to surface per-task quality audit outcomes from the latest run.",
+    "Display pass/fail status, blockers, and key functional/non-functional statuses per task.",
+    "Do not change the audit report schema; only improve rendering and discoverability."
+  ],
+  "acceptance": [
+    "Intent detail view shows per-task quality audit status for each planned task when reports exist.",
+    "Missing per-task reports are clearly shown as missing (not silently ignored).",
+    "The UI links or references the underlying report paths for debugging."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-010-IMP-008-001",
+      "title": "Portal UI reads and renders per-task quality audit JSON reports",
+      "paths": [
+        "apps/portal/pages/internal/intents/[intentId].js",
+        "apps/portal/lib/portal_read_model.js"
+      ],
+      "acceptance": [
+        "Portal reads `status/audit/<INTENT_ID>/runs/<run_id>/tasks/<TASK_ID>/quality_audit.json` for the latest run.",
+        "Portal renders a compact per-task status summary including gate + blockers."
+      ],
+      "evidence": [
+        "Refreshing an intent page shows per-task audit statuses for INT-010.",
+        "A missing task report appears as an explicit missing row with the expected path."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-010-IMP-008-001",
+      "title": "Extend portal read-model to locate the latest per-task quality audit reports for an intent run.",
+      "status": "todo",
+      "area": "portal",
+      "provenance_prefix": "FUSBAL.PORTAL.TASK_INT_010_IMP_008.SUB_001",
+      "done_when": [
+        "Portal can locate and read per-task reports for the latest run consistently.",
+        "Missing reports are reported as missing with expected paths."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-010-IMP-008-002",
+      "title": "Render a per-task quality audit summary table in the intent detail UI.",
+      "status": "todo",
+      "area": "portal",
+      "provenance_prefix": "FUSBAL.PORTAL.TASK_INT_010_IMP_008.SUB_002",
+      "done_when": [
+        "UI renders gate/functional/nonfunctional status per task.",
+        "UI displays blockers and links/pointers to the JSON report."
+      ]
+    }
+  ]
+}

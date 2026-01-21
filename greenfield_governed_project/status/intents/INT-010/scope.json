@@ -11,7 +11,17 @@
   "task_ids_planned": [
     "TASK-V1-OUT-001",
     "TASK-V1-DATA-001",
-    "TASK-V1-CLI-001"
+    "TASK-V1-CLI-001",
+    "TASK-INT-010-IMP-001",
+    "TASK-INT-010-IMP-002",
+    "TASK-INT-010-IMP-003",
+    "TASK-INT-010-IMP-004",
+    "TASK-INT-010-IMP-005",
+    "TASK-INT-010-IMP-006",
+    "TASK-INT-010-IMP-007",
+    "TASK-INT-010-IMP-008",
+    "TASK-INT-010-IMP-009",
+    "TASK-INT-010-IMP-010"
   ],
   "close_gate": {
     "commands": [

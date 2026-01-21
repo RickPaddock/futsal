@@ -1,0 +1,87 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-010",
+  "run_id": "20260121_105921",
+  "task_id": "TASK-V1-OUT-001",
+  "timestamp": "2026-01-21T11:02:06Z",
+  "functional": {
+    "status": "pass",
+    "notes": "Bundle layout, required artifacts, and determinism rules are explicitly defined in code and mirrored in the output contract template.",
+    "evidence": [
+      "pipeline/src/fusbal_pipeline/bundle.py:BUNDLE_ARTIFACT_SPECS_V1",
+      "pipeline/src/fusbal_pipeline/bundle.py:validate_bundle_layout",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt:Bundle manifest + Required artifacts"
+    ],
+    "findings": [
+      "Bundle artifacts are enumerated with stable ids and clear required/optional semantics.",
+      "Bundle validation emits actionable missing-artifact errors with relative paths and stable artifact ids."
+    ]
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "notes": "Validation is strict on required artifacts and is explicit about sensors-conditional requirements.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/bundle.py:ArtifactRequirement",
+        "pipeline/src/fusbal_pipeline/bundle.py:required_artifacts_v1"
+      ],
+      "findings": [
+        "Sensors-conditional artifact (`diagnostics/sync.json`) is only required when sensors are present, avoiding silent assumptions."
+      ]
+    },
+    "performance": {
+      "status": "pass",
+      "notes": "Validation cost is constant-time over a small fixed artifact set.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/bundle.py:validate_bundle_layout"
+      ],
+      "findings": [
+        "No directory scans or unbounded loops; checks only the fixed artifact list."
+      ]
+    },
+    "security": {
+      "status": "pass",
+      "notes": "Pure filesystem existence checks; no command execution or dynamic imports.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/bundle.py:Path usage"
+      ],
+      "findings": [
+        "No parsing of untrusted content in this unit; only path existence/type checks."
+      ]
+    },
+    "maintainability": {
+      "status": "pass",
+      "notes": "Centralizes bundle layout in a single table, enabling downstream tooling to stay consistent.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/bundle.py:BundleArtifactSpec",
+        "pipeline/src/fusbal_pipeline/bundle.py:BUNDLE_LAYOUT_VERSION"
+      ],
+      "findings": [
+        "Stable ids + versioned layout makes future evolution auditable."
+      ]
+    },
+    "overall_status": "pass"
+  },
+  "gate": {
+    "status": "pass",
+    "blockers": []
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-V1-OUT-001.json",
+    "deliverable_paths": [
+      "pipeline/src/fusbal_pipeline/bundle.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/bundle.py",
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 8,
+    "notes": "Solid contract-first scaffolding; primary gaps are downstream (actual pipeline producers/tests), not in the contract/layout definition."
+  }
+}

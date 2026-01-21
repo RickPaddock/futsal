@@ -1,0 +1,95 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-010",
+  "run_id": "20260121_105921",
+  "task_id": "TASK-V1-CLI-001",
+  "timestamp": "2026-01-21T11:02:06Z",
+  "functional": {
+    "status": "pass",
+    "notes": "CLI provides init/validate commands with deterministic manifest writing and actionable validation errors.",
+    "evidence": [
+      "pipeline/src/fusbal_pipeline/cli.py:build_parser",
+      "pipeline/src/fusbal_pipeline/cli.py:cmd_init",
+      "pipeline/src/fusbal_pipeline/cli.py:cmd_validate",
+      "pipeline/src/fusbal_pipeline/__main__.py"
+    ],
+    "findings": [
+      "init writes a stable-key-order manifest and normalizes inputs deterministically (sorted + unique).",
+      "validate checks manifest schema/version, bundle layout requirements, and data-file schema validity with clear stderr errors."
+    ]
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "notes": "Validation is explicit and strict; errors include paths and violated invariants.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/cli.py:_validate_manifest_v1",
+        "pipeline/src/fusbal_pipeline/bundle.py:validate_bundle_layout",
+        "pipeline/src/fusbal_pipeline/contract.py:validate_tracks_jsonl",
+        "pipeline/src/fusbal_pipeline/contract.py:validate_events_json"
+      ],
+      "findings": [
+        "Manifest determinism is enforced (sorted/unique inputs; exact expected artifacts list).",
+        "Bundle layout validation fails fast with clear missing-artifact messages."
+      ]
+    },
+    "performance": {
+      "status": "pass",
+      "notes": "CLI path normalization and manifest validation are small; file validation could be made streaming for large track files.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/cli.py:_normalize_paths",
+        "pipeline/src/fusbal_pipeline/contract.py:validate_tracks_jsonl"
+      ],
+      "findings": [
+        "Track validation reads full file into memory; acceptable for scaffolding but a future scaling risk."
+      ]
+    },
+    "security": {
+      "status": "pass",
+      "notes": "No shell execution; only reads/writes local files. Inputs are parsed as JSON with explicit error handling.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/cli.py:json.loads",
+        "pipeline/src/fusbal_pipeline/cli.py:Path.resolve usage"
+      ],
+      "findings": [
+        "CLI accepts arbitrary filesystem paths; this is expected for a local tool but should remain non-networked and non-executing."
+      ]
+    },
+    "maintainability": {
+      "status": "pass",
+      "notes": "Clear separation of bundle layout, manifest schema, and record validation helpers; small code footprint.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/bundle.py",
+        "pipeline/src/fusbal_pipeline/contract.py",
+        "pipeline/src/fusbal_pipeline/cli.py"
+      ],
+      "findings": [
+        "Central artifact table in bundle.py reduces drift between docs, CLI, and future pipeline writers."
+      ]
+    },
+    "overall_status": "pass"
+  },
+  "gate": {
+    "status": "pass",
+    "blockers": []
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-V1-CLI-001.json",
+    "deliverable_paths": [
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/src/fusbal_pipeline/__main__.py",
+      "pipeline/src/fusbal_pipeline/bundle.py"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/src/fusbal_pipeline/__main__.py",
+      "pipeline/src/fusbal_pipeline/bundle.py",
+      "pipeline/src/fusbal_pipeline/contract.py"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 7,
+    "notes": "Meets the minimal CLI requirements; next iteration should improve large-file validation performance and introduce structured error codes."
+  }
+}

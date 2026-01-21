@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-010-IMP-004",
+  "intent_id": "INT-010",
+  "title": "Extend `init` to optionally scaffold placeholder outputs",
+  "status": "todo",
+  "scope": [
+    "Add an optional mode to `fusbal-pipeline init` to scaffold placeholder output files (JSON/JSONL) matching the V1 contract.",
+    "Keep placeholders explicitly marked as placeholders and safe for demos/tests.",
+    "Do not generate fake detections/events; placeholders should be minimal and obviously synthetic/empty."
+  ],
+  "acceptance": [
+    "`init` supports a flag (e.g. `--with-placeholders`) that creates placeholder artifacts referenced by the bundle layout.",
+    "A bundle created with placeholders passes `validate` (or passes with explicit, well-defined warnings if warnings are supported).",
+    "Placeholders include required headers/versions where appropriate and are deterministic."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-010-IMP-004-001",
+      "title": "Placeholder scaffold logic integrated into CLI init",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/cli.py",
+        "pipeline/src/fusbal_pipeline/bundle.py"
+      ],
+      "acceptance": [
+        "Placeholder creation is gated behind an explicit flag.",
+        "Placeholder contents are minimal, deterministic, and clearly labeled."
+      ],
+      "evidence": [
+        "`fusbal-pipeline init --with-placeholders ...` creates a bundle that can be validated.",
+        "Generated placeholder files are byte-for-byte identical across repeated runs."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-010-IMP-004-001",
+      "title": "Define the placeholder artifact set and minimal placeholder contents for V1 bundle artifacts.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_010_IMP_004.SUB_001",
+      "done_when": [
+        "Placeholder files are defined explicitly and map to required bundle artifacts.",
+        "Placeholders are clearly labeled and contain minimal valid structure."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-010-IMP-004-002",
+      "title": "Add CLI flag and implementation to emit placeholders during `init`.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_010_IMP_004.SUB_002",
+      "done_when": [
+        "`init` supports a flag to enable placeholder generation.",
+        "Placeholder generation is deterministic and does not overwrite existing files unexpectedly."
+      ]
+    }
+  ]
+}

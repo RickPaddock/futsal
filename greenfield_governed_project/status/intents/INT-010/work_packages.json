@@ -15,6 +15,22 @@
       "primary_task_ids": [
         "TASK-V1-CLI-001"
       ]
+    },
+    {
+      "work_package_id": "INT-010-003",
+      "title": "Follow-up quality improvements",
+      "primary_task_ids": [
+        "TASK-INT-010-IMP-001",
+        "TASK-INT-010-IMP-002",
+        "TASK-INT-010-IMP-003",
+        "TASK-INT-010-IMP-004",
+        "TASK-INT-010-IMP-005",
+        "TASK-INT-010-IMP-006",
+        "TASK-INT-010-IMP-007",
+        "TASK-INT-010-IMP-008",
+        "TASK-INT-010-IMP-009",
+        "TASK-INT-010-IMP-010"
+      ]
     }
   ]
 }

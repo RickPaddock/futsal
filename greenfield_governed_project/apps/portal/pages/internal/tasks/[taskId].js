@@ -1,6 +1,6 @@
 /*
 PROV: GREENFIELD.GOV.PORTAL.TASKS.02
-REQ: SYS-ARCH-15, GREENFIELD-PORTAL-001
+REQ: SYS-ARCH-15, GREENFIELD-PORTAL-001, GREENFIELD-PORTAL-015, GREENFIELD-PORTAL-012
 WHY: Task detail view (human-readable summary + canonical JSON for spec/tasks/<TASK_ID>.json).
 */
 
@@ -10,6 +10,8 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useState } from "react";
 
+import { isValidTaskId, repoRootFromPortalCwd } from "../../../lib/portal_read_model.js";
+
 function safeReadJson(p) {
   if (!fs.existsSync(p)) return null;
   return JSON.parse(fs.readFileSync(p, "utf8"));
@@ -17,7 +19,8 @@ function safeReadJson(p) {
 
 export async function getServerSideProps(ctx) {
   const taskId = String(ctx.params?.taskId || "");
-  const repoRoot = path.resolve(process.cwd(), "..", "..");
+  if (!isValidTaskId(taskId)) return { notFound: true };
+  const repoRoot = repoRootFromPortalCwd();
   const taskSpecPath = path.join(repoRoot, "spec", "tasks", `${taskId}.json`);
   const task = safeReadJson(taskSpecPath);
   return { props: { taskId, task } };
@@ -30,8 +33,16 @@ export default function TaskDetail({ taskId, task }) {
   async function refreshAndReload() {
     setRefreshing(true);
     try {
-      const res = await fetch("/api/internal/refresh", { method: "POST" });
-      if (!res.ok) throw new Error(`refresh_failed_http_${res.status}`);
+      const res = await fetch("/api/internal/refresh", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ intentId: intentId || "" }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = payload?.error ? String(payload.error) : `http_${res.status}`;
+        throw new Error(msg);
+      }
       router.reload();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -53,21 +64,24 @@ export default function TaskDetail({ taskId, task }) {
     <main className="page">
       <div className="toolbar">
         <div>
-          <div className="muted">
-            <Link href="/internal/tasks">← Tasks</Link> · <Link href="/internal/intents">Intents</Link>
+          <div className="navPills">
+            <Link className="btn btnSmall" href="/internal">Internal</Link>
+            <Link className="btn btnSmall" href="/internal/intents">Intents</Link>
+            <Link className="btn btnSmall" href="/internal/tasks">Tasks</Link>
             {intentId ? (
-              <>
-                {" "}
-                · <Link href={`/internal/intents/${encodeURIComponent(intentId)}`}>Intent {intentId}</Link>
-              </>
+              <Link className="btn btnSmall" href={`/internal/intents/${encodeURIComponent(intentId)}`}>Intent: {intentId}</Link>
             ) : null}
+            <Link className="btn btnSmall btnActive" href={`/internal/tasks/${encodeURIComponent(taskId)}`}>Task: {taskId}</Link>
           </div>
           <h1 style={{ margin: "6px 0 0 0" }}>{taskId}</h1>
           <div className="muted">{String(task?.title || "")}</div>
         </div>
-        <button className="btn" type="button" disabled={refreshing} onClick={refreshAndReload}>
-          {refreshing ? "Refreshing…" : "Refresh"}
-        </button>
+        <div className="toolbarActions">
+          <Link className="btn" href="/internal/intents?create=1">Create intent</Link>
+          <button className="btn" type="button" disabled={refreshing} onClick={refreshAndReload}>
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </div>
 
       <div className="grid">

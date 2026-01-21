@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-010-IMP-007",
+  "intent_id": "INT-010",
+  "title": "Export the V1 contract as JSON Schema for downstream validators",
+  "status": "todo",
+  "scope": [
+    "Provide JSON Schema files that represent the V1 contract for downstream validation in other languages/tools.",
+    "Keep schemas deterministic and versioned.",
+    "Do not require reading Python code to obtain the schema."
+  ],
+  "acceptance": [
+    "A versioned JSON Schema file exists for the V1 contract and is checked into the repo.",
+    "Schema matches the documented contract fields and semantics.",
+    "A sample output can be validated against the schema with an off-the-shelf JSON Schema validator."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-010-IMP-007-001",
+      "title": "V1 JSON Schema artefacts and generation/maintenance strategy",
+      "paths": [
+        "pipeline/schemas/contract.v1.schema.json",
+        "pipeline/src/fusbal_pipeline/contract.py"
+      ],
+      "acceptance": [
+        "Schema file is versioned and stored under `pipeline/schemas/`.",
+        "Contract code references or documents schema version alignment."
+      ],
+      "evidence": [
+        "A sample record validates against the schema.",
+        "A schema violation is reported with a clear reason by a validator."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-010-IMP-007-001",
+      "title": "Define and commit JSON Schema artefacts for the V1 contract.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_010_IMP_007.SUB_001",
+      "done_when": [
+        "A versioned schema file exists at `pipeline/schemas/contract.v1.schema.json`.",
+        "Schema is deterministic and aligns with contract code fields."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-010-IMP-007-002",
+      "title": "Document/encode the alignment between contract code version and JSON Schema version.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_010_IMP_007.SUB_002",
+      "done_when": [
+        "There is an explicit version field or mapping between contract code and schema file.",
+        "Downstream consumers can identify which schema version to use."
+      ]
+    }
+  ]
+}

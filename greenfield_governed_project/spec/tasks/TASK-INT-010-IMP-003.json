@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-010-IMP-003",
+  "intent_id": "INT-010",
+  "title": "Add minimal unit tests for manifest determinism and schema validation",
+  "status": "todo",
+  "scope": [
+    "Add a minimal Python test suite for the pipeline package focused on determinism and schema validation correctness.",
+    "Prefer small, fast tests that can run in CI.",
+    "Do not introduce end-to-end video processing tests in this task."
+  ],
+  "acceptance": [
+    "`pytest` (or equivalent) runs the pipeline unit tests successfully.",
+    "There is at least one determinism test for manifest generation (same inputs => same manifest).",
+    "There is at least one schema validation test that fails clearly on invalid records."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-010-IMP-003-001",
+      "title": "Pipeline unit tests and test runner configuration",
+      "paths": [
+        "pipeline/pyproject.toml",
+        "pipeline/tests/test_manifest_determinism.py",
+        "pipeline/tests/test_contract_validation.py"
+      ],
+      "acceptance": [
+        "Test dependencies are declared in `pipeline/pyproject.toml`.",
+        "At least two focused tests exist (determinism + contract validation)."
+      ],
+      "evidence": [
+        "`pytest -q` (run from `pipeline/`) passes locally and in CI."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-010-IMP-003-001",
+      "title": "Add a minimal test runner configuration for the pipeline package.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_010_IMP_003.SUB_001",
+      "done_when": [
+        "`pytest` is configured and can be run from `pipeline/`.",
+        "Tests run without requiring network access or large external artifacts."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-010-IMP-003-002",
+      "title": "Add determinism tests for manifest generation.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_010_IMP_003.SUB_002",
+      "done_when": [
+        "A test asserts identical inputs produce byte-for-byte identical manifest output.",
+        "A test asserts sorting/stable ordering rules hold for typical inputs."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-010-IMP-003-003",
+      "title": "Add contract/schema validation tests for representative invalid inputs.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_010_IMP_003.SUB_003",
+      "done_when": [
+        "Invalid record fields produce validation failures with clear reasons.",
+        "Tests cover at least one missing required field and one invalid type/range."
+      ]
+    }
+  ]
+}

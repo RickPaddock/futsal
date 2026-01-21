@@ -1,7 +1,7 @@
 /*
 PROV: GREENFIELD.GOV.AUDIT_INTENT.01
-REQ: SYS-ARCH-15, AUD-REQ-10
-WHY: Audit an intent for governance completeness (task specs, new requirements tracked, and REQ tags in code).
+REQ: SYS-ARCH-15, AUD-REQ-10, GREENFIELD-GOV-016
+WHY: Audit an intent for governance completeness (task specs, quality areas, new requirements tracked, and REQ tags in code).
 */
 
 import fs from "node:fs";
@@ -109,6 +109,85 @@ function utcNow() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
+function normalizeStringList(value) {
+  if (!value) return [];
+  if (!Array.isArray(value)) return [];
+  return value.map(String).map((s) => s.trim()).filter(Boolean);
+}
+
+function uniqueStrings(values) {
+  return [...new Set(normalizeStringList(values))];
+}
+
+function validateQualityAreas({ intent, plannedTasks }) {
+  const issues = [];
+  const planned = uniqueStrings(plannedTasks);
+
+  const qualityAreas = Array.isArray(intent?.quality_areas) ? intent.quality_areas : null;
+  if (!qualityAreas) {
+    issues.push({ issue: "missing_quality_areas", expected: ["functional", "nonfunctional"] });
+    return issues;
+  }
+
+  const byId = new Map();
+  for (const area of qualityAreas) {
+    const areaId = String(area?.area_id || "").trim();
+    if (!areaId) {
+      issues.push({ issue: "quality_area_missing_area_id" });
+      continue;
+    }
+    if (byId.has(areaId)) {
+      issues.push({ issue: "quality_area_duplicate", area_id: areaId });
+      continue;
+    }
+    byId.set(areaId, area);
+  }
+
+  const functional = byId.get("functional");
+  const nonfunctional = byId.get("nonfunctional");
+  if (!functional) issues.push({ issue: "missing_quality_area", area_id: "functional" });
+  if (!nonfunctional) issues.push({ issue: "missing_quality_area", area_id: "nonfunctional" });
+  if (!functional || !nonfunctional) return issues;
+
+  const functionalTaskIds = uniqueStrings(functional?.task_ids);
+  const nonfunctionalTaskIds = uniqueStrings(nonfunctional?.task_ids);
+
+  if (!functionalTaskIds.length) issues.push({ issue: "quality_area_task_ids_empty", area_id: "functional" });
+  if (!nonfunctionalTaskIds.length) issues.push({ issue: "quality_area_task_ids_empty", area_id: "nonfunctional" });
+
+  const invalidFunctional = functionalTaskIds.filter((tid) => !planned.includes(tid));
+  if (invalidFunctional.length) {
+    issues.push({ issue: "quality_area_task_ids_not_in_task_ids_planned", area_id: "functional", task_ids: invalidFunctional });
+  }
+
+  const invalidNonfunctional = nonfunctionalTaskIds.filter((tid) => !planned.includes(tid));
+  if (invalidNonfunctional.length) {
+    issues.push({ issue: "quality_area_task_ids_not_in_task_ids_planned", area_id: "nonfunctional", task_ids: invalidNonfunctional });
+  }
+
+  const overlap = functionalTaskIds.filter((tid) => nonfunctionalTaskIds.includes(tid));
+  if (overlap.length) {
+    issues.push({ issue: "quality_area_task_ids_overlap", task_ids: overlap });
+  }
+
+  const union = uniqueStrings([...functionalTaskIds, ...nonfunctionalTaskIds]).sort();
+  const plannedSorted = planned.slice().sort();
+  if (union.join("|") !== plannedSorted.join("|")) {
+    const missing = plannedSorted.filter((tid) => !union.includes(tid));
+    const extra = union.filter((tid) => !plannedSorted.includes(tid));
+    issues.push({ issue: "quality_area_task_ids_partition_invalid", missing_task_ids: missing, extra_task_ids: extra });
+  }
+
+  const requiredNfr = ["correctness_safety", "performance", "security", "maintainability"];
+  const categoriesRequired = uniqueStrings(nonfunctional?.categories_required);
+  const missingCategories = requiredNfr.filter((c) => !categoriesRequired.includes(c));
+  if (missingCategories.length) {
+    issues.push({ issue: "nonfunctional_categories_required_missing", missing: missingCategories, required: requiredNfr });
+  }
+
+  return issues;
+}
+
 function main() {
   const repoRoot = repoRootFromHere(import.meta.url);
   const args = parseArgs(process.argv.slice(2));
@@ -139,6 +218,8 @@ function main() {
   const plannedTasks = Array.isArray(intent.task_ids_planned) ? intent.task_ids_planned.map(String) : [];
   const missingTaskSpecs = [];
   const newReqIds = new Set();
+
+  const qualityAreaIssues = validateQualityAreas({ intent, plannedTasks });
 
   for (const tid of plannedTasks) {
     const taskPath = path.join(tasksDir, `${tid}.json`);
@@ -180,6 +261,7 @@ function main() {
 
   const errors = [];
   if (missingTaskSpecs.length) errors.push({ code: "missing_task_specs", items: missingTaskSpecs });
+  if (qualityAreaIssues.length) errors.push({ code: "quality_areas_invalid", items: qualityAreaIssues });
   if (missingNewReqs.length) errors.push({ code: "missing_new_requirements", items: missingNewReqs });
   if (newReqImplMismatches.length) errors.push({ code: "new_requirement_tracking_mismatch", items: newReqImplMismatches });
 
@@ -193,6 +275,7 @@ function main() {
     summary: {
       planned_tasks: plannedTasks.length,
       missing_task_specs: missingTaskSpecs.length,
+      quality_areas_issues: qualityAreaIssues.length,
       new_requirements_declared: newReqIds.size,
       new_requirements_with_code_refs: newReqsWithCodeRefs.length,
       new_requirements_missing_code_refs: newReqsMissingCodeRefs.length,

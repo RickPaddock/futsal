@@ -32,6 +32,37 @@
     "TASK-BALL-TRACK-001",
     "TASK-EVENT-001"
   ],
+  "quality_areas": [
+    {
+      "area_id": "functional",
+      "title": "Functional objectives",
+      "task_ids": [
+        "TASK-BALL-DET-001",
+        "TASK-EVENT-001"
+      ],
+      "objectives": [
+        "Ball detections and events are emitted with confidence and diagnostics.",
+        "Shots/goals inference is conservative and emits evidence pointers."
+      ]
+    },
+    {
+      "area_id": "nonfunctional",
+      "title": "Non-functional objectives",
+      "categories_required": [
+        "correctness_safety",
+        "performance",
+        "security",
+        "maintainability"
+      ],
+      "task_ids": [
+        "TASK-BALL-TRACK-001"
+      ],
+      "objectives": [
+        "Ball tracks never hallucinate; missing/unknown spans are explicit (correctness/safety).",
+        "Track quality metrics/diagnostics support conservative downstream gating."
+      ]
+    }
+  ],
   "work_packages": [
     {
       "work_package_id": "INT-040-001",

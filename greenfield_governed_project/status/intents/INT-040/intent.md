@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/intents/INT-040.json
-source_sha256: sha256:8c97ac9ad3a5c5df49d4e4003bfd8e5eb2b46a755ce485b9a2f1380133813e31
+source_sha256: sha256:f557af1bb1dfc4cada3798ab41f01e079386c27fbc99bbac7b573beb3b46e53b
 intent_id: INT-040
 title: Ball tracking + conservative shots/goals (V1)
 status: todo

@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-010-IMP-010",
+  "intent_id": "INT-010",
+  "title": "Add lightweight formatting/linting for the pipeline Python package",
+  "status": "todo",
+  "scope": [
+    "Add lightweight formatting and linting for the pipeline Python package (focus: maintainability and consistency).",
+    "Prefer low-friction tooling (fast, deterministic) and avoid heavy refactors.",
+    "Do not reformat unrelated files unless required by the chosen tool and agreed by the project."
+  ],
+  "acceptance": [
+    "A formatter/linter configuration exists for the pipeline package (e.g. ruff/black) with deterministic settings.",
+    "There is a documented command to run formatting/linting (script or npm target) suitable for CI.",
+    "`npm run guardrails` and existing workflows remain compatible."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-010-IMP-010-001",
+      "title": "Pipeline lint/format configuration and runnable command",
+      "paths": [
+        "pipeline/pyproject.toml",
+        "scripts/lint/pipeline.sh"
+      ],
+      "acceptance": [
+        "Tool configuration is stored under `pipeline/pyproject.toml`.",
+        "A single command exists to run lint/format checks for the pipeline package."
+      ],
+      "evidence": [
+        "Running the lint command produces deterministic output and non-zero exit on violations."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-010-IMP-010-001",
+      "title": "Choose and configure lightweight lint/format tooling with deterministic settings.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_010_IMP_010.SUB_001",
+      "done_when": [
+        "Config exists under `pipeline/pyproject.toml` and is deterministic.",
+        "Tool runs quickly enough to be practical in CI."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-010-IMP-010-002",
+      "title": "Add a repo command/script to run pipeline lint/format checks consistently.",
+      "status": "todo",
+      "area": "scripts",
+      "provenance_prefix": "FUSBAL.SCRIPTS.TASK_INT_010_IMP_010.SUB_002",
+      "done_when": [
+        "A script exists at `scripts/lint/pipeline.sh` and is executable in CI.",
+        "The script returns non-zero exit codes on failures with actionable output."
+      ]
+    }
+  ]
+}

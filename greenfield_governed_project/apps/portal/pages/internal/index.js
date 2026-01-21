@@ -10,14 +10,14 @@ export default function InternalHome() {
   return (
     <main className="page">
       <h1>Internal</h1>
-      <ul>
-        <li>
-          <Link href="/internal/intents">Intents</Link>
-        </li>
-        <li>
-          <Link href="/internal/tasks">Tasks</Link>
-        </li>
-      </ul>
+      <div className="navPills" style={{ marginTop: 10 }}>
+        <Link className="btn btnSmall btnActive" href="/internal">Internal</Link>
+        <Link className="btn btnSmall" href="/internal/intents">Intents</Link>
+        <Link className="btn btnSmall" href="/internal/tasks">Tasks</Link>
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <Link className="btn" href="/internal/intents?create=1">Create intent</Link>
+      </div>
     </main>
   );
 }

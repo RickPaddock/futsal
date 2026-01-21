@@ -1,0 +1,87 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-010",
+  "run_id": "20260121_105921",
+  "task_id": "TASK-V1-DATA-001",
+  "timestamp": "2026-01-21T11:02:06Z",
+  "functional": {
+    "status": "pass",
+    "notes": "Track and event schemas are explicit, versioned, and documented with minimal examples, including missing/unknown semantics.",
+    "evidence": [
+      "pipeline/src/fusbal_pipeline/contract.py:TrackRecordV1",
+      "pipeline/src/fusbal_pipeline/contract.py:EventRecordV1",
+      "pipeline/src/fusbal_pipeline/contract.py:validate_track_record_v1",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt:Canonical track record + Canonical events"
+    ],
+    "findings": [
+      "Schema versions are explicit (schema_version: 1).",
+      "Missing/unknown state is encoded via pos_state and validation enforces geometry requirements only when present."
+    ]
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "notes": "Validation prevents implicit defaults for required fields and encodes missing/unknown semantics explicitly.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/contract.py:PosState",
+        "pipeline/src/fusbal_pipeline/contract.py:validate_track_record_v1"
+      ],
+      "findings": [
+        "Coordinate fields are required only when pos_state=present (reduces hallucination risk).",
+        "Typed enums constrain critical fields (entity_type/frame/pos_state/event_type)."
+      ]
+    },
+    "performance": {
+      "status": "pass",
+      "notes": "Validation helpers are simple and deterministic; large-file behavior can be improved by streaming validation.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/contract.py:validate_tracks_jsonl"
+      ],
+      "findings": [
+        "Current implementation reads the full file into memory via read_text().splitlines()."
+      ]
+    },
+    "security": {
+      "status": "pass",
+      "notes": "Parses JSON input without executing code; error handling is explicit.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/contract.py:json.loads usage"
+      ],
+      "findings": [
+        "JSON parsing errors are surfaced with line/index context; no dynamic evaluation."
+      ]
+    },
+    "maintainability": {
+      "status": "pass",
+      "notes": "Single module contains schema definitions and validation helpers; small surface area and clear naming.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/contract.py"
+      ],
+      "findings": [
+        "Validation helpers are directly reusable by CLI and future guardrails without bespoke parsing."
+      ]
+    },
+    "overall_status": "pass"
+  },
+  "gate": {
+    "status": "pass",
+    "blockers": []
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-V1-DATA-001.json",
+    "deliverable_paths": [
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 7,
+    "notes": "Schema coverage is good for V1 scaffolding; main improvement is streaming validation and tighter numeric/range constraints."
+  }
+}

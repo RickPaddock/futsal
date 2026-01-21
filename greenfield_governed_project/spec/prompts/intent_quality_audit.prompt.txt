@@ -1,37 +1,102 @@
-You are an LLM operating on a governed repository.
+You are an LLM operating on a governed repository with local filesystem + command access.
 
-GOAL: Run the REQUIRED audits for intent <INTENT_ID> end-to-end and capture evidence:
+DO NOT ask the human any questions. Do NOT request pasted files. Open/read everything yourself.
+
+GOAL: Run audits for intent `<INTENT_ID>` end-to-end (no human investigation) and write evidence + a quality report:
 1) Governance intent audit (`npm run audit:intent -- --intent-id <INTENT_ID>`)
 2) Repository guardrails (`npm run guardrails`)
-2) Audits implementation quality by inspecting the actual repo code
-3) Produces a machine-readable quality audit report with 10 improvements ranked by ROI (0–10), each with effort + risk
-4) Saves the report under `status/audit/<INTENT_ID>/runs/<run_id>/quality_audit.json`
-5) Ensures portal views will show it after refresh (run generate/guardrails)
+3) Implementation quality audit by inspecting real repo code
+4) Write a machine-readable report `status/audit/<INTENT_ID>/runs/<run_id>/quality_audit.json`
+5) Ensure portal surfaces are refreshed (`npm run generate`, then `npm run guardrails`)
 
-Hard rules:
+HARD RULES (must comply):
 - Never hand-edit any `.md` files (generated).
-- Only edit canonical sources: `spec/intents/*.json`, `spec/tasks/*.json`, `spec/requirements/**.json`, code under `apps/**`, `packages/**`, `scripts/**`, `tools/**`, `pipeline/**`.
-- The audit report must be JSON (not Markdown).
+- Do not modify specs/code as part of auditing. The ONLY allowed writes are:
+  - evidence JSON under `status/audit/<INTENT_ID>/runs/<run_id>/`
+  - the quality audit JSON report under the same run folder
+- If an audit fails, STOP after reporting required fixes; do not proceed to quality audit.
+- Prefer explicit `missing` / `unknown` over guessing.
 
-First ask me these questions (one at a time, max 8 total):
-1) What is `<INTENT_ID>`?
-2) What is `<run_id>`? (If I don’t care, propose a `run_id` like `YYYYMMDD_HHMMSS`.)
-3) Which code areas are in-scope for the quality audit? (default: everything under `pipeline/`, `apps/portal/`, `scripts/`, `tools/`)
-4) Any constraints? (time budget, “no refactors”, performance vs correctness, etc.)
+CONTEXT (provided by the caller; do not ask for these):
+- `intent_id`: `<INTENT_ID>`
+- `run_id`: `<run_id>`
 
-Then execute this process:
+SANITY CHECK:
+- If `<INTENT_ID>` or `<run_id>` still contains angle-bracket placeholder markers, STOP: this prompt was not rendered with real values.
+
+OUTPUTS YOU MUST PRODUCE (exact paths):
+- `status/audit/<INTENT_ID>/runs/<run_id>/audit/run.json`
+- `status/audit/<INTENT_ID>/runs/<run_id>/audit/audit_report.json`
+- `status/audit/<INTENT_ID>/runs/<run_id>/guardrails/run.json`
+- `status/audit/<INTENT_ID>/runs/<run_id>/quality_audit.json`
+- For EACH task in `spec/intents/<INTENT_ID>.json` → `task_ids_planned[]`:
+  - `status/audit/<INTENT_ID>/runs/<run_id>/tasks/TASK_ID/quality_audit.json`
+
+QUALITY AUDIT SCOPE (default, no questions):
+- Treat these areas as in-scope: `pipeline/`, `apps/portal/`, `scripts/`, `tools/`
+- Also treat as in-scope: all files referenced by the intent’s planned task deliverables.
+
+MUST DO (checklist):
+1) Read `spec/intents/<INTENT_ID>.json` and confirm it exists.
+   - Confirm intent declares `quality_areas[]` with both `functional` and `nonfunctional` areas and tasks assigned to both.
+2) Read every task spec in `task_ids_planned[]` from `spec/tasks/TASK_ID.json`.
+3) Build a list of deliverable file paths from all tasks’ `deliverables[].paths[]`.
+4) Read generated intent scope (do not edit):
+   - `status/intents/<INTENT_ID>/scope.json`
+   - `status/intents/<INTENT_ID>/work_packages.json`
+   - `status/intents/<INTENT_ID>/intent.md`
+5) Run required audits with evidence capture:
+   - `npm run audit:intent` (write audit evidence + audit report JSON)
+   - `npm run guardrails` (write guardrails evidence)
+6) If either audit fails: STOP and output the exact required fixes + the evidence paths.
+7) If both audits pass: inspect the real code (deliverable paths + adjacent code under in-scope areas).
+8) Produce per-task quality audits (one JSON file per task) that include BOTH:
+   - Functional verification (does the task meet its functional objectives/acceptance?)
+   - Non-functional verification (validate code against correctness/safety, performance, security, maintainability)
+   Each task must be marked `pass` or `fail` with explicit blockers.
+9) After ALL per-task reviews are complete, produce the overall intent quality audit report and include exactly 10 improvements ranked by ROI.
+10) Write all required JSON files to the exact paths listed above.
+11) Run `npm run generate` then `npm run guardrails` to ensure portal surfaces are consistent.
 
 A) REQUIRED audits + evidence (must pass before quality audit)
 1) Run intent audit and capture evidence:
-   `node tools/evidence/record_run.mjs --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/audit/run.json --artefact status/audit/<INTENT_ID>/runs/<run_id>/audit/audit_report.json -- npm run audit:intent -- --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/audit/audit_report.json`
+   `node tools/evidence/record_run.mjs --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/audit/run.json --artefact status/audit/<INTENT_ID>/runs/<run_id>/audit/audit_report.json npm run audit:intent -- --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/audit/audit_report.json`
 2) Run guardrails and capture evidence:
-   `node tools/evidence/record_run.mjs --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/guardrails/run.json -- npm run guardrails`
+   `node tools/evidence/record_run.mjs --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/guardrails/run.json npm run guardrails`
 3) If either fails, stop and list the exact required fixes; do not proceed until both pass.
 4) Regression guardrail check for new requirements:
    - For any `REQ-*` requirement created/touched by this intent, confirm it includes `guardrails:req_tag_enforced_on_done` (automation enforces this via `npm run guardrails`).
 
-B) Quality audit (inspect the real code)
-1) Read the intent spec: `spec/intents/<INTENT_ID>.json` and all referenced task specs `spec/tasks/<TASK_ID>.json`.
+B) Quality audit (inspect the real code; no code/spec edits)
+
+Part 1: Intent quality audit
+- Evaluate intent structure, scope clarity, and governance compliance using canonical sources:
+  - `spec/intents/<INTENT_ID>.json`
+  - `spec/tasks/TASK_ID.json` for all tasks in `task_ids_planned[]`
+  - Generated intent surfaces (read-only): `status/intents/<INTENT_ID>/scope.json`, `status/intents/<INTENT_ID>/work_packages.json`, `status/intents/<INTENT_ID>/intent.md`
+- Consider acceptance criteria and `close_gate[]` commands, and whether the tasks/deliverables are sufficient and concrete.
+- Verify intent objectives BOTH functionally and non-functionally:
+  - Functional objectives: check that tasks/outputs satisfy the intent’s stated success criteria.
+  - Non-functional objectives: check the intent’s `quality_areas[]` nonfunctional scope and validate code accordingly.
+
+Part 2: Repository code quality analysis
+- Validate the implementation against NON-FUNCTIONAL requirements for each in-scope task:
+  - Correctness/safety: trust-first behavior, explicit missing/unknown, deterministic semantics, actionable errors.
+  - Performance: avoid obvious O(N^2) / unbounded scans, avoid unnecessary IO, deterministic ordering without excessive cost.
+  - Security: path handling, unsafe command execution, user-controlled input parsing, injection risks.
+  - Maintainability: clear structure, cohesive modules, explicit schemas/contracts, predictable interfaces.
+- Use concrete evidence from code (file/symbol pointers) for each non-functional finding; do not rely on assumptions.
+
+Part 3: Improvement recommendations (exactly 10 items)
+- Produce exactly 10 improvements ranked by ROI (0–10), each with effort + risk, and concrete file/symbol pointers.
+- Do this ONLY after the functional + non-functional reviews above are completed for the intent and each planned task.
+- Effort levels:
+  - `S`: < 1 day
+  - `M`: 1–5 days
+  - `L`: 1–3+ weeks
+- Risk levels: `low`, `medium`, `high`
+
+1) Read the intent spec: `spec/intents/<INTENT_ID>.json` and all referenced task specs `spec/tasks/TASK_ID.json`.
 2) Inspect actual implementation files referenced by deliverables plus any obvious adjacent code.
    - Treat `deliverables[]` + `subtasks[]` as the authoritative scope and check whether they are concrete enough.
 3) Evaluate against these categories:
@@ -75,8 +140,66 @@ Create `status/audit/<INTENT_ID>/runs/<run_id>/quality_audit.json` with this sch
     "top_risks": ["..."],
     "top_quick_wins": ["..."]
   },
+  "verification": {
+    "functional": {
+      "status": "pass|fail",
+      "notes": "optional"
+    },
+    "nonfunctional": {
+      "correctness_safety": { "status": "pass|fail", "notes": "optional" },
+      "performance": { "status": "pass|fail", "notes": "optional" },
+      "security": { "status": "pass|fail", "notes": "optional" },
+      "maintainability": { "status": "pass|fail", "notes": "optional" },
+      "overall_status": "pass|fail"
+    }
+  },
   "improvements": [ /* exactly 10 items, sorted by roi desc */ ]
 }
+
+Additionally, for EACH planned task TASK_ID, create:
+`status/audit/<INTENT_ID>/runs/<run_id>/tasks/TASK_ID/quality_audit.json`
+with this schema:
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "<INTENT_ID>",
+  "run_id": "<run_id>",
+  "task_id": "TASK_ID",
+  "timestamp": "YYYY-MM-DDTHH:MM:SSZ",
+  "functional": {
+    "status": "pass|fail",
+    "notes": "optional",
+    "evidence": ["..."],
+    "findings": ["..."]
+  },
+  "nonfunctional": {
+    "correctness_safety": { "status": "pass|fail", "notes": "optional", "evidence": ["..."], "findings": ["..."] },
+    "performance": { "status": "pass|fail", "notes": "optional", "evidence": ["..."], "findings": ["..."] },
+    "security": { "status": "pass|fail", "notes": "optional", "evidence": ["..."], "findings": ["..."] },
+    "maintainability": { "status": "pass|fail", "notes": "optional", "evidence": ["..."], "findings": ["..."] },
+    "overall_status": "pass|fail"
+  },
+  "gate": {
+    "status": "pass|fail",
+    "blockers": ["..."]
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK_ID.json",
+    "deliverable_paths": ["..."],
+    "code_paths_reviewed": ["..."]
+  },
+  "summary": {
+    "overall_health_0_to_10": 0,
+    "notes": "optional"
+  }
+}
+
+Close gating rule:
+- Close requires EVERY task report to have:
+  - `gate.status: "pass"`
+  - `gate.blockers: []`
+  - `functional.status: "pass"`
+  - `nonfunctional.overall_status: "pass"` AND each nonfunctional category status is `"pass"`
 
 D) Validate + refresh surfaces
 1) Run: `npm run generate`
@@ -89,5 +212,5 @@ Output requirements (in chat):
   - the audit report path: `status/audit/<INTENT_ID>/runs/<run_id>/audit/audit_report.json`
   - the guardrails evidence path: `status/audit/<INTENT_ID>/runs/<run_id>/guardrails/run.json`
   - the quality report path: `status/audit/<INTENT_ID>/runs/<run_id>/quality_audit.json`
-  - the top 3 improvement titles + ROI/effort/risk
+  - all 10 improvement titles + ROI/effort/risk
 Do not paste the entire JSON into chat.

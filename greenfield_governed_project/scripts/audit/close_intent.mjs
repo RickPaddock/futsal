@@ -1,6 +1,6 @@
 /*
 PROV: GREENFIELD.GOV.CLOSE_INTENT.01
-REQ: SYS-ARCH-15, AUD-REQ-10
+REQ: SYS-ARCH-15, AUD-REQ-10, GREENFIELD-GOV-015, GREENFIELD-GOV-017
 WHY: Close an intent by applying status updates to canonical sources after a successful audit.
 */
 
@@ -18,15 +18,123 @@ function writeJson(p, obj) {
 }
 
 function parseArgs(argv) {
-  const out = { intentId: "", closedDate: "", apply: false };
+  const out = { intentId: "", runId: "", closedDate: "", requireQualityAudit: false, apply: false };
   const args = [...argv];
   while (args.length) {
     const a = args.shift();
     if (a === "--intent-id") out.intentId = String(args.shift() || "");
+    else if (a === "--run-id") out.runId = String(args.shift() || "");
     else if (a === "--closed-date") out.closedDate = String(args.shift() || "");
+    else if (a === "--require-quality-audit") out.requireQualityAudit = true;
     else if (a === "--apply") out.apply = true;
   }
   return out;
+}
+
+function relFrom(repoRoot, abs) {
+  return relPosix(path.relative(repoRoot, abs));
+}
+
+function requireFile(repoRoot, abs, label) {
+  if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) {
+    throw new Error(`missing_${label}:${relFrom(repoRoot, abs)}`);
+  }
+}
+
+function requireEvidenceRunOk(repoRoot, abs) {
+  requireFile(repoRoot, abs, "evidence_run_json");
+  const obj = readJson(abs);
+  const exitCode = Number(obj?.exit_code ?? 1);
+  if (exitCode !== 0) throw new Error(`evidence_nonzero_exit:${relFrom(repoRoot, abs)}:${exitCode}`);
+  return obj;
+}
+
+function requireAuditReportOk(repoRoot, abs) {
+  requireFile(repoRoot, abs, "audit_report_json");
+  const obj = readJson(abs);
+  const errors = Array.isArray(obj?.errors) ? obj.errors : null;
+  if (!errors) throw new Error(`audit_report_missing_errors_array:${relFrom(repoRoot, abs)}`);
+  if (errors.length) throw new Error(`audit_report_has_errors:${relFrom(repoRoot, abs)}:${errors.length}`);
+  return obj;
+}
+
+function requireIntentQualityAuditOk(repoRoot, abs, { intentId, runId }) {
+  requireFile(repoRoot, abs, "quality_audit_json");
+  const obj = readJson(abs);
+  if (String(obj?.type || "").trim() !== "intent_quality_audit_report") {
+    throw new Error(`invalid_quality_audit_type:${relFrom(repoRoot, abs)}`);
+  }
+  if (Number(obj?.schema_version ?? 0) !== 1) {
+    throw new Error(`invalid_quality_audit_schema_version:${relFrom(repoRoot, abs)}`);
+  }
+  if (String(obj?.intent_id || "").trim() !== intentId) {
+    throw new Error(`quality_audit_intent_mismatch:${relFrom(repoRoot, abs)}`);
+  }
+  if (String(obj?.run_id || "").trim() !== runId) {
+    throw new Error(`quality_audit_run_mismatch:${relFrom(repoRoot, abs)}`);
+  }
+  const improvements = Array.isArray(obj?.improvements) ? obj.improvements : null;
+  if (!improvements) throw new Error(`quality_audit_missing_improvements_array:${relFrom(repoRoot, abs)}`);
+  if (improvements.length !== 10) {
+    throw new Error(`quality_audit_improvements_not_10:${relFrom(repoRoot, abs)}:${improvements.length}`);
+  }
+  return obj;
+}
+
+function requireTaskQualityAuditPass(repoRoot, abs, { intentId, runId, taskId }) {
+  requireFile(repoRoot, abs, "task_quality_audit_json");
+  const rep = readJson(abs);
+  if (String(rep?.type || "").trim() !== "task_quality_audit_report") {
+    throw new Error(`invalid_task_quality_audit_type:${relFrom(repoRoot, abs)}`);
+  }
+  if (Number(rep?.schema_version ?? 0) !== 1) {
+    throw new Error(`invalid_task_quality_audit_schema_version:${relFrom(repoRoot, abs)}`);
+  }
+  if (String(rep?.intent_id || "").trim() !== intentId) {
+    throw new Error(`task_quality_audit_intent_mismatch:${relFrom(repoRoot, abs)}`);
+  }
+  if (String(rep?.run_id || "").trim() !== runId) {
+    throw new Error(`task_quality_audit_run_mismatch:${relFrom(repoRoot, abs)}`);
+  }
+  if (String(rep?.task_id || "").trim() !== taskId) {
+    throw new Error(`task_quality_audit_task_mismatch:${relFrom(repoRoot, abs)}`);
+  }
+
+  const gate = rep?.gate;
+  const gateStatus = String(gate?.status || "").trim();
+  const gateBlockers = Array.isArray(gate?.blockers) ? gate.blockers : null;
+  if (!gateBlockers) {
+    throw new Error(`task_quality_audit_missing_gate_blockers_array:${relFrom(repoRoot, abs)}`);
+  }
+  if (gateStatus !== "pass") {
+    throw new Error(`task_quality_audit_not_pass:${relFrom(repoRoot, abs)}:${gateStatus || "missing"}`);
+  }
+  if (gateBlockers.length) {
+    throw new Error(`task_quality_audit_has_blockers:${relFrom(repoRoot, abs)}:${gateBlockers.length}`);
+  }
+
+  const functional = rep?.functional;
+  const functionalStatus = String(functional?.status || "").trim();
+  if (!functionalStatus) throw new Error(`task_quality_audit_missing_functional_status:${relFrom(repoRoot, abs)}`);
+  if (functionalStatus !== "pass") throw new Error(`task_quality_audit_functional_not_pass:${relFrom(repoRoot, abs)}:${functionalStatus}`);
+
+  const nonfunctional = rep?.nonfunctional;
+  if (!nonfunctional || typeof nonfunctional !== "object") {
+    throw new Error(`task_quality_audit_missing_nonfunctional_section:${relFrom(repoRoot, abs)}`);
+  }
+  const requiredNfr = ["correctness_safety", "performance", "security", "maintainability"];
+  for (const key of requiredNfr) {
+    const status = String(nonfunctional?.[key]?.status || "").trim();
+    if (!status) throw new Error(`task_quality_audit_missing_nonfunctional_status:${relFrom(repoRoot, abs)}:${key}`);
+    if (status !== "pass") throw new Error(`task_quality_audit_nonfunctional_not_pass:${relFrom(repoRoot, abs)}:${key}:${status}`);
+  }
+  const nonfunctionalOverall = String(nonfunctional?.overall_status || "").trim();
+  if (!nonfunctionalOverall) throw new Error(`task_quality_audit_missing_nonfunctional_overall_status:${relFrom(repoRoot, abs)}`);
+  if (nonfunctionalOverall !== "pass") {
+    throw new Error(`task_quality_audit_nonfunctional_overall_not_pass:${relFrom(repoRoot, abs)}:${nonfunctionalOverall}`);
+  }
+
+  return rep;
 }
 
 function scanRepoReqTags(repoRoot) {
@@ -86,11 +194,21 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   const intentId = String(args.intentId || "").trim();
   if (!intentId) {
-    process.stderr.write("Usage: node scripts/audit/close_intent.mjs --intent-id INT-001 --closed-date YYYY-MM-DD [--apply]\n");
+    process.stderr.write(
+      "Usage: node scripts/audit/close_intent.mjs --intent-id INT-001 --closed-date YYYY-MM-DD [--run-id YYYYMMDD_HHMMSS] [--require-quality-audit] [--apply]\n",
+    );
     process.exit(2);
   }
   if (!args.closedDate || !/^\d{4}-\d{2}-\d{2}$/.test(args.closedDate)) {
     process.stderr.write("Missing/invalid --closed-date (expected YYYY-MM-DD)\n");
+    process.exit(2);
+  }
+  if (args.apply && (!args.runId || args.runId.includes("<") || args.runId.includes(">"))) {
+    process.stderr.write("Missing/invalid --run-id (expected YYYYMMDD_HHMMSS)\n");
+    process.exit(2);
+  }
+  if (args.requireQualityAudit && (!args.runId || args.runId.includes("<") || args.runId.includes(">"))) {
+    process.stderr.write("Missing/invalid --run-id (required when using --require-quality-audit)\n");
     process.exit(2);
   }
 
@@ -152,6 +270,27 @@ function main() {
   if (missingCodeRefs.length) {
     process.stderr.write(`[close:error] new requirements missing code REQ: references: ${missingCodeRefs.join(", ")}\n`);
     process.exit(2);
+  }
+
+  if (args.runId) {
+    const runRoot = path.join(repoRoot, "status", "audit", intentId, "runs", args.runId);
+    const auditRun = path.join(runRoot, "audit", "run.json");
+    const auditReport = path.join(runRoot, "audit", "audit_report.json");
+    const guardrailsRun = path.join(runRoot, "guardrails", "run.json");
+    const qualityReport = path.join(runRoot, "quality_audit.json");
+
+    requireEvidenceRunOk(repoRoot, auditRun);
+    requireAuditReportOk(repoRoot, auditReport);
+    requireEvidenceRunOk(repoRoot, guardrailsRun);
+    if (args.requireQualityAudit) {
+      requireIntentQualityAuditOk(repoRoot, qualityReport, { intentId, runId: args.runId });
+      for (const tid of plannedTasks) {
+        const taskId = String(tid || "").trim();
+        if (!taskId) continue;
+        const taskQualityPath = path.join(runRoot, "tasks", taskId, "quality_audit.json");
+        requireTaskQualityAuditPass(repoRoot, taskQualityPath, { intentId, runId: args.runId, taskId });
+      }
+    }
   }
 
   if (args.apply) {

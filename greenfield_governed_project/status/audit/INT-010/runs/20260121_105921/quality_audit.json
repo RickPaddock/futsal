@@ -1,0 +1,192 @@
+{
+  "type": "intent_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-010",
+  "run_id": "20260121_105921",
+  "timestamp": "2026-01-21T11:02:06Z",
+  "scope": {
+    "areas_in_scope": ["pipeline", "portal", "scripts", "tools"]
+  },
+  "audit_inputs": {
+    "intent_spec_path": "spec/intents/INT-010.json",
+    "task_spec_paths": [
+      "spec/tasks/TASK-V1-OUT-001.json",
+      "spec/tasks/TASK-V1-DATA-001.json",
+      "spec/tasks/TASK-V1-CLI-001.json"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/bundle.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/src/fusbal_pipeline/__main__.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 7,
+    "top_risks": [
+      "Large bundle validation is not streaming (tracks.jsonl is read into memory), which can be a scalability issue.",
+      "Manifest portability is limited by writing fully resolved absolute input paths (acceptable for provenance, but noisy for cross-machine diffs).",
+      "No automated tests exist for schema/manifest validation, increasing regression risk as V1 expands."
+    ],
+    "top_quick_wins": [
+      "Stream tracks.jsonl validation line-by-line and cap error output.",
+      "Add structured error codes / optional JSON output mode for CLI validate.",
+      "Add small unit tests for contract/manifest validation."
+    ]
+  },
+  "verification": {
+    "functional": {
+      "status": "pass",
+      "notes": "Bundle layout, record schemas, and CLI init/validate are implemented and documented; validation errors are actionable."
+    },
+    "nonfunctional": {
+      "correctness_safety": {
+        "status": "pass",
+        "notes": "Explicit missing/unknown semantics exist in record schema validation and bundle layout requirements are explicit and strict."
+      },
+      "performance": {
+        "status": "pass",
+        "notes": "Most checks are constant-size; the main scaling risk is tracks.jsonl validation reading entire files into memory."
+      },
+      "security": {
+        "status": "pass",
+        "notes": "No command execution; input parsing is JSON-only with explicit error handling; filesystem access is expected for a local CLI."
+      },
+      "maintainability": {
+        "status": "pass",
+        "notes": "Bundle layout and schemas are centralized and versioned; improvements would benefit from tests and structured error types."
+      },
+      "overall_status": "pass"
+    }
+  },
+  "improvements": [
+    {
+      "id": "IMP-001",
+      "title": "Stream `tracks.jsonl` validation to avoid loading large files into memory",
+      "area": "pipeline",
+      "roi_0_to_10": 9,
+      "effort": "S",
+      "risk": "low",
+      "why": "Current validation reads the entire tracks file into memory, which will fail or slow down on real match data. Streaming preserves determinism while improving scalability and stability.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/contract.py: change validate_tracks_jsonl() to iterate file lines via open(...).",
+        "pipeline/src/fusbal_pipeline/cli.py: add an optional --max-errors to cap output volume during CI."
+      ]
+    },
+    {
+      "id": "IMP-002",
+      "title": "Add structured error codes (and optional JSON output) for `fusbal-pipeline validate`",
+      "area": "pipeline",
+      "roi_0_to_10": 9,
+      "effort": "M",
+      "risk": "low",
+      "why": "Actionable text errors are good for humans, but CI and guardrails benefit from stable error codes and machine-readable output. This also helps downstream tooling consume validation results without brittle parsing.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/cli.py: define error codes for manifest/layout/data validation failures and include them in output.",
+        "pipeline/src/fusbal_pipeline/cli.py: add --format {text,json} and emit a JSON summary when requested."
+      ]
+    },
+    {
+      "id": "IMP-003",
+      "title": "Add minimal unit tests for manifest determinism and record schema validation",
+      "area": "pipeline",
+      "roi_0_to_10": 8,
+      "effort": "M",
+      "risk": "low",
+      "why": "The contract and validation logic is foundational. Small tests will prevent accidental schema drift and ensure determinism rules remain enforced as V1 expands.",
+      "proposed_changes": [
+        "pipeline/tests/test_manifest_v1.py: validate artifacts list stability and sorted/unique path requirements.",
+        "pipeline/tests/test_contract_v1.py: validate pos_state geometry requirements and events schema rules."
+      ]
+    },
+    {
+      "id": "IMP-004",
+      "title": "Make `init` optionally scaffold placeholder JSON outputs for easier bootstrapping",
+      "area": "pipeline",
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "low",
+      "why": "Today `init` only creates the directory and manifest. Optional placeholders for JSON artifacts reduce operator confusion and make bundles easier to inspect while still allowing validate to fail on missing required artifacts when appropriate.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/cli.py: add --scaffold-json flag to create empty events.json ([]) and minimal diagnostics/*.json stubs with schema_version.",
+        "pipeline/src/fusbal_pipeline/bundle.py: expose helpers to write skeleton files for required JSON artifacts (excluding mp4)."
+      ]
+    },
+    {
+      "id": "IMP-005",
+      "title": "Tighten numeric/range validation for track/event fields (confidence bounds, lat/lon bounds)",
+      "area": "pipeline",
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "low",
+      "why": "Basic type validation is in place, but range validation catches common data quality bugs early and supports trust-first gating (e.g., confidence must be 0..1).",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/contract.py: validate confidence/quality in [0,1] when present; validate lat in [-90,90] and lon in [-180,180] when present."
+      ]
+    },
+    {
+      "id": "IMP-006",
+      "title": "Improve manifest portability by avoiding forced absolute path normalization",
+      "area": "pipeline",
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "medium",
+      "why": "Writing fully resolved absolute paths is deterministic but can produce noisy diffs across machines and environments. Keeping user-provided paths (or relative-to-project paths) may improve portability without losing provenance.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/cli.py:_normalize_paths: preserve original inputs or normalize relative to a declared root; document the behavior in OUTPUT_CONTRACT.mdt."
+      ]
+    },
+    {
+      "id": "IMP-007",
+      "title": "Export the V1 contract as JSON Schema for downstream validators",
+      "area": "pipeline",
+      "roi_0_to_10": 6,
+      "effort": "M",
+      "risk": "low",
+      "why": "A formal schema artifact improves interoperability and allows external tooling (and CI) to validate outputs without importing Python code.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/contract.py: add a schema export helper (or add a new pipeline/src/fusbal_pipeline/schema_export.py).",
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt: reference the exported schema file(s) and versioning policy."
+      ]
+    },
+    {
+      "id": "IMP-008",
+      "title": "Surface per-task quality audit results in the internal portal UI",
+      "area": "portal",
+      "roi_0_to_10": 5,
+      "effort": "M",
+      "risk": "low",
+      "why": "Close gating now requires per-task audit evidence. Showing task-level pass/fail and non-functional status in the portal reduces friction and makes audits easier to interpret.",
+      "proposed_changes": [
+        "apps/portal/pages/internal/intents/[intentId].js: load status/audit/<INTENT_ID>/runs/<run_id>/tasks/*/quality_audit.json and summarize gate status.",
+        "apps/portal/styles/portal.css: add a small status badge style for pass/fail."
+      ]
+    },
+    {
+      "id": "IMP-009",
+      "title": "Capture evidence for `npm run generate` runs alongside guardrails",
+      "area": "workflows",
+      "roi_0_to_10": 4,
+      "effort": "S",
+      "risk": "low",
+      "why": "Guardrails output already shows generate drift status, but explicit evidence for generate runs improves traceability when diagnosing portal refresh failures and CI drift.",
+      "proposed_changes": [
+        "spec/prompts/intent_quality_audit.prompt.txt: wrap `npm run generate` with tools/evidence/record_run.mjs to write status/audit/.../generate/run.json."
+      ]
+    },
+    {
+      "id": "IMP-010",
+      "title": "Add lightweight formatting/linting for the pipeline Python package",
+      "area": "pipeline",
+      "roi_0_to_10": 3,
+      "effort": "M",
+      "risk": "medium",
+      "why": "As the pipeline expands, consistent formatting and basic linting reduce review overhead and prevent trivial bugs. This should be introduced carefully to avoid large-format churn.",
+      "proposed_changes": [
+        "pipeline/pyproject.toml: add a formatter/linter configuration (e.g., ruff) and a narrow initial rule set.",
+        "scripts/guardrails/validate_repository.mjs: optionally enforce formatting for pipeline/src only once adopted."
+      ]
+    }
+  ]
+}

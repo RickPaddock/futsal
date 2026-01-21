@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/requirements/index.json + spec/requirements/areas/core.json + spec/requirements/areas/greenfield.json + spec/requirements/areas/v1.json
-source_sha256: sha256:8f3c38ae0be0044faadc98a3502328239a5ef2ae42255a83649fd10e58138a33
+source_sha256: sha256:5ee975cd309e31367967565a90e99719666f8100f2fb8f2f0ea0f516102b35a5
 ---
 
 # Requirements (generated)
@@ -260,7 +260,7 @@ Acceptance:
 ## GREENFIELD-PORTAL-004 — Portal refresh regenerates governed surfaces and reports failures.
 
 - Status: `canonical`
-- Implementation: `todo`
+- Implementation: `done`
 - Guardrails: `portal:ui_smoke`, `manual:portal_review`
 - Owner: `platform`
 - Tags: `portal`, `generation`, `ops`
@@ -268,6 +268,181 @@ Acceptance:
 Acceptance:
 - Pressing Refresh triggers `npm run generate` and updates portal-visible surfaces.
 - If generation fails, the portal shows actionable error output.
+
+## GREENFIELD-PORTAL-005 — Portal lifecycle actions are derived from evidence-based readiness rules.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `portal:ui_smoke`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `workflows`, `governance`
+
+Acceptance:
+- Portal offers Implement when an intent has tasks and not all tasks are resolved.
+- Portal offers Audit when all planned tasks are resolved.
+- Portal offers Close only when all planned tasks are resolved, required per-task quality audits exist and pass, and close-gate evidence exists and passes.
+- Intent list and intent detail pages use the same readiness computation and do not use manual toggles.
+
+## GREENFIELD-PORTAL-006 — Portal validates and surfaces close-gate evidence status.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `portal:ui_smoke`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `evidence`, `close`
+
+Acceptance:
+- Portal checks each intent close gate command from generated scope and indicates satisfied/missing.
+- A close gate is satisfied only when a `run.json` evidence record exists with `exit_code: 0` and a matching command.
+- Portal surfaces the exact missing gate command(s) when Close is blocked.
+
+## GREENFIELD-PORTAL-007 — Portal surfaces per-task quality audit status and blocks close when audits are missing/failing.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `portal:ui_smoke`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `audit`, `quality`, `close`
+
+Acceptance:
+- Portal displays per-task quality audit status for all tasks in `spec/intents/<INTENT_ID>.json:task_ids_planned[]`.
+- Portal refuses to present Close as available when any planned task is missing the required per-task quality audit JSON or when any is failing.
+- Portal distinguishes missing audits from missing close-gates when close is blocked.
+
+## GREENFIELD-PORTAL-008 — Portal identifies missing planned tasks in the generated tracker feed.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `portal:ui_smoke`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `tasks`, `governance`
+
+Acceptance:
+- If an intent declares a planned task that is missing from the generated feed, portal surfaces it as missing.
+- When planned tasks are missing from the feed, Close is considered impossible and the portal explains why.
+
+## GREENFIELD-PORTAL-009 — Portal close failures explain missing audits vs missing gates (no generic errors).
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `portal:ui_smoke`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `ux`, `close`
+
+Acceptance:
+- When Close is blocked, portal lists missing per-task audit files separately from missing close-gate commands.
+- Portal does not fail with a generic 'unknown' when structured missing information exists.
+
+## GREENFIELD-PORTAL-010 — Portal root route (/) is a dashboard entrypoint.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `portal:ui_smoke`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `ux`
+
+Acceptance:
+- The portal renders a home page at `/` linking to governed workflow pages (e.g., `/internal/intents`).
+- Deep internal routes are not the only entrypoint.
+
+## GREENFIELD-PORTAL-011 — Portal serves prompt templates via a stable API and validates substitutions.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `portal:ui_smoke`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `workflows`, `prompts`
+
+Acceptance:
+- Portal exposes an API endpoint to fetch rendered prompts for create/implement/audit/close.
+- The API fills stable variables including intent id, run id, and closed date (where applicable).
+- If prompt loading or rendering fails, portal overlays show explicit errors.
+- If any placeholders remain (e.g., `<...>`), the API returns an explicit error rather than silently returning an invalid prompt.
+
+## GREENFIELD-PORTAL-012 — Portal refresh is same-origin hardened and writes evidence of generation runs.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `manual:portal_review`, `manual:security_review`
+- Owner: `platform`
+- Tags: `portal`, `generation`, `security`, `evidence`
+
+Acceptance:
+- Refresh rejects cross-origin requests and only accepts same-origin calls by default.
+- Refresh writes a `run.json` evidence record for the generation run (intent-scoped when applicable).
+- Refresh returns actionable stdout/stderr to the caller on failure.
+
+## GREENFIELD-PORTAL-013 — Portal uses a shared read-model module for filesystem-backed domain logic.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `manual:repo_review`
+- Owner: `platform`
+- Tags: `portal`, `maintainability`
+
+Acceptance:
+- Intent/task pages and API routes share a single implementation for reading feed/spec/audit artefacts.
+- Readiness and evidence validation logic lives in shared utilities (not duplicated across pages).
+
+## GREENFIELD-PORTAL-014 — Portal audit run discovery supports nested run stages consistently.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `manual:repo_review`, `portal:ui_smoke`
+- Owner: `platform`
+- Tags: `portal`, `evidence`, `observability`
+
+Acceptance:
+- Portal discovers evidence runs under `status/audit/<INTENT_ID>/runs/<RUN_ID>/**/run.json` (nested stages).
+- List and detail pages compute audit pass/fail from the same run discovery logic.
+
+## GREENFIELD-PORTAL-015 — Portal validates route and API parameters used for filesystem access.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `manual:security_review`
+- Owner: `platform`
+- Tags: `portal`, `security`, `safety`
+
+Acceptance:
+- Portal validates intent ids and task ids against expected formats before using them in file paths.
+- Invalid ids return 400/404 with explicit errors and do not read arbitrary filesystem paths.
+
+## GREENFIELD-PORTAL-016 — Portal renders large artefacts as summaries with raw links (avoids giant JSON dumps by default).
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `ux`, `scale`
+
+Acceptance:
+- Intent pages show a concise summary for audit reports and quality reports, with links to view/download raw JSON.
+- Portal remains usable when artefacts grow beyond small sizes.
+
+## GREENFIELD-PORTAL-017 — Portal server-side rendering avoids unnecessary synchronous IO and scales with intent count.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `manual:repo_review`
+- Owner: `platform`
+- Tags: `portal`, `performance`
+
+Acceptance:
+- Portal limits run discovery and file reads to bounded work per request.
+- Portal code uses shared helpers to avoid repeated reading of the same artefacts.
+
+## GREENFIELD-PORTAL-018 — Prompt overlays allow choosing the run_id and reuse it across actions.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `ux`, `workflows`
+
+Acceptance:
+- Prompt overlays default to a generated UTC run id but allow the user to edit it.
+- Rendered prompts use the chosen run id when filling templates.
 
 ## GREENFIELD-GOV-011 — All governed workflows are prompt-driven with explicit evidence capture (no undocumented manual steps).
 
@@ -281,7 +456,47 @@ Acceptance:
 - Create/Implement/Audit/Close each have a gold-standard prompt template (or portal-generated prompt) that fully specifies the steps and commands.
 - Create prompts MUST add any new `REQ-*` requirements to `spec/requirements/**.json` immediately with `tracking.implementation: "todo"` and `guardrails:req_tag_enforced_on_done`.
 - Audit prompts MUST run `npm run audit:intent` AND `npm run guardrails`, and write evidence JSON under `status/audit/<INTENT_ID>/runs/<run_id>/` (use a unique run_id per run).
+- Audit prompts MUST enumerate all 10 improvement recommendations (titles + ROI/effort/risk) in the chat output; do not truncate to a top-N subset.
 - Close prompts MUST only close after audits pass and guardrails pass, and requirement tracking moves to `done` only when the repo contains `REQ: <REQ_ID>` references.
+
+## GREENFIELD-GOV-015 — Closing an intent requires per-task quality audit evidence for all planned tasks.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `intent:close`, `manual:prompt_review`
+- Owner: `platform`
+- Tags: `governance`, `close`, `quality`, `evidence`
+
+Acceptance:
+- For every task in `spec/intents/<INTENT_ID>.json` → `task_ids_planned[]`, a task quality audit report exists at `status/audit/<INTENT_ID>/runs/<run_id>/tasks/<TASK_ID>/quality_audit.json`.
+- Each task quality audit report includes a gate status and blockers list and must pass (`gate.status: "pass"`, `gate.blockers: []`) before close can apply.
+- Close dry-run (no apply) fails with actionable errors when any required task quality audit is missing or failing.
+
+## GREENFIELD-GOV-016 — Each intent declares functional + non-functional quality areas and assigns planned tasks to both.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `audit:intent`, `manual:prompt_review`
+- Owner: `platform`
+- Tags: `governance`, `intents`, `quality`
+
+Acceptance:
+- Each `spec/intents/<INTENT_ID>.json` declares `quality_areas[]` including exactly one `area_id: "functional"` and one `area_id: "nonfunctional"`.
+- Both areas include non-empty `task_ids[]` that are disjoint and whose union equals `task_ids_planned[]`.
+- The non-functional area declares `categories_required` including: `correctness_safety`, `performance`, `security`, `maintainability`.
+
+## GREENFIELD-GOV-017 — Per-task quality audit evidence covers functional + non-functional validation and is required to close.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `intent:close`, `manual:prompt_review`
+- Owner: `platform`
+- Tags: `governance`, `audit`, `close`, `quality`, `evidence`
+
+Acceptance:
+- Audit runs produce per-task reports at `status/audit/<INTENT_ID>/runs/<run_id>/tasks/<TASK_ID>/quality_audit.json` that include both `functional` and `nonfunctional` sections.
+- Per-task non-functional validation covers: correctness/safety, performance, security, maintainability.
+- Close fails if any planned task is missing the per-task quality audit report, or if any report does not pass functional + non-functional gates.
 
 ## FUSBAL-V1-TRUST-001 — Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.
 

@@ -3,7 +3,7 @@
   "task_id": "TASK-V1-DATA-001",
   "intent_id": "INT-010",
   "title": "Canonical track record format + metadata",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Define canonical record schemas for tracks and metadata sufficient for fusion/reporting.",
     "Prefer explicit Unknown/missing semantics rather than implicit defaults.",
@@ -48,7 +48,7 @@
     {
       "subtask_id": "SUB-TASK-V1-DATA-001-001",
       "title": "Define canonical track record types in pipeline contract code.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_V1_DATA_001.SUB_001",
       "done_when": [
@@ -59,7 +59,7 @@
     {
       "subtask_id": "SUB-TASK-V1-DATA-001-002",
       "title": "Update output contract template to mirror canonical track record schema.",
-      "status": "todo",
+      "status": "done",
       "area": "spec",
       "provenance_prefix": "FUSBAL.SPEC.TASK_V1_DATA_001.SUB_002",
       "done_when": [
@@ -69,7 +69,7 @@
     {
       "subtask_id": "SUB-TASK-V1-DATA-001-003",
       "title": "Add schema-level validation helpers for record writing/reading.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_V1_DATA_001.SUB_003",
       "done_when": [

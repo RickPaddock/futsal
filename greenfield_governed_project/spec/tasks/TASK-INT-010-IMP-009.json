@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-010-IMP-009",
+  "intent_id": "INT-010",
+  "title": "Capture evidence for `npm run generate` runs and enforce at close",
+  "status": "todo",
+  "scope": [
+    "Record `npm run generate` executions as evidence JSON alongside existing audit/guardrails evidence.",
+    "Update close gating to require successful generate evidence when `--require-quality-audit` is used.",
+    "Do not change generation outputs; only capture evidence and enforce the presence of passing runs."
+  ],
+  "acceptance": [
+    "There is a documented evidence path convention for generate runs under `status/audit/<INTENT_ID>/runs/<run_id>/generate/run.json`.",
+    "Close fails with actionable errors when generate evidence is missing or indicates failure.",
+    "Gold-standard prompts record generate evidence using `tools/evidence/record_run.mjs`."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-010-IMP-009-001",
+      "title": "Generate evidence capture and close enforcement",
+      "paths": [
+        "scripts/audit/close_intent.mjs",
+        "spec/prompts/intent_quality_audit.prompt.txt",
+        "spec/prompts/intent_close_end_to_end.prompt.txt"
+      ],
+      "acceptance": [
+        "Close gating checks generate evidence and requires `exit_code: 0`.",
+        "Audit/close prompts include an explicit generate evidence capture command."
+      ],
+      "evidence": [
+        "A close dry-run fails when generate evidence is missing.",
+        "A close dry-run passes when generate evidence exists and indicates success."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-010-IMP-009-001",
+      "title": "Define a canonical evidence path for generate runs and update prompt templates accordingly.",
+      "status": "todo",
+      "area": "governance",
+      "provenance_prefix": "FUSBAL.GOVERNANCE.TASK_INT_010_IMP_009.SUB_001",
+      "done_when": [
+        "Prompt templates include an explicit generate evidence capture step and path.",
+        "Evidence paths are deterministic and match the close gating checks."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-010-IMP-009-002",
+      "title": "Enforce generate evidence presence and success in the close gate (actionable failures).",
+      "status": "todo",
+      "area": "governance",
+      "provenance_prefix": "FUSBAL.GOVERNANCE.TASK_INT_010_IMP_009.SUB_002",
+      "done_when": [
+        "Close fails if generate evidence is missing or indicates non-zero exit code.",
+        "Failure output explains the expected path(s) and the remediation command."
+      ]
+    }
+  ]
+}

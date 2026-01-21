@@ -31,6 +31,37 @@
     "TASK-CAL-002",
     "TASK-CAL-003"
   ],
+  "quality_areas": [
+    {
+      "area_id": "functional",
+      "title": "Functional objectives",
+      "task_ids": [
+        "TASK-CAL-001",
+        "TASK-CAL-002"
+      ],
+      "objectives": [
+        "Pitch templates + calibration input schemas are explicit and versioned.",
+        "Auto-fit emits reprojection error diagnostics and explicit failure semantics."
+      ]
+    },
+    {
+      "area_id": "nonfunctional",
+      "title": "Non-functional objectives",
+      "categories_required": [
+        "correctness_safety",
+        "performance",
+        "security",
+        "maintainability"
+      ],
+      "task_ids": [
+        "TASK-CAL-003"
+      ],
+      "objectives": [
+        "Quality gating suppresses BEV output on low confidence with clear reasons (correctness/safety).",
+        "Inputs/outputs are deterministic and validation errors are actionable."
+      ]
+    }
+  ],
   "work_packages": [
     {
       "work_package_id": "INT-020-001",

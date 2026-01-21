@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-010-IMP-002",
+  "intent_id": "INT-010",
+  "title": "Add structured error codes and optional JSON output for CLI validation",
+  "status": "todo",
+  "scope": [
+    "Introduce stable error codes for CLI validation failures.",
+    "Add an optional machine-readable output mode (e.g. `--format json`) while keeping human-friendly text default.",
+    "Do not change the semantics of validation; only change how errors are represented."
+  ],
+  "acceptance": [
+    "Validation failures emit stable error codes that are documented in CLI help or code constants.",
+    "`--format json` outputs a stable JSON structure including code, message, and relevant paths.",
+    "Default output remains human-readable and actionable."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-010-IMP-002-001",
+      "title": "Structured error model + JSON output mode for `validate`",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/cli.py",
+        "pipeline/src/fusbal_pipeline/errors.py"
+      ],
+      "acceptance": [
+        "A centralized error model exists (codes + messages + optional context).",
+        "CLI can emit either text or JSON output without changing exit codes."
+      ],
+      "evidence": [
+        "Example: missing artifact returns a predictable error code and JSON payload.",
+        "Example: schema violation returns a predictable error code and JSON payload."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-010-IMP-002-001",
+      "title": "Define a stable error code catalog and error payload structure for CLI failures.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_010_IMP_002.SUB_001",
+      "done_when": [
+        "Error codes are defined centrally and are stable identifiers.",
+        "Error payload includes code, message, and relevant context (paths/line numbers) when applicable."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-010-IMP-002-002",
+      "title": "Add a `--format` (or equivalent) flag to emit JSON output for `validate`.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_010_IMP_002.SUB_002",
+      "done_when": [
+        "`validate --format json` emits a stable JSON object/array of errors.",
+        "Default text output remains available and unchanged for interactive use."
+      ]
+    }
+  ]
+}

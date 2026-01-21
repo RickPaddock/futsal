@@ -3,7 +3,7 @@
   "task_id": "TASK-V1-OUT-001",
   "intent_id": "INT-010",
   "title": "Match bundle layout + required artifacts",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Define the on-disk match bundle layout and required artifacts for V1 outputs.",
     "Ensure manifests are deterministic (stable ordering + stable ids) for reproducible audits and diffs.",
@@ -49,7 +49,7 @@
     {
       "subtask_id": "SUB-TASK-V1-OUT-001-001",
       "title": "Define match bundle layout and required artifacts in pipeline bundle code.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_V1_OUT_001.SUB_001",
       "done_when": [
@@ -60,7 +60,7 @@
     {
       "subtask_id": "SUB-TASK-V1-OUT-001-002",
       "title": "Update output contract template to match bundle layout + required artifacts.",
-      "status": "todo",
+      "status": "done",
       "area": "spec",
       "provenance_prefix": "FUSBAL.SPEC.TASK_V1_OUT_001.SUB_002",
       "done_when": [
@@ -70,7 +70,7 @@
     {
       "subtask_id": "SUB-TASK-V1-OUT-001-003",
       "title": "Implement deterministic manifest semantics (stable ordering + ids).",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_V1_OUT_001.SUB_003",
       "done_when": [

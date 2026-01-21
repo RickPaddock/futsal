@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/intents/INT-020.json
-source_sha256: sha256:1e01dd6c2cae231c8da09b7f2924e52d82d9900ed0e681ef45cdfc9e98940599
+source_sha256: sha256:096a7cb4a058df958559047d1b2adf0f000a166695eac94477549c609abda7ac
 intent_id: INT-020
 title: Calibration + BEV mapping MVP
 status: todo

@@ -249,7 +249,7 @@
     {
       "id": "GREENFIELD-PORTAL-004",
       "status": "canonical",
-      "tracking": { "implementation": "todo" },
+      "tracking": { "implementation": "done" },
       "guardrails": ["portal:ui_smoke", "manual:portal_review"],
       "title": "Portal refresh regenerates governed surfaces and reports failures.",
       "acceptance": [
@@ -258,6 +258,195 @@
       ],
       "owner": "platform",
       "tags": ["portal", "generation", "ops"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-005",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["portal:ui_smoke", "manual:portal_review"],
+      "title": "Portal lifecycle actions are derived from evidence-based readiness rules.",
+      "acceptance": [
+        "Portal offers Implement when an intent has tasks and not all tasks are resolved.",
+        "Portal offers Audit when all planned tasks are resolved.",
+        "Portal offers Close only when all planned tasks are resolved, required per-task quality audits exist and pass, and close-gate evidence exists and passes.",
+        "Intent list and intent detail pages use the same readiness computation and do not use manual toggles."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "workflows", "governance"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-006",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["portal:ui_smoke", "manual:portal_review"],
+      "title": "Portal validates and surfaces close-gate evidence status.",
+      "acceptance": [
+        "Portal checks each intent close gate command from generated scope and indicates satisfied/missing.",
+        "A close gate is satisfied only when a `run.json` evidence record exists with `exit_code: 0` and a matching command.",
+        "Portal surfaces the exact missing gate command(s) when Close is blocked."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "evidence", "close"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-007",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["portal:ui_smoke", "manual:portal_review"],
+      "title": "Portal surfaces per-task quality audit status and blocks close when audits are missing/failing.",
+      "acceptance": [
+        "Portal displays per-task quality audit status for all tasks in `spec/intents/<INTENT_ID>.json:task_ids_planned[]`.",
+        "Portal refuses to present Close as available when any planned task is missing the required per-task quality audit JSON or when any is failing.",
+        "Portal distinguishes missing audits from missing close-gates when close is blocked."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "audit", "quality", "close"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-008",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["portal:ui_smoke", "manual:portal_review"],
+      "title": "Portal identifies missing planned tasks in the generated tracker feed.",
+      "acceptance": [
+        "If an intent declares a planned task that is missing from the generated feed, portal surfaces it as missing.",
+        "When planned tasks are missing from the feed, Close is considered impossible and the portal explains why."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "tasks", "governance"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-009",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["portal:ui_smoke", "manual:portal_review"],
+      "title": "Portal close failures explain missing audits vs missing gates (no generic errors).",
+      "acceptance": [
+        "When Close is blocked, portal lists missing per-task audit files separately from missing close-gate commands.",
+        "Portal does not fail with a generic 'unknown' when structured missing information exists."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "ux", "close"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-010",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["portal:ui_smoke", "manual:portal_review"],
+      "title": "Portal root route (/) is a dashboard entrypoint.",
+      "acceptance": [
+        "The portal renders a home page at `/` linking to governed workflow pages (e.g., `/internal/intents`).",
+        "Deep internal routes are not the only entrypoint."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "ux"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-011",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["portal:ui_smoke", "manual:portal_review"],
+      "title": "Portal serves prompt templates via a stable API and validates substitutions.",
+      "acceptance": [
+        "Portal exposes an API endpoint to fetch rendered prompts for create/implement/audit/close.",
+        "The API fills stable variables including intent id, run id, and closed date (where applicable).",
+        "If prompt loading or rendering fails, portal overlays show explicit errors.",
+        "If any placeholders remain (e.g., `<...>`), the API returns an explicit error rather than silently returning an invalid prompt."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "workflows", "prompts"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-012",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["manual:portal_review", "manual:security_review"],
+      "title": "Portal refresh is same-origin hardened and writes evidence of generation runs.",
+      "acceptance": [
+        "Refresh rejects cross-origin requests and only accepts same-origin calls by default.",
+        "Refresh writes a `run.json` evidence record for the generation run (intent-scoped when applicable).",
+        "Refresh returns actionable stdout/stderr to the caller on failure."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "generation", "security", "evidence"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-013",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["manual:repo_review"],
+      "title": "Portal uses a shared read-model module for filesystem-backed domain logic.",
+      "acceptance": [
+        "Intent/task pages and API routes share a single implementation for reading feed/spec/audit artefacts.",
+        "Readiness and evidence validation logic lives in shared utilities (not duplicated across pages)."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "maintainability"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-014",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["manual:repo_review", "portal:ui_smoke"],
+      "title": "Portal audit run discovery supports nested run stages consistently.",
+      "acceptance": [
+        "Portal discovers evidence runs under `status/audit/<INTENT_ID>/runs/<RUN_ID>/**/run.json` (nested stages).",
+        "List and detail pages compute audit pass/fail from the same run discovery logic."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "evidence", "observability"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-015",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["manual:security_review"],
+      "title": "Portal validates route and API parameters used for filesystem access.",
+      "acceptance": [
+        "Portal validates intent ids and task ids against expected formats before using them in file paths.",
+        "Invalid ids return 400/404 with explicit errors and do not read arbitrary filesystem paths."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "security", "safety"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-016",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["manual:portal_review"],
+      "title": "Portal renders large artefacts as summaries with raw links (avoids giant JSON dumps by default).",
+      "acceptance": [
+        "Intent pages show a concise summary for audit reports and quality reports, with links to view/download raw JSON.",
+        "Portal remains usable when artefacts grow beyond small sizes."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "ux", "scale"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-017",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["manual:repo_review"],
+      "title": "Portal server-side rendering avoids unnecessary synchronous IO and scales with intent count.",
+      "acceptance": [
+        "Portal limits run discovery and file reads to bounded work per request.",
+        "Portal code uses shared helpers to avoid repeated reading of the same artefacts."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "performance"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-018",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["manual:portal_review"],
+      "title": "Prompt overlays allow choosing the run_id and reuse it across actions.",
+      "acceptance": [
+        "Prompt overlays default to a generated UTC run id but allow the user to edit it.",
+        "Rendered prompts use the chosen run id when filling templates."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "ux", "workflows"]
     },
     {
       "id": "GREENFIELD-GOV-011",
@@ -269,10 +458,53 @@
         "Create/Implement/Audit/Close each have a gold-standard prompt template (or portal-generated prompt) that fully specifies the steps and commands.",
         "Create prompts MUST add any new `REQ-*` requirements to `spec/requirements/**.json` immediately with `tracking.implementation: \"todo\"` and `guardrails:req_tag_enforced_on_done`.",
         "Audit prompts MUST run `npm run audit:intent` AND `npm run guardrails`, and write evidence JSON under `status/audit/<INTENT_ID>/runs/<run_id>/` (use a unique run_id per run).",
+        "Audit prompts MUST enumerate all 10 improvement recommendations (titles + ROI/effort/risk) in the chat output; do not truncate to a top-N subset.",
         "Close prompts MUST only close after audits pass and guardrails pass, and requirement tracking moves to `done` only when the repo contains `REQ: <REQ_ID>` references."
       ],
       "owner": "platform",
       "tags": ["governance", "workflows", "evidence"]
+    },
+    {
+      "id": "GREENFIELD-GOV-015",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["intent:close", "manual:prompt_review"],
+      "title": "Closing an intent requires per-task quality audit evidence for all planned tasks.",
+      "acceptance": [
+        "For every task in `spec/intents/<INTENT_ID>.json` → `task_ids_planned[]`, a task quality audit report exists at `status/audit/<INTENT_ID>/runs/<run_id>/tasks/<TASK_ID>/quality_audit.json`.",
+        "Each task quality audit report includes a gate status and blockers list and must pass (`gate.status: \"pass\"`, `gate.blockers: []`) before close can apply.",
+        "Close dry-run (no apply) fails with actionable errors when any required task quality audit is missing or failing."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "close", "quality", "evidence"]
+    },
+    {
+      "id": "GREENFIELD-GOV-016",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["audit:intent", "manual:prompt_review"],
+      "title": "Each intent declares functional + non-functional quality areas and assigns planned tasks to both.",
+      "acceptance": [
+        "Each `spec/intents/<INTENT_ID>.json` declares `quality_areas[]` including exactly one `area_id: \"functional\"` and one `area_id: \"nonfunctional\"`.",
+        "Both areas include non-empty `task_ids[]` that are disjoint and whose union equals `task_ids_planned[]`.",
+        "The non-functional area declares `categories_required` including: `correctness_safety`, `performance`, `security`, `maintainability`."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "intents", "quality"]
+    },
+    {
+      "id": "GREENFIELD-GOV-017",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["intent:close", "manual:prompt_review"],
+      "title": "Per-task quality audit evidence covers functional + non-functional validation and is required to close.",
+      "acceptance": [
+        "Audit runs produce per-task reports at `status/audit/<INTENT_ID>/runs/<run_id>/tasks/<TASK_ID>/quality_audit.json` that include both `functional` and `nonfunctional` sections.",
+        "Per-task non-functional validation covers: correctness/safety, performance, security, maintainability.",
+        "Close fails if any planned task is missing the per-task quality audit report, or if any report does not pass functional + non-functional gates."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "audit", "close", "quality", "evidence"]
     }
   ]
 }

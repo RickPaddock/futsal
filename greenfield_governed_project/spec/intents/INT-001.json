@@ -32,6 +32,40 @@
     "TASK-BOOT-003",
     "TASK-BOOT-004"
   ],
+  "quality_areas": [
+    {
+      "area_id": "functional",
+      "title": "Functional objectives",
+      "task_ids": [
+        "TASK-BOOT-001",
+        "TASK-BOOT-003"
+      ],
+      "objectives": [
+        "Deterministic generators + canonical templates exist and run end-to-end.",
+        "Evidence run records can be created as JSON artifacts under status/audit/.",
+        "Internal portal can browse intents/tasks and trigger refresh."
+      ]
+    },
+    {
+      "area_id": "nonfunctional",
+      "title": "Non-functional objectives",
+      "categories_required": [
+        "correctness_safety",
+        "performance",
+        "security",
+        "maintainability"
+      ],
+      "task_ids": [
+        "TASK-BOOT-002",
+        "TASK-BOOT-004"
+      ],
+      "objectives": [
+        "Guardrails enforce governance invariants and detect drift deterministically.",
+        "Provenance/REQ tagging is enforced and usable for audits.",
+        "Prompts/runbooks are explicit and reduce operator error."
+      ]
+    }
+  ],
   "work_packages": [
     {
       "work_package_id": "INT-001-001",

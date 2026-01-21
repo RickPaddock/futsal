@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-010-IMP-005",
+  "intent_id": "INT-010",
+  "title": "Tighten numeric/range validation for track/event fields",
+  "status": "todo",
+  "scope": [
+    "Add explicit numeric/range validation for key contract fields (e.g. confidence bounds, coordinate bounds, timestamp sanity).",
+    "Prefer failing with clear errors over silently clamping values.",
+    "Do not expand the schema; only validate existing fields more strictly."
+  ],
+  "acceptance": [
+    "Out-of-range numeric values (e.g. confidence < 0 or > 1) fail validation with a specific error.",
+    "Coordinate sanity rules are explicit (e.g. lat/lon ranges if present; pixel coordinates non-negative if present).",
+    "Validation errors remain trust-first and actionable (field path + reason)."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-010-IMP-005-001",
+      "title": "Contract-level numeric and range validation helpers",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/contract.py"
+      ],
+      "acceptance": [
+        "Validation checks include explicit numeric bounds for key fields.",
+        "Errors report the offending field path and invalid value."
+      ],
+      "evidence": [
+        "A record with confidence out of range fails validation with a clear message.",
+        "A record with an invalid coordinate range fails validation with a clear message."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-010-IMP-005-001",
+      "title": "Enumerate and implement explicit numeric bounds checks for core track/event fields.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_010_IMP_005.SUB_001",
+      "done_when": [
+        "Core numeric fields have explicit validation (bounds/type).",
+        "Validation failures include the invalid value and a clear reason."
+      ]
+    }
+  ]
+}

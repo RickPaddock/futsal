@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/intents/INT-010.json
-source_sha256: sha256:5b61761789c8d8cf21ded433558d4d9e92e73a0bed64e96640e73a7a0d79642a
+source_sha256: sha256:ba04410838a8681d0588e33d391b5d76b06ca606249b5c57e1a0c11bed2342a1
 intent_id: INT-010
 title: Define V1 output contract + pipeline scaffolding
 status: todo
@@ -27,4 +27,17 @@ close_gate:
 ### INT-010-002 — Pipeline scaffolding
 
 - TASK-V1-CLI-001 Minimal CLI for init/validate of bundle layout with clear errors.
+
+### INT-010-003 — Follow-up quality improvements
+
+- TASK-INT-010-IMP-001 Stream `tracks.jsonl` validation to avoid loading large files into memory.
+- TASK-INT-010-IMP-002 Add structured error codes and optional JSON output for validation.
+- TASK-INT-010-IMP-003 Add minimal unit tests for determinism and schema validation.
+- TASK-INT-010-IMP-004 Extend `init` to optionally scaffold placeholder outputs.
+- TASK-INT-010-IMP-005 Tighten numeric/range validation for track/event fields.
+- TASK-INT-010-IMP-006 Improve manifest portability (avoid forced absolute paths).
+- TASK-INT-010-IMP-007 Export the V1 contract as JSON Schema for downstream validators.
+- TASK-INT-010-IMP-008 Show per-task quality audit results in the internal portal UI.
+- TASK-INT-010-IMP-009 Capture evidence for `npm run generate` runs and enforce at close.
+- TASK-INT-010-IMP-010 Add lightweight formatting/linting for the pipeline Python package.
 

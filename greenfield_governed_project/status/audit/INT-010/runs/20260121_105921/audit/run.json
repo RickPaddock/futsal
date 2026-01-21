@@ -1,0 +1,26 @@
+{
+  "run_id": "audit",
+  "timestamp_start": "2026-01-21T11:00:49Z",
+  "timestamp_end": "2026-01-21T11:00:49Z",
+  "command": "npm run audit:intent -- --intent-id INT-010 --out status/audit/INT-010/runs/20260121_105921/audit/audit_report.json",
+  "args": [
+    "npm",
+    "run",
+    "audit:intent",
+    "--",
+    "--intent-id",
+    "INT-010",
+    "--out",
+    "status/audit/INT-010/runs/20260121_105921/audit/audit_report.json"
+  ],
+  "exit_code": 0,
+  "cwd": ".",
+  "actor": "human",
+  "intent_id": "INT-010",
+  "artefacts": [
+    {
+      "path": "status/audit/INT-010/runs/20260121_105921/audit/audit_report.json",
+      "sha256": "sha256:ca2786fc70b2b338ac055f99768f83f913cc684c638a6fb84420bb1f01d9bd95"
+    }
+  ]
+}

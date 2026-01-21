@@ -86,19 +86,69 @@
       ],
       "tasks": [
         {
+          "task_id": "TASK-INT-010-IMP-001",
+          "title": "Stream `tracks.jsonl` validation for large bundles",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-002",
+          "title": "Add structured error codes and optional JSON output for CLI validation",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-003",
+          "title": "Add minimal unit tests for manifest determinism and schema validation",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-004",
+          "title": "Extend `init` to optionally scaffold placeholder outputs",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-005",
+          "title": "Tighten numeric/range validation for track/event fields",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-006",
+          "title": "Improve manifest portability (avoid forced absolute paths)",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-007",
+          "title": "Export the V1 contract as JSON Schema for downstream validators",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-008",
+          "title": "Show per-task quality audit results in the internal portal UI",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-009",
+          "title": "Capture evidence for `npm run generate` runs and enforce at close",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-010",
+          "title": "Add lightweight formatting/linting for the pipeline Python package",
+          "status": "todo"
+        },
+        {
           "task_id": "TASK-V1-CLI-001",
           "title": "Minimal CLI to init/validate bundle structure",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-V1-DATA-001",
           "title": "Canonical track record format + metadata",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-V1-OUT-001",
           "title": "Match bundle layout + required artifacts",
-          "status": "todo"
+          "status": "done"
         }
       ]
     },
