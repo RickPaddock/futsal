@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-030-IMP-003",
+  "intent_id": "INT-030",
+  "title": "Tighten contract validation for segment/break semantics",
+  "status": "todo",
+  "scope": [
+    "Strengthen `validate_track_record_v1` to enforce semantic relationships for segmentation and breaks.",
+    "Ensure break fields cannot appear in structurally inconsistent records.",
+    "Update/add unit tests to lock in the new validation rules."
+  ],
+  "acceptance": [
+    "If `break_reason` is present, `segment_id` is required and `pos_state` must not be `present`.",
+    "If `segment_id` is present, it is a non-empty string (already enforced) and is validated consistently across record types.",
+    "Validation errors are deterministic and actionable.",
+    "Tests cover the new rules."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-030-IMP-003-001",
+      "title": "Contract validation semantics tightened",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/contract.py",
+        "pipeline/tests/test_contract_validation.py"
+      ],
+      "acceptance": [
+        "New semantic validation rules are implemented and tested."
+      ],
+      "evidence": [
+        "A record with break_reason but pos_state=present fails validation with an explicit message."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-030-IMP-003-001",
+      "title": "Add semantic validation rules for break_reason and segment_id.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_030_IMP_003.SUB_001",
+      "done_when": [
+        "break_reason requires segment_id.",
+        "break_reason is rejected when pos_state=present."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-030-IMP-003-002",
+      "title": "Add tests for the new semantic validation rules.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_030_IMP_003.SUB_002",
+      "done_when": [
+        "Contract validation tests cover break_reason semantic constraints."
+      ]
+    }
+  ]
+}

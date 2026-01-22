@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-030-IMP-009",
+  "intent_id": "INT-030",
+  "title": "Portal surfaces emphasize per-task quality blockers",
+  "status": "todo",
+  "scope": [
+    "Improve the internal portal intent detail view to surface per-task quality audit blockers prominently.",
+    "Add links to per-task audit JSON files for faster triage.",
+    "Do not change audit semantics; UI only."
+  ],
+  "acceptance": [
+    "Intent detail view highlights failing tasks and lists their gate.blockers.",
+    "UI shows a direct link/path for each per-task quality audit JSON file.",
+    "No changes to generated markdown rules; portal remains read-model-driven."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-030-IMP-009-001",
+      "title": "Portal UI highlights blockers and links per-task audits",
+      "paths": [
+        "apps/portal/pages/internal/intents/[intentId].js"
+      ],
+      "acceptance": [
+        "Failing tasks and blockers are visible without scrolling through raw JSON."
+      ],
+      "evidence": [
+        "Portal shows per-task blocker lists after generating and refreshing."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-030-IMP-009-001",
+      "title": "Render per-task gate.blockers inline and link to audit JSON paths.",
+      "status": "todo",
+      "area": "portal",
+      "provenance_prefix": "FUSBAL.PORTAL.TASK_INT_030_IMP_009.SUB_001",
+      "done_when": [
+        "Per-task blockers are visible and each audit JSON path is displayed/clickable." 
+      ]
+    }
+  ]
+}

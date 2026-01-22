@@ -1,0 +1,156 @@
+{
+  "type": "intent_preflight_report",
+  "schema_version": 1,
+  "intent_id": "INT-010",
+  "run_id": "20260121_165407",
+  "timestamp": "2026-01-21T16:59:02Z",
+  "blockers_ranked": [
+    {
+      "issue": "Intent preflight timing conflicts with task state: foundational tasks are marked done while the intent is still status=todo.",
+      "why": "This preflight is intended to run before implementation starts; having core tasks already marked done creates ambiguity about what remains in-scope and what evidence/close gates should validate.",
+      "exact_fix": "Edit spec/intents/INT-010.json to either (a) narrow scope to only the remaining todo tasks (IMP-*), updating summary/non_goals/success_criteria accordingly, or (b) set those tasks back to status 'todo' if implementation has not actually occurred."
+    },
+    {
+      "issue": "Success criteria are not fully measurable (e.g., 'validated by code', 'mirrored in code types', 'actionable errors suitable for CI/guardrails').",
+      "why": "Non-measurable criteria makes it easy to 'declare done' without agreeing on exact artifacts, schemas, versions, and negative-path behavior.",
+      "exact_fix": "Edit spec/intents/INT-010.json success_criteria[] to explicitly name required artifacts + validation expectations (e.g., required bundle files, required schema versions, required CLI commands/exit codes, and required error output fields)."
+    },
+    {
+      "issue": "TASK-INT-010-IMP-004 acceptance is ambiguous about warnings ('passes validate' vs 'passes with warnings if warnings are supported').",
+      "why": "Close gates and audit reports need a deterministic PASS/FAIL condition; undefined warning semantics can block closure or incentivize weakening validation.",
+      "exact_fix": "Edit spec/tasks/TASK-INT-010-IMP-004.json acceptance[] to choose one: (a) placeholders MUST pass validate with exit_code=0 and no warnings, or (b) define a concrete warning model (codes + thresholds) and how it is surfaced (stdout/json output)."
+    },
+    {
+      "issue": "TASK-INT-010-IMP-005 references coordinate sanity rules without defining which coordinate fields/frames exist in the contract.",
+      "why": "Implementers may add ad-hoc checks that don’t align with the documented contract, or skip validation due to uncertainty.",
+      "exact_fix": "Edit spec/tasks/TASK-INT-010-IMP-005.json to (a) enumerate the exact fields to validate and their bounds (as per the contract), or (b) scope validation to universally valid rules (finite numbers; confidence/quality in [0,1]; timestamp sanity) until frames are explicitly defined."
+    },
+    {
+      "issue": "TASK-INT-010-IMP-007 is unclear on whether JSON Schema covers record(s), metadata, manifests, or the entire bundle shape.",
+      "why": "Downstream validators need a precise contract; an underspecified schema deliverable can drift from docs/code or be unusable.",
+      "exact_fix": "Edit spec/tasks/TASK-INT-010-IMP-007.json acceptance[] to specify exactly which JSON Schema artefacts are required (e.g., track_record schema, event_record schema, manifest schema) and what validator compatibility is targeted (JSON Schema draft/version)."
+    },
+    {
+      "issue": "Close gate commands in INT-010 do not explicitly encode the evidence expectations implied by in-scope governance requirements (per-task audits; generate evidence; close process).",
+      "why": "Operators may run the listed commands and still be unable to close due to missing evidence artifacts required by close enforcement.",
+      "exact_fix": "Edit spec/intents/INT-010.json close_gate[] to include the close dry-run command and/or explicitly call out evidence capture steps required before close (per-task quality audit reports + generate evidence + guardrails evidence)."
+    },
+    {
+      "issue": "Requirements-in-scope include GREENFIELD-GOV-011 (prompt-driven workflows with explicit evidence capture), but the intent/tasks do not explicitly state which acceptance bullets are being satisfied in this intent.",
+      "why": "Scope creep and 'done-ness' disputes: it’s unclear whether INT-010 is meant to implement governance workflow improvements or merely use them.",
+      "exact_fix": "Edit spec/intents/INT-010.json summary/non_goals to clarify whether INT-010 is implementing GREENFIELD-GOV-011 changes (and which bullets), or simply depending on existing workflow behavior."
+    }
+  ],
+  "ambiguities": [
+    {
+      "ambiguous_text": "Codify the match output bundle and canonical track/event schemas.",
+      "risk": "Unclear which exact artifacts/files are required and what schema versioning guarantees apply.",
+      "proposed_rewrite": "Define the V1 output bundle contract by specifying a minimal required artifact list (filenames + formats) and versioned record schemas for tracks/events (including Unknown/missing semantics), documented in the output contract template and enforced by CLI validation."
+    },
+    {
+      "ambiguous_text": "Create a minimal pipeline CLI and directory layout to make subsequent vision/calibration work incremental.",
+      "risk": "“Minimal” can lead to underpowered CLI (not CI-ready) or scope creep into full pipeline features.",
+      "proposed_rewrite": "Provide a CLI with exactly two automation-friendly commands (init, validate) and stable exit codes/output; exclude any detection/tracking implementation and restrict changes to scaffolding + contract validation."
+    },
+    {
+      "ambiguous_text": "Bundle layout + required artifacts are explicit and validated by code.",
+      "risk": "Validation expectations are vague (what errors, what files, what exit codes?).",
+      "proposed_rewrite": "Validation MUST: (1) fail non-zero when any required artifact is missing/invalid, (2) report missing artifact id + expected path, and (3) be deterministic for identical inputs."
+    },
+    {
+      "ambiguous_text": "Canonical record schemas are documented in the output contract template and mirrored in code types.",
+      "risk": "Docs/types can drift; “mirrored” doesn’t define source of truth or a compatibility policy.",
+      "proposed_rewrite": "Define a single source of truth for schema fields (documented + versioned). Code types and (if applicable) JSON Schema MUST be updated together and gated by tests/audit to prevent drift."
+    },
+    {
+      "ambiguous_text": "CLI can init/validate bundles with actionable errors suitable for CI/guardrails.",
+      "risk": "CI/guardrails integration fails if output is unstable or not machine-readable.",
+      "proposed_rewrite": "CLI validate MUST emit stable error codes, deterministic formatting, and an optional JSON output mode; default text output remains human-readable."
+    },
+    {
+      "ambiguous_text": "Stream `tracks.jsonl` validation without excessive memory growth.",
+      "risk": "“Excessive” is undefined; could still load large buffers or do quadratic work.",
+      "proposed_rewrite": "Validate `tracks.jsonl` strictly line-by-line with bounded memory (O(1) additional memory per line) and include line number + reason on failure."
+    },
+    {
+      "ambiguous_text": "Placeholders should be minimal and obviously synthetic/empty.",
+      "risk": "Validator may accept placeholders that look like real data, or placeholders may not validate.",
+      "proposed_rewrite": "Placeholders MUST be empty-but-valid structures (e.g., empty arrays/empty jsonl) and include a required 'placeholder: true' marker where the contract allows metadata fields; validation behavior for placeholders is explicitly defined."
+    },
+    {
+      "ambiguous_text": "Tighten numeric/range validation for key contract fields.",
+      "risk": "Which fields? Which bounds? Implementers may invent bounds or skip checks.",
+      "proposed_rewrite": "Enumerate the exact field set and bounds to validate (confidence/quality in [0,1], timestamps non-negative, finite numeric coordinates, etc.) and specify error messages include field path + invalid value."
+    },
+    {
+      "ambiguous_text": "Provide JSON Schema files that represent the V1 contract.",
+      "risk": "Schema may be incomplete or incompatible with validators; unclear what objects it validates.",
+      "proposed_rewrite": "Provide versioned JSON Schemas for the specific record types (track_record, event_record, manifest) and state the JSON Schema draft/version targeted; include a validator command in evidence."
+    },
+    {
+      "ambiguous_text": "Capture evidence for `npm run generate` runs and enforce at close.",
+      "risk": "Unclear whether close gate requires *most recent* run, which run_id, and what constitutes pass.",
+      "proposed_rewrite": "Define the canonical evidence path `status/audit/<INTENT_ID>/runs/<run_id>/generate/run.json` and require `exit_code: 0` for the exact run_id used during close; close dry-run must report missing/failed evidence with remediation command."
+    }
+  ],
+  "scope_alignment": {
+    "inferred_surfaces": [
+      "Output contract templates under spec/md/docs/data/",
+      "Pipeline package contract/bundle/CLI modules under pipeline/src/fusbal_pipeline/",
+      "Optional pipeline JSON Schema artefacts under pipeline/schemas/",
+      "Portal intent detail UI/read-model for per-task audit visibility",
+      "Governance prompts and close/audit scripts for evidence capture",
+      "Evidence outputs under status/audit/INT-010/runs/<run_id>/..."
+    ],
+    "paths_allowed": [
+      "spec/",
+      "spec/md/docs/",
+      "pipeline/",
+      "scripts/",
+      "tools/",
+      "apps/portal/",
+      "status/audit/"
+    ],
+    "paths_excluded": [
+      "docs/",
+      "status/intents/",
+      "status/portal/",
+      "status/wizard/"
+    ],
+    "mismatches": [
+      "No direct mismatch found; allowed paths cover the planned tasks, and excluded paths correctly block generated docs/status surfaces.",
+      "Risk note: allowing pipeline/ + scripts/ makes it easy to expand beyond scaffolding; rely on non_goals and task scopes to prevent implementing vision features."
+    ],
+    "recommended_edits": [
+      "Tighten intent non_goals to explicitly exclude detection/tracking/calibration algorithms and any non-deterministic outputs.",
+      "If placeholders/warnings are adopted, define whether warnings are allowed in close gates and quality audits.",
+      "If JSON Schema is added, specify which objects are schema-covered and where schemas are referenced from the contract template."
+    ]
+  },
+  "closeability": {
+    "tasks": {
+      "status": "FAIL",
+      "notes": "All planned task ids exist and are wired, but multiple todo tasks have acceptance criteria that are not fully deterministic/closeable yet (warnings semantics; undefined bounds)."
+    },
+    "work_packages": {
+      "status": "PASS",
+      "notes": "Generated work_packages.json covers all planned tasks and package titles are clear."
+    },
+    "close_gates": {
+      "status": "FAIL",
+      "notes": "Intent close_gate lists commands, but does not explicitly encode the evidence expectations implied by governance (per-task quality audit reports for all planned tasks; generate evidence for the same run_id used for close)."
+    },
+    "guardrail_plan": {
+      "status": "FAIL",
+      "notes": "Requirements are valid and have guardrail mechanisms, but INT-010 does not yet clearly state which acceptance bullets for GREENFIELD-GOV-011 are being implemented vs depended upon; also schema/validation tightening tasks need precise definitions to satisfy trust-first guardrails consistently."
+    }
+  },
+  "minimum_next_steps": [
+    "Clarify whether INT-010 is now focused only on IMP-* tasks; update intent narrative accordingly.",
+    "Choose and specify warning behavior for placeholder scaffolding (IMP-004) so quality audits can be deterministic.",
+    "Define the exact field set and bounds for numeric/range validation (IMP-005) based on the contract fields.",
+    "Specify the precise JSON Schema scope and target draft/version for downstream compatibility (IMP-007).",
+    "Update close gating narrative (or close_gate list) to explicitly require per-task audit evidence + generate evidence for the chosen run_id.",
+    "Run a preflight re-review after the above edits and before implementing any runtime code changes."
+  ]
+}

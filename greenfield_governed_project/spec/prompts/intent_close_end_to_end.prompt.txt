@@ -68,7 +68,8 @@ This MUST:
 - For any `REQ-*` created by this intent, set `tracking.implementation: "done"` ONLY when code exists and references `REQ: REQ-*`
 
 E) Refresh derived surfaces + validate
-1) `npm run generate`
+1) Run generate and capture evidence:
+   `node tools/evidence/record_run.mjs --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/generate/run.json npm run generate`
 2) `npm run guardrails`
 
 F) Evidence (MUST)
@@ -81,6 +82,11 @@ Output requirements (in chat):
     - `status/audit/<INTENT_ID>/runs/<run_id>/audit/run.json`
     - `status/audit/<INTENT_ID>/runs/<run_id>/audit/audit_report.json`
     - `status/audit/<INTENT_ID>/runs/<run_id>/guardrails/run.json`
+      - `status/audit/<INTENT_ID>/runs/<run_id>/generate/run.json`
     - `status/audit/<INTENT_ID>/runs/<run_id>/close/run.json`
   - Confirmation that intent status is now `closed` and will show in the portal after Refresh
 Do not paste the full JSON reports into chat.
+
+FINAL sentence requirement:
+- Your FINAL sentence in chat MUST be exactly:
+  `ACTIVITY: close <INTENT_ID> <run_id>: finished - pass|fail`

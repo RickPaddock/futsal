@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-030-IMP-007",
+  "intent_id": "INT-030",
+  "title": "Bound MOT state and add out_of_view heuristic",
+  "status": "todo",
+  "scope": [
+    "Add bounded tracking state and a simple heuristic to distinguish out_of_view from occlusion.",
+    "Keep the tracker deterministic and trust-first.",
+    "Avoid adding heavy dependencies or complex optimization; MVP-level heuristics only."
+  ],
+  "acceptance": [
+    "Tracker configuration includes a cap on active tracks and/or a deterministic eviction strategy.",
+    "Unmatched tracks can be ended with break_reason=out_of_view when heuristics indicate leaving the frame/ROI.",
+    "Behavior is covered by at least one unit test and remains deterministic."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-030-IMP-007-001",
+      "title": "MOT bounded state + out_of_view heuristic",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/player/track_types.py",
+        "pipeline/src/fusbal_pipeline/player/mot.py"
+      ],
+      "acceptance": [
+        "Config and implementation support out_of_view and bounded state deterministically."
+      ],
+      "evidence": [
+        "Unit test covers out_of_view break reason mapping."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-030-IMP-007-001",
+      "title": "Extend MotConfig to include bounded-state and out_of_view parameters.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_030_IMP_007.SUB_001",
+      "done_when": [
+        "MotConfig exposes new parameters with safe defaults." 
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-030-IMP-007-002",
+      "title": "Implement deterministic out_of_view mapping and bounded state in SwapAvoidantMOT.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_030_IMP_007.SUB_002",
+      "done_when": [
+        "Tracker ends tracks with out_of_view where appropriate and remains deterministic."
+      ]
+    }
+  ]
+}

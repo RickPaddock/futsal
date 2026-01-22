@@ -1,6 +1,6 @@
 /*
 PROV: GREENFIELD.SCAFFOLD.PORTAL.05
-REQ: SYS-ARCH-15, GREENFIELD-PORTAL-002, GREENFIELD-PORTAL-005, GREENFIELD-PORTAL-006, GREENFIELD-PORTAL-007, GREENFIELD-PORTAL-008, GREENFIELD-PORTAL-009, GREENFIELD-PORTAL-011, GREENFIELD-PORTAL-014, GREENFIELD-PORTAL-015, GREENFIELD-PORTAL-016, GREENFIELD-PORTAL-019, GREENFIELD-PORTAL-020, GREENFIELD-PORTAL-022
+REQ: SYS-ARCH-15, GREENFIELD-PORTAL-002, GREENFIELD-PORTAL-005, GREENFIELD-PORTAL-006, GREENFIELD-PORTAL-007, GREENFIELD-PORTAL-008, GREENFIELD-PORTAL-009, GREENFIELD-PORTAL-011, GREENFIELD-PORTAL-014, GREENFIELD-PORTAL-015, GREENFIELD-PORTAL-016, GREENFIELD-PORTAL-019, GREENFIELD-PORTAL-020, GREENFIELD-PORTAL-022, GREENFIELD-PORTAL-024
 WHY: Intent detail view (surfaces specs/audits, evidence-based readiness, and prompt-driven actions).
 */
 
@@ -45,11 +45,41 @@ export async function getServerSideProps(ctx) {
     computeIntentReadiness,
     loadPerTaskQualityAudits,
     isValidIntentId,
+    findLatestPreflightReportInfo,
   } = await import("../../../lib/portal_read_model.js");
+
+  function parseCookies(header) {
+    const raw = String(header || "");
+    const out = {};
+    for (const part of raw.split(";")) {
+      const [k, ...rest] = part.trim().split("=");
+      if (!k) continue;
+      out[k] = decodeURIComponent(rest.join("="));
+    }
+    return out;
+  }
+
+  async function ensureCsrfCookie(req, res) {
+    const cookies = parseCookies(req?.headers?.cookie || "");
+    const existing = String(cookies.portal_csrf || "").trim();
+    if (existing) return existing;
+    const { randomBytes } = await import("node:crypto");
+    const token = randomBytes(16).toString("hex");
+    const parts = [
+      `portal_csrf=${token}`,
+      "Path=/",
+      "SameSite=Lax",
+      "HttpOnly",
+      `Max-Age=${60 * 60 * 24}`,
+    ];
+    res?.setHeader?.("Set-Cookie", parts.join("; "));
+    return token;
+  }
 
   const intentId = String(ctx.params?.intentId || "");
   if (!isValidIntentId(intentId)) return { notFound: true };
   const repoRoot = repoRootFromPortalCwd();
+  const csrfToken = await ensureCsrfCookie(ctx.req, ctx.res);
 
   const feedPath = path.join(repoRoot, "status", "portal", "internal_intents.json");
   const feed = safeReadJson(feedPath) || { intents: [] };
@@ -71,9 +101,9 @@ export async function getServerSideProps(ctx) {
   const runs = listAuditRunsDeep(repoRoot, intentId).slice(0, 25);
   const readiness = computeIntentReadiness({ repoRoot, intentId, intentSpec: intentSpec || {}, tasks, scope: scope || {}, runs });
   const plannedTaskIds = Array.isArray(intentSpec?.task_ids_planned) ? intentSpec.task_ids_planned.map(String) : [];
-  const runId = readiness?.blockers?.latest_quality_run_id || null;
-  const perTask = runId
-    ? loadPerTaskQualityAudits({ repoRoot, intentId, runId, taskIds: plannedTaskIds })
+  const qualityRunId = readiness?.blockers?.latest_quality_run_id || "";
+  const perTask = qualityRunId
+    ? loadPerTaskQualityAudits({ repoRoot, intentId, runId: qualityRunId, taskIds: plannedTaskIds })
     : { audits: [], missing: plannedTaskIds.map((task_id) => ({ task_id, path: "" })) };
 
   function latestJsonUnderRuns({ candidates }) {
@@ -97,11 +127,12 @@ export async function getServerSideProps(ctx) {
   const auditReportInfo = latestJsonUnderRuns({ candidates: ["audit/audit_report.json", "audit_report.json"] });
   const qualityReportInfo = latestJsonUnderRuns({ candidates: ["quality_audit.json"] });
   const preflightReportInfo = latestJsonUnderRuns({ candidates: ["preflight/preflight_report.json"] });
+  const preflightSummary = findLatestPreflightReportInfo(repoRoot, intentId);
 
   const feedTaskIds = Array.isArray(feedIntent?.tasks) ? feedIntent.tasks.map((t) => String(t.task_id || "")).filter(Boolean) : [];
   const missingFromFeed = plannedTaskIds.filter((tid) => !feedTaskIds.includes(tid));
 
-  return { props: { intentId, feedIntent, intentSpec, tasks, scope, workPackages, md, runs, readiness, auditReportInfo, qualityReportInfo, preflightReportInfo, perTask, missingFromFeed } };
+  return { props: { intentId, feedIntent, intentSpec, tasks, scope, workPackages, md, runs, readiness, qualityRunId, auditReportInfo, qualityReportInfo, preflightReportInfo, preflightSummary, perTask, missingFromFeed, csrfToken } };
 }
 
 function PromptOverlay({ title, kind, defaultIntentId, defaultRunId, defaultClosedDate, onClose }) {
@@ -189,7 +220,7 @@ function PromptOverlay({ title, kind, defaultIntentId, defaultRunId, defaultClos
   );
 }
 
-export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, scope, workPackages, md, runs, readiness, auditReportInfo, qualityReportInfo, preflightReportInfo, perTask, missingFromFeed }) {
+export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, scope, workPackages, md, runs, readiness, qualityRunId, auditReportInfo, qualityReportInfo, preflightReportInfo, preflightSummary, perTask, missingFromFeed, csrfToken }) {
   const router = useRouter();
   const requirements = feedIntent?.requirements_in_scope || [];
   const tasksDone = tasks.filter((t) => String(t?.status || "").trim() === "done").length;
@@ -215,7 +246,7 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
     try {
       const res = await fetch("/api/internal/refresh", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-portal-csrf": String(csrfToken || "") },
         body: JSON.stringify({ intentId }),
       });
       const payload = await res.json().catch(() => ({}));
@@ -265,8 +296,8 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
           <Link className="btn" href="/internal/intents?create=1">Create intent</Link>
           {status !== "closed" ? <button className="btn" type="button" onClick={openPreflightPrompt}>Preflight</button> : null}
           {readiness?.canImplement ? <button className="btn" type="button" onClick={openImplementPrompt}>Implement</button> : null}
-          {readiness?.canAudit ? <button className="btn" type="button" onClick={openAuditPrompt}>Audit</button> : null}
-          {readiness?.canClose ? <button className="btn" type="button" onClick={openClosePrompt}>Close</button> : null}
+          {status !== "closed" && readiness?.canAudit ? <button className="btn" type="button" onClick={openAuditPrompt}>Audit</button> : null}
+          {status !== "closed" && readiness?.canClose ? <button className="btn" type="button" onClick={openClosePrompt}>Close</button> : null}
           <button className="btn" type="button" disabled={refreshing} onClick={refreshAndReload}>
             {refreshing ? "Refreshing…" : "Refresh"}
           </button>
@@ -392,12 +423,28 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
         <h2>Audit</h2>
         <h2 style={{ marginTop: 0 }}>Preflight</h2>
         {preflightReportInfo ? (
-          <div className="kv">
-            <span>Latest preflight_report.json</span>
-            <span>
-              <a href={`/api/internal/file?rel=${encodeURIComponent(preflightReportInfo.rel)}`} target="_blank" rel="noreferrer">raw</a>
-            </span>
-          </div>
+          <>
+            <div className="kv">
+              <span>Latest preflight_report.json</span>
+              <span>
+                <a href={`/api/internal/file?rel=${encodeURIComponent(preflightReportInfo.rel)}`} target="_blank" rel="noreferrer">raw</a>
+              </span>
+            </div>
+            <div className="kv">
+              <span>Preflight status</span>
+              <span>
+                {preflightSummary ? (
+                  <>
+                    <strong>{String(preflightSummary.status || "unknown")}</strong>
+                    {" "}
+                    <span className="muted">({String(preflightSummary.run_id || "")}, {formatUkDateTime(preflightSummary.timestamp || "")})</span>
+                  </>
+                ) : (
+                  <span className="muted">unknown</span>
+                )}
+              </span>
+            </div>
+          </>
         ) : <div className="muted">No preflight_report.json found in status/audit.</div>}
 
         {auditReportInfo ? (
@@ -437,11 +484,17 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
             const nfr = String(a?.report?.nonfunctional?.overall_status || "unknown");
             const blockers = Array.isArray(a?.report?.gate?.blockers) ? a.report.gate.blockers : [];
             const ts = formatUkDateTime(a?.report?.timestamp || "");
-            const runLinkRel = `status/audit/${intentId}/runs/${runId}/quality_audit.json`;
+            const runLinkRel = qualityRunId ? `status/audit/${intentId}/runs/${qualityRunId}/quality_audit.json` : "";
             return (
               <div key={`ok:${a.task_id}`} className="trow">
                 <div><code>{a.task_id}</code></div>
-                <div><a href={`/api/internal/file?rel=${encodeURIComponent(runLinkRel)}`} target="_blank" rel="noreferrer"><code>{runId}</code></a></div>
+                <div>
+                  {qualityRunId ? (
+                    <a href={`/api/internal/file?rel=${encodeURIComponent(runLinkRel)}`} target="_blank" rel="noreferrer"><code>{qualityRunId}</code></a>
+                  ) : (
+                    <code />
+                  )}
+                </div>
                 <div>{ts}</div>
                 <div>{gate}</div>
                 <div>{functional}</div>
@@ -454,7 +507,7 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
           {(perTask?.missing || []).map((m) => (
             <div key={`missing:${m.task_id}`} className="trow">
               <div><code>{m.task_id}</code></div>
-              <div><code>{runId || ""}</code></div>
+              <div><code>{qualityRunId || ""}</code></div>
               <div />
               <div style={{ color: "#b91c1c" }}>missing</div>
               <div />

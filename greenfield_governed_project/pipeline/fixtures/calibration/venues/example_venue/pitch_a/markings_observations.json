@@ -1,0 +1,65 @@
+{
+  "camera_id": "cam_A",
+  "frame_ref": {
+    "t_ms": 1000
+  },
+  "schema_version": 1,
+  "segments": [
+    {
+      "label": "touchline_left",
+      "p0_xy_px": [
+        100.0,
+        50.0
+      ],
+      "p1_xy_px": [
+        100.0,
+        210.0
+      ]
+    },
+    {
+      "label": "touchline_right",
+      "p0_xy_px": [
+        500.0,
+        50.0
+      ],
+      "p1_xy_px": [
+        500.0,
+        210.0
+      ]
+    },
+    {
+      "label": "center_line",
+      "p0_xy_px": [
+        300.0,
+        210.0
+      ],
+      "p1_xy_px": [
+        300.0,
+        50.0
+      ]
+    },
+    {
+      "label": "goal_box_left",
+      "p0_xy_px": [
+        130.0,
+        98.0
+      ],
+      "p1_xy_px": [
+        130.0,
+        162.0
+      ]
+    },
+    {
+      "label": "goal_box_right",
+      "p0_xy_px": [
+        470.0,
+        162.0
+      ],
+      "p1_xy_px": [
+        470.0,
+        98.0
+      ]
+    }
+  ]
+}
+

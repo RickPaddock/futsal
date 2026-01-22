@@ -1,0 +1,216 @@
+{
+  "type": "intent_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-010",
+  "run_id": "20260121_175322",
+  "timestamp": "2026-01-21T18:23:10Z",
+  "scope": {
+    "areas_in_scope": [
+      "pipeline",
+      "portal",
+      "scripts",
+      "tools"
+    ]
+  },
+  "audit_inputs": {
+    "intent_spec_path": "spec/intents/INT-010.json",
+    "task_spec_paths": [
+      "spec/tasks/TASK-V1-OUT-001.json",
+      "spec/tasks/TASK-V1-DATA-001.json",
+      "spec/tasks/TASK-V1-CLI-001.json",
+      "spec/tasks/TASK-INT-010-IMP-001.json",
+      "spec/tasks/TASK-INT-010-IMP-002.json",
+      "spec/tasks/TASK-INT-010-IMP-003.json",
+      "spec/tasks/TASK-INT-010-IMP-004.json",
+      "spec/tasks/TASK-INT-010-IMP-005.json",
+      "spec/tasks/TASK-INT-010-IMP-006.json",
+      "spec/tasks/TASK-INT-010-IMP-007.json",
+      "spec/tasks/TASK-INT-010-IMP-008.json",
+      "spec/tasks/TASK-INT-010-IMP-009.json",
+      "spec/tasks/TASK-INT-010-IMP-010.json"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/bundle.py",
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/src/fusbal_pipeline/errors.py",
+      "pipeline/schemas/contract.v1.schema.json",
+      "pipeline/tests/test_contract_validation.py",
+      "pipeline/tests/test_manifest_determinism.py",
+      "apps/portal/lib/portal_read_model.js",
+      "apps/portal/pages/internal/intents/[intentId].js",
+      "scripts/audit/close_intent.mjs",
+      "scripts/audit/audit_intent.mjs",
+      "tools/evidence/record_run.mjs"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 8,
+    "top_risks": [
+      "CLI portability still depends on users setting PYTHONPATH or installing package; consider adding an installable entrypoint or wrapper.",
+      "Manifest input path policy currently mixes provenance + portability; document the exact intended rule clearly in the contract.",
+      "Schema file is committed, but there is no automated check that Python contract changes stay aligned with the JSON Schema." 
+    ],
+    "top_quick_wins": [
+      "Add a small CI task to run pipeline lint/tests.",
+      "Add a tiny JSON-schema validation smoke test (node/py) to ensure the committed schema stays usable.",
+      "Improve error context mapping for contract validation to include field/value more consistently." 
+    ]
+  },
+  "verification": {
+    "functional": {
+      "status": "pass",
+      "notes": "Bundle layout + manifest determinism + contract docs + CLI init/validate behaviors exist and are test-covered for core determinism/validation cases."
+    },
+    "nonfunctional": {
+      "correctness_safety": {
+        "status": "pass",
+        "notes": "Validation is trust-first with explicit missing/unknown semantics and deterministic output." 
+      },
+      "performance": {
+        "status": "pass",
+        "notes": "tracks.jsonl validation is streaming; no unbounded reads for large track files." 
+      },
+      "security": {
+        "status": "pass",
+        "notes": "Path handling is localized to bundle roots; no shell command execution in pipeline CLI." 
+      },
+      "maintainability": {
+        "status": "pass",
+        "notes": "Small cohesive modules; lint/test tooling present; schema artifact is checked in." 
+      },
+      "overall_status": "pass"
+    }
+  },
+  "improvements": [
+    {
+      "id": "IMP-001",
+      "title": "Add CI job for pipeline lint/tests",
+      "area": "workflows",
+      "roi_0_to_10": 9,
+      "effort": "S",
+      "risk": "low",
+      "why": "Prevents drift/regressions in contract/CLI behavior and keeps guardrails clean.",
+      "proposed_changes": [
+        "Add a CI step to run scripts/lint/pipeline.sh and pytest under pipeline/",
+        "Document the exact command in a runbook template if needed"
+      ]
+    },
+    {
+      "id": "IMP-002",
+      "title": "Automate schema alignment checks",
+      "area": "pipeline",
+      "roi_0_to_10": 9,
+      "effort": "S",
+      "risk": "low",
+      "why": "Ensures pipeline contract changes do not silently diverge from pipeline/schemas/contract.v1.schema.json.",
+      "proposed_changes": [
+        "Add a small test that validates sample records/manifest against pipeline/schemas/contract.v1.schema.json",
+        "Reference CONTRACT_V1_SCHEMA_PATH in pipeline/src/fusbal_pipeline/contract.py"
+      ]
+    },
+    {
+      "id": "IMP-003",
+      "title": "Provide an installable CLI entrypoint",
+      "area": "pipeline",
+      "roi_0_to_10": 8,
+      "effort": "M",
+      "risk": "medium",
+      "why": "Reduces friction vs requiring PYTHONPATH for local usage; improves portability and reproducibility.",
+      "proposed_changes": [
+        "Add console_scripts entry for fusbal-pipeline in pipeline/pyproject.toml",
+        "Document usage in a runbook template"
+      ]
+    },
+    {
+      "id": "IMP-004",
+      "title": "Expand structured error context",
+      "area": "pipeline",
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "low",
+      "why": "Makes JSON output more actionable (field/value included consistently) and easier for tooling.",
+      "proposed_changes": [
+        "Add field/value extraction in pipeline/src/fusbal_pipeline/cli.py add_contract_error()",
+        "Extend pipeline/src/fusbal_pipeline/errors.py codes if needed"
+      ]
+    },
+    {
+      "id": "IMP-005",
+      "title": "Document manifest path provenance rules",
+      "area": "data",
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "low",
+      "why": "Clarifies portability expectations for inputs.* fields and avoids confusion between provenance vs relocatable bundles.",
+      "proposed_changes": [
+        "Clarify rules in spec/md/docs/data/OUTPUT_CONTRACT.mdt",
+        "Optionally add a CLI flag to force absolute provenance paths"
+      ]
+    },
+    {
+      "id": "IMP-006",
+      "title": "Add JSON Schema versioning policy",
+      "area": "governance",
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "low",
+      "why": "A clear policy prevents accidental breaking changes to V1 contract consumers.",
+      "proposed_changes": [
+        "Document schema evolution rules near pipeline/schemas/contract.v1.schema.json",
+        "Add a note in pipeline/src/fusbal_pipeline/contract.py about compatibility expectations"
+      ]
+    },
+    {
+      "id": "IMP-007",
+      "title": "Add contract validation tests for JSONL parse errors",
+      "area": "pipeline",
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "low",
+      "why": "Ensures streaming validator reports the right line number and message shape for malformed JSON.",
+      "proposed_changes": [
+        "Add a test in pipeline/tests/test_contract_validation.py for invalid JSON line",
+        "Assert error includes path + line number"
+      ]
+    },
+    {
+      "id": "IMP-008",
+      "title": "Expose a validate-only-json-schema option",
+      "area": "pipeline",
+      "roi_0_to_10": 6,
+      "effort": "M",
+      "risk": "medium",
+      "why": "Helps downstream tooling validate manifest/records using the committed JSON Schema.",
+      "proposed_changes": [
+        "Add a CLI flag to validate sample payloads against pipeline/schemas/contract.v1.schema.json"
+      ]
+    },
+    {
+      "id": "IMP-009",
+      "title": "Improve portal drill-down for per-task audit failures",
+      "area": "portal",
+      "roi_0_to_10": 5,
+      "effort": "S",
+      "risk": "low",
+      "why": "Speeds up debugging when a close gate is blocked by a single task audit.",
+      "proposed_changes": [
+        "Add an inline link from each task row to the JSON path",
+        "Highlight blockers prominently"
+      ]
+    },
+    {
+      "id": "IMP-010",
+      "title": "Add a small contract sample bundle fixture",
+      "area": "pipeline",
+      "roi_0_to_10": 5,
+      "effort": "M",
+      "risk": "low",
+      "why": "Provides a stable example bundle for manual testing and future docs.",
+      "proposed_changes": [
+        "Add a minimal sample bundle under pipeline/fixtures/",
+        "Use it in a smoke test for validate"
+      ]
+    }
+  ]
+}

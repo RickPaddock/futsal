@@ -1,0 +1,71 @@
+{
+  "dimensions_m": {
+    "length": 40.0,
+    "width": 20.0
+  },
+  "frame": "pitch_v1",
+  "frame_origin": "lower_left_corner",
+  "markings_v1": {
+    "lines": [
+      {
+        "label": "touchline_left",
+        "p0_xy_m": [
+          0.0,
+          0.0
+        ],
+        "p1_xy_m": [
+          0.0,
+          20.0
+        ]
+      },
+      {
+        "label": "touchline_right",
+        "p0_xy_m": [
+          40.0,
+          0.0
+        ],
+        "p1_xy_m": [
+          40.0,
+          20.0
+        ]
+      },
+      {
+        "label": "center_line",
+        "p0_xy_m": [
+          20.0,
+          0.0
+        ],
+        "p1_xy_m": [
+          20.0,
+          20.0
+        ]
+      },
+      {
+        "label": "goal_box_left",
+        "p0_xy_m": [
+          3.0,
+          6.0
+        ],
+        "p1_xy_m": [
+          3.0,
+          14.0
+        ]
+      },
+      {
+        "label": "goal_box_right",
+        "p0_xy_m": [
+          37.0,
+          6.0
+        ],
+        "p1_xy_m": [
+          37.0,
+          14.0
+        ]
+      }
+    ],
+    "schema_version": 1
+  },
+  "pitch_template_id": "example_venue/pitch_a",
+  "schema_version": 1
+}
+

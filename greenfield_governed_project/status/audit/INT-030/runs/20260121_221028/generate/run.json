@@ -1,0 +1,19 @@
+{
+  "run_id": "20260121_221028",
+  "timestamp_start": "2026-01-22T10:08:45Z",
+  "timestamp_end": "2026-01-22T10:08:46Z",
+  "command": "npm run generate",
+  "args": [
+    "npm",
+    "run",
+    "generate"
+  ],
+  "exit_code": 0,
+  "cwd": ".",
+  "actor": "human",
+  "intent_id": "INT-030",
+  "artefacts": [],
+  "stage": "generate",
+  "run_json_path": "status/audit/INT-030/runs/20260121_221028/generate/run.json",
+  "stdout": "\n> generate\n> node scripts/generate_all.mjs\n\n[generate] ok\n"
+}

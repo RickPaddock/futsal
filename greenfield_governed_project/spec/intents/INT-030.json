@@ -8,23 +8,35 @@
     "paths_mdt": [],
     "notes": "No runbook changes required for this intent."
   },
+  "paths_allowed": [
+    "spec/",
+    "spec/md/docs/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
   "close_gate": [
+    "npm run generate",
     "npm run guardrails",
-    "npm run generate:check",
     "npm run audit:intent -- --intent-id INT-030"
   ],
   "summary": [
-    "Detect and track all players with conservative identity continuity (breaks preferred over swaps).",
-    "Assign players to teams using bib colors with temporal smoothing and an Unknown state."
+    "Detect and track all players with swap avoidance: ambiguous associations must end a segment with an explicit break_reason (breaks preferred over swaps).",
+    "Assign players to teams using bib colors with temporal smoothing; team values are A/B/unknown (unknown is valid and preferred when evidence is weak)."
   ],
   "non_goals": [
     "Jersey-number OCR or advanced re-identification beyond conservative continuity.",
     "Forcing team assignment when evidence is weak (Unknown is acceptable and preferred)."
   ],
   "success_criteria": [
-    "Per-frame player detections are produced with confidence and diagnostics (trust-first).",
-    "MOT prefers breaks over swaps and emits track confidence + explicit break reasons.",
-    "Team assignment outputs A/B/Unknown with smoothing and diagnostics; contract is updated."
+    "Per-frame player detections are produced with confidence in [0,1] and structured diagnostics; empty/missing outputs are allowed and preferred over wrong detections (trust-first).",
+    "MOT prefers breaks over swaps and emits track confidence plus an explicit break_reason (e.g., occlusion, ambiguous_association, out_of_view).",
+    "Team assignment outputs A/B/Unknown with smoothing parameters, confidence in [0,1], and structured diagnostics; the output contract template is updated with field lists + examples."
   ],
   "requirements_in_scope": [
     "FUSBAL-V1-PLAYER-001",
@@ -34,7 +46,17 @@
   "task_ids_planned": [
     "TASK-PLAYER-DET-001",
     "TASK-PLAYER-MOT-001",
-    "TASK-TEAM-001"
+    "TASK-TEAM-001",
+    "TASK-INT-030-IMP-001",
+    "TASK-INT-030-IMP-002",
+    "TASK-INT-030-IMP-003",
+    "TASK-INT-030-IMP-004",
+    "TASK-INT-030-IMP-005",
+    "TASK-INT-030-IMP-006",
+    "TASK-INT-030-IMP-007",
+    "TASK-INT-030-IMP-008",
+    "TASK-INT-030-IMP-009",
+    "TASK-INT-030-IMP-010"
   ],
   "quality_areas": [
     {
@@ -42,11 +64,17 @@
       "title": "Functional objectives",
       "task_ids": [
         "TASK-PLAYER-DET-001",
-        "TASK-TEAM-001"
+        "TASK-PLAYER-MOT-001",
+        "TASK-TEAM-001",
+        "TASK-INT-030-IMP-001",
+        "TASK-INT-030-IMP-004",
+        "TASK-INT-030-IMP-006"
       ],
       "objectives": [
-        "Per-frame player detections are produced with confidence and diagnostics.",
-        "Team assignment outputs A/B/Unknown with smoothing and diagnostics."
+        "Per-frame player detections are produced with confidence (0..1), bbox fields, and structured diagnostics (stable keys).",
+        "Tracking prefers breaks over swaps and emits track confidence plus an explicit break_reason.",
+        "Team assignment outputs team A/B/unknown with team_confidence (0..1), smoothing parameters, and structured diagnostics.",
+        "A fixture-based runnable pipeline produces a valid bundle including tracks.jsonl suitable for audits."
       ]
     },
     {
@@ -59,11 +87,17 @@
         "maintainability"
       ],
       "task_ids": [
-        "TASK-PLAYER-MOT-001"
+        "TASK-INT-030-IMP-002",
+        "TASK-INT-030-IMP-003",
+        "TASK-INT-030-IMP-005",
+        "TASK-INT-030-IMP-007",
+        "TASK-INT-030-IMP-008",
+        "TASK-INT-030-IMP-009",
+        "TASK-INT-030-IMP-010"
       ],
       "objectives": [
         "Tracking is trust-first: breaks are preferred over identity swaps (correctness/safety).",
-        "Diagnostics and schemas are stable and suitable for audits and downstream tooling."
+        "Diagnostics and schemas are explicit (field lists, enums, examples) and suitable for audits and downstream tooling."
       ]
     }
   ],
@@ -81,6 +115,22 @@
       "title": "Team assignment",
       "items": [
         "TASK-TEAM-001 Bib-color team assignment A/B/Unknown with smoothing + diagnostics + contract update."
+      ]
+    },
+    {
+      "work_package_id": "INT-030-003",
+      "title": "Implementation quality improvements",
+      "items": [
+        "TASK-INT-030-IMP-001 Add executable fixture run path that emits tracks.jsonl (detections→MOT→team).",
+        "TASK-INT-030-IMP-002 Add deterministic unit tests for detections, MOT, and team smoothing.",
+        "TASK-INT-030-IMP-003 Tighten contract validation for break_reason/segment semantics.",
+        "TASK-INT-030-IMP-004 Add fixture-based smoke run that generates a valid, non-placeholder bundle.",
+        "TASK-INT-030-IMP-005 Reduce contract template drift with schema snippet injection during generation.",
+        "TASK-INT-030-IMP-006 Emit explicit unknown records/diagnostics for ambiguous detections.",
+        "TASK-INT-030-IMP-007 Bound MOT state and add out_of_view heuristic.",
+        "TASK-INT-030-IMP-008 Centralize diagnostics key constants.",
+        "TASK-INT-030-IMP-009 Improve portal surfacing for per-task quality blockers.",
+        "TASK-INT-030-IMP-010 Add git/environment metadata to evidence run.json."
       ]
     }
   ]

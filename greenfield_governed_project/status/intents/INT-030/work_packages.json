@@ -15,6 +15,22 @@
       "primary_task_ids": [
         "TASK-TEAM-001"
       ]
+    },
+    {
+      "work_package_id": "INT-030-003",
+      "title": "Implementation quality improvements",
+      "primary_task_ids": [
+        "TASK-INT-030-IMP-001",
+        "TASK-INT-030-IMP-002",
+        "TASK-INT-030-IMP-003",
+        "TASK-INT-030-IMP-004",
+        "TASK-INT-030-IMP-005",
+        "TASK-INT-030-IMP-006",
+        "TASK-INT-030-IMP-007",
+        "TASK-INT-030-IMP-008",
+        "TASK-INT-030-IMP-009",
+        "TASK-INT-030-IMP-010"
+      ]
     }
   ]
 }

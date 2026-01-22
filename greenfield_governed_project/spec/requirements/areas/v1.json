@@ -4,6 +4,72 @@
   "area": "v1",
   "requirements": [
     {
+      "id": "REQ-V1-VIDEO-INGEST-001",
+      "status": "canonical",
+      "tracking": {
+        "implementation": "todo"
+      },
+      "guardrails": [
+        "guardrails:req_tag_enforced_on_done"
+      ],
+      "title": "Video ingest: given a local single-camera match video, the pipeline can decode frames deterministically and produce a time-indexed stream for downstream detectors/trackers.",
+      "acceptance": [
+        "A CLI command accepts a local video path and emits a deterministic frame/timestamp sequence (frame_index + t_ms).",
+        "Failure modes are explicit and actionable (missing file, unsupported codec, decode failure).",
+        "No machine-specific absolute paths are written into manifests or outputs; paths are portable/provenance-only."
+      ],
+      "owner": "platform",
+      "tags": [
+        "v1",
+        "video",
+        "ingest"
+      ]
+    },
+    {
+      "id": "REQ-V1-VIDEO-RUNNER-001",
+      "status": "canonical",
+      "tracking": {
+        "implementation": "todo"
+      },
+      "guardrails": [
+        "guardrails:req_tag_enforced_on_done"
+      ],
+      "title": "End-to-end runner: ingest a video and export a valid V1 output bundle with tracks/events under `output/<match_id>/` (plumbing-first, deterministic).",
+      "acceptance": [
+        "A CLI command runs end-to-end from a local video to a bundle directory containing at minimum `manifest.json`, `tracks.jsonl`, `events.json`, `report.json`, and required diagnostics placeholders.",
+        "Tracks/events conform to the contract validators and can be validated via `validate` without manual edits.",
+        "The runner is trust-first: when detections are unavailable or uncertain, it emits explicit missing/unknown state and does not fabricate positions/events."
+      ],
+      "owner": "platform",
+      "tags": [
+        "v1",
+        "runner",
+        "outputs"
+      ]
+    },
+    {
+      "id": "REQ-V1-BALL-DETECT-BASELINE-001",
+      "status": "canonical",
+      "tracking": {
+        "implementation": "todo"
+      },
+      "guardrails": [
+        "guardrails:req_tag_enforced_on_done"
+      ],
+      "title": "Baseline real ball detections: given a provided futsal video, the pipeline can emit non-empty ball detections/tracks on at least a subset of frames with confidence and diagnostics.",
+      "acceptance": [
+        "A baseline ball detector runs locally (no network) and emits per-frame ball detection candidates with confidence in [0,1].",
+        "Detector has explicit failure/missing behavior and can be disabled; downstream tracking remains valid and schema-stable.",
+        "At least one deterministic UAT clip produces ball track points with `pos_state=present` on some frames and explicit missing elsewhere (no hallucination)."
+      ],
+      "owner": "vision",
+      "tags": [
+        "v1",
+        "ball",
+        "detections"
+      ]
+    },
+    {
       "id": "FUSBAL-V1-TRUST-001",
       "status": "canonical",
       "tracking": {
@@ -103,6 +169,28 @@
       "tags": [
         "v1",
         "bev"
+      ]
+    },
+    {
+      "id": "REQ-CAL-UNDISTORT-001",
+      "status": "canonical",
+      "tracking": {
+        "implementation": "todo"
+      },
+      "guardrails": [
+        "guardrails:req_tag_enforced_on_done"
+      ],
+      "title": "Deferred: support raw distorted (wide-angle) frames via explicit undistortion inputs and calibration workflow.",
+      "acceptance": [
+        "The calibration workflow supports `image_pre_undistorted=false` with an explicit lens distortion model and parameters (versioned and validated).",
+        "Undistortion is applied deterministically before calibration fitting, with diagnostics that record the model and parameters used.",
+        "This requirement is deferred (not required for INT-020 / V1 calibration MVP scope)."
+      ],
+      "owner": "vision",
+      "tags": [
+        "deferred",
+        "calibration",
+        "distortion"
       ]
     },
     {

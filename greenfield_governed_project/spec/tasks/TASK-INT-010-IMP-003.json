@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-010-IMP-003",
   "intent_id": "INT-010",
   "title": "Add minimal unit tests for manifest determinism and schema validation",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Add a minimal Python test suite for the pipeline package focused on determinism and schema validation correctness.",
     "Prefer small, fast tests that can run in CI.",
@@ -36,7 +36,7 @@
     {
       "subtask_id": "SUB-TASK-INT-010-IMP-003-001",
       "title": "Add a minimal test runner configuration for the pipeline package.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_010_IMP_003.SUB_001",
       "done_when": [
@@ -47,7 +47,7 @@
     {
       "subtask_id": "SUB-TASK-INT-010-IMP-003-002",
       "title": "Add determinism tests for manifest generation.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_010_IMP_003.SUB_002",
       "done_when": [
@@ -58,7 +58,7 @@
     {
       "subtask_id": "SUB-TASK-INT-010-IMP-003-003",
       "title": "Add contract/schema validation tests for representative invalid inputs.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_010_IMP_003.SUB_003",
       "done_when": [

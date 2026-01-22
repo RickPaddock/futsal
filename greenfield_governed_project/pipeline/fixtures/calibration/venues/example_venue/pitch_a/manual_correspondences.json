@@ -1,0 +1,142 @@
+{
+  "camera_id": "cam_A",
+  "correspondences": [
+    {
+      "image_xy_px": [
+        100.0,
+        50.0
+      ],
+      "label": "corner_ll",
+      "pitch_xy_m": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "image_xy_px": [
+        500.0,
+        50.0
+      ],
+      "label": "corner_lr",
+      "pitch_xy_m": [
+        40.0,
+        0.0
+      ]
+    },
+    {
+      "image_xy_px": [
+        500.0,
+        210.0
+      ],
+      "label": "corner_ur",
+      "pitch_xy_m": [
+        40.0,
+        20.0
+      ]
+    },
+    {
+      "image_xy_px": [
+        100.0,
+        210.0
+      ],
+      "label": "corner_ul",
+      "pitch_xy_m": [
+        0.0,
+        20.0
+      ]
+    },
+    {
+      "image_xy_px": [
+        300.0,
+        50.0
+      ],
+      "label": "mid_bottom",
+      "pitch_xy_m": [
+        20.0,
+        0.0
+      ]
+    },
+    {
+      "image_xy_px": [
+        300.0,
+        210.0
+      ],
+      "label": "mid_top",
+      "pitch_xy_m": [
+        20.0,
+        20.0
+      ]
+    },
+    {
+      "image_xy_px": [
+        100.0,
+        130.0
+      ],
+      "label": "mid_left",
+      "pitch_xy_m": [
+        0.0,
+        10.0
+      ]
+    },
+    {
+      "image_xy_px": [
+        500.0,
+        130.0
+      ],
+      "label": "mid_right",
+      "pitch_xy_m": [
+        40.0,
+        10.0
+      ]
+    },
+    {
+      "image_xy_px": [
+        130.0,
+        98.0
+      ],
+      "label": "gb_left_low",
+      "pitch_xy_m": [
+        3.0,
+        6.0
+      ]
+    },
+    {
+      "image_xy_px": [
+        130.0,
+        162.0
+      ],
+      "label": "gb_left_high",
+      "pitch_xy_m": [
+        3.0,
+        14.0
+      ]
+    },
+    {
+      "image_xy_px": [
+        470.0,
+        98.0
+      ],
+      "label": "gb_right_low",
+      "pitch_xy_m": [
+        37.0,
+        6.0
+      ]
+    },
+    {
+      "image_xy_px": [
+        470.0,
+        162.0
+      ],
+      "label": "gb_right_high",
+      "pitch_xy_m": [
+        37.0,
+        14.0
+      ]
+    }
+  ],
+  "pitch_template_ref": {
+    "pitch_template_id": "example_venue/pitch_a"
+  },
+  "schema_version": 1
+}
+

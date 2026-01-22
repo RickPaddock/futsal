@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-010-IMP-009",
   "intent_id": "INT-010",
   "title": "Capture evidence for `npm run generate` runs and enforce at close",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Record `npm run generate` executions as evidence JSON alongside existing audit/guardrails evidence.",
     "Update close gating to require successful generate evidence when `--require-quality-audit` is used.",
@@ -37,7 +37,7 @@
     {
       "subtask_id": "SUB-TASK-INT-010-IMP-009-001",
       "title": "Define a canonical evidence path for generate runs and update prompt templates accordingly.",
-      "status": "todo",
+      "status": "done",
       "area": "governance",
       "provenance_prefix": "FUSBAL.GOVERNANCE.TASK_INT_010_IMP_009.SUB_001",
       "done_when": [
@@ -48,7 +48,7 @@
     {
       "subtask_id": "SUB-TASK-INT-010-IMP-009-002",
       "title": "Enforce generate evidence presence and success in the close gate (actionable failures).",
-      "status": "todo",
+      "status": "done",
       "area": "governance",
       "provenance_prefix": "FUSBAL.GOVERNANCE.TASK_INT_010_IMP_009.SUB_002",
       "done_when": [

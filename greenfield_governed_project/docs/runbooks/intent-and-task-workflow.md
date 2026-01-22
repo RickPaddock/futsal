@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/md/docs/runbooks/intent-and-task-workflow.mdt
-source_sha256: sha256:b16bd0bd9e243897bd7f6a5a9fa81c9efcdd026c2af125714e39f004e104d7f3
+source_sha256: sha256:2eb1a0673aae7c7ce4aa616fc2c7a0888310c613e933718da84a2663aaa735f2
 ---
 
 # Intent and task workflow
@@ -27,6 +27,11 @@ This repo treats planning artefacts as canonical JSON and generates all human-re
      - `decision`: `none` | `create` | `update`
      - `paths_mdt[]`: impacted runbook template paths (`spec/md/docs/runbooks/*.mdt`); empty if `decision: none`
      - `notes`: non-empty rationale so future LLMs understand what changed (or why nothing changed)
+   - `paths_allowed[]` and `paths_excluded[]` (explicit path scope to prevent repo creep):
+     - `paths_allowed[]`: repo-relative prefixes in-scope for edits (canonical specs + in-scope code + evidence folder).
+     - `paths_excluded[]`: repo-relative prefixes that MUST NOT be hand-edited (generated/derived surfaces).
+     - Minimum exclusions recommended: `docs/`, `status/intents/`, `status/portal/`
+     - If excluding `status/`, explicitly allow `status/audit/` for evidence runs.
    - `requirements_in_scope[]`
    - `task_ids_planned[]`
    - `work_packages[]` with `items[]` lines starting with the task id

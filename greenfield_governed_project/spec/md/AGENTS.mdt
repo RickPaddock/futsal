@@ -8,6 +8,8 @@ This repository is designed to be **movable and standalone**. Avoid machine-spec
 - Edit sources only:
   - Requirements: `${requirements_source}`
   - Intents: `spec/intents/*.json`
+  - Tasks: `spec/tasks/*.json`
+  - Prompt templates: `spec/prompts/*.prompt.txt`
   - Markdown templates: `spec/md/**/*.mdt`
 - After editing sources, regenerate: `npm run generate`
 - Guardrails must pass before declaring done: `npm run guardrails`
@@ -28,4 +30,3 @@ This repository is designed to be **movable and standalone**. Avoid machine-spec
 Record validation runs as a `run.json`:
 
 `node tools/evidence/record_run.mjs --intent-id INT-001 --out status/audit/INT-001/runs/<run_id>/run.json -- npm run guardrails`
-

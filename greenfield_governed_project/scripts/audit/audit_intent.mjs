@@ -1,7 +1,7 @@
 /*
 PROV: GREENFIELD.GOV.AUDIT_INTENT.01
-REQ: SYS-ARCH-15, AUD-REQ-10, GREENFIELD-GOV-016, GREENFIELD-GOV-018
-WHY: Audit an intent for governance completeness (task specs, quality areas, runbooks decision, new requirements tracked, and REQ tags in code).
+REQ: SYS-ARCH-15, AUD-REQ-10, GREENFIELD-GOV-016, GREENFIELD-GOV-018, GREENFIELD-GOV-021
+WHY: Audit an intent for governance completeness (task specs, quality areas, runbooks decision, explicit path scope, new requirements tracked, and REQ tags in code).
 */
 
 import fs from "node:fs";
@@ -158,6 +158,34 @@ function validateRunbooksDecision({ intentId, intent }) {
   return issues;
 }
 
+function validatePathsScope({ intentId, intent }) {
+  const issues = [];
+  const status = String(intent?.status || "").trim();
+  if (status === "draft") return issues;
+
+  const allowed = Array.isArray(intent?.paths_allowed) ? intent.paths_allowed.map(String).map((s) => s.trim()).filter(Boolean) : null;
+  const excluded = Array.isArray(intent?.paths_excluded) ? intent.paths_excluded.map(String).map((s) => s.trim()).filter(Boolean) : null;
+
+  if (!allowed) {
+    issues.push({ issue: "paths_allowed_required", intent_id: intentId });
+    return issues;
+  }
+  if (!excluded) {
+    issues.push({ issue: "paths_excluded_required", intent_id: intentId });
+    return issues;
+  }
+  if (!allowed.length) issues.push({ issue: "paths_allowed_empty", intent_id: intentId });
+  if (!excluded.length) issues.push({ issue: "paths_excluded_empty", intent_id: intentId });
+
+  const requiredExcluded = ["docs/", "status/intents/", "status/portal/"];
+  const missingRequiredExcluded = requiredExcluded.filter((pfx) => !excluded.some((x) => x === pfx || x.startsWith(pfx)));
+  if (missingRequiredExcluded.length) {
+    issues.push({ issue: "paths_excluded_missing_generated", intent_id: intentId, missing: missingRequiredExcluded });
+  }
+
+  return issues;
+}
+
 function validateQualityAreas({ intent, plannedTasks }) {
   const issues = [];
   const planned = uniqueStrings(plannedTasks);
@@ -260,6 +288,7 @@ function main() {
 
   const qualityAreaIssues = validateQualityAreas({ intent, plannedTasks });
   const runbookIssues = validateRunbooksDecision({ intentId, intent });
+  const pathScopeIssues = validatePathsScope({ intentId, intent });
 
   for (const tid of plannedTasks) {
     const taskPath = path.join(tasksDir, `${tid}.json`);
@@ -303,6 +332,7 @@ function main() {
   if (missingTaskSpecs.length) errors.push({ code: "missing_task_specs", items: missingTaskSpecs });
   if (qualityAreaIssues.length) errors.push({ code: "quality_areas_invalid", items: qualityAreaIssues });
   if (runbookIssues.length) errors.push({ code: "runbooks_invalid", items: runbookIssues });
+  if (pathScopeIssues.length) errors.push({ code: "paths_scope_invalid", items: pathScopeIssues });
   if (missingNewReqs.length) errors.push({ code: "missing_new_requirements", items: missingNewReqs });
   if (newReqImplMismatches.length) errors.push({ code: "new_requirement_tracking_mismatch", items: newReqImplMismatches });
 
@@ -318,6 +348,7 @@ function main() {
       missing_task_specs: missingTaskSpecs.length,
       quality_areas_issues: qualityAreaIssues.length,
       runbooks_issues: runbookIssues.length,
+      paths_scope_issues: pathScopeIssues.length,
       new_requirements_declared: newReqIds.size,
       new_requirements_with_code_refs: newReqsWithCodeRefs.length,
       new_requirements_missing_code_refs: newReqsMissingCodeRefs.length,

@@ -1,0 +1,218 @@
+{
+  "type": "intent_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-030",
+  "run_id": "20260121_221028",
+  "timestamp": "2026-01-22T10:06:01Z",
+  "scope": {
+    "areas_in_scope": [
+      "pipeline",
+      "portal",
+      "scripts",
+      "tools"
+    ]
+  },
+  "audit_inputs": {
+    "intent_spec_path": "spec/intents/INT-030.json",
+    "task_spec_paths": [
+      "spec/tasks/TASK-PLAYER-DET-001.json",
+      "spec/tasks/TASK-PLAYER-MOT-001.json",
+      "spec/tasks/TASK-TEAM-001.json"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/player/detections.py",
+      "pipeline/src/fusbal_pipeline/player/detector.py",
+      "pipeline/src/fusbal_pipeline/player/mot.py",
+      "pipeline/src/fusbal_pipeline/player/track_types.py",
+      "pipeline/src/fusbal_pipeline/team/assignment.py",
+      "pipeline/src/fusbal_pipeline/team/colors.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/src/fusbal_pipeline/bundle.py",
+      "pipeline/tests/test_contract_validation.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt",
+      "scripts/audit/audit_intent.mjs",
+      "scripts/guardrails/validate_repository.mjs",
+      "tools/evidence/record_run.mjs",
+      "apps/portal/pages/internal/intents/[intentId].js",
+      "apps/portal/pages/internal/intents/index.js"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 4,
+    "top_risks": [
+      "Functional integration gap: player detection/MOT/team modules exist but are not wired into a runnable pipeline that produces tracks.jsonl with required fields.",
+      "Lack of executable evidence paths: task acceptance references 'minimal pipeline run' outputs, but current CLI only scaffolds/validates placeholder bundles.",
+      "Insufficient automated tests for determinism + trust-first semantics of new modules (detections/MOT/team)."
+    ],
+    "top_quick_wins": [
+      "Add unit tests for determinism, ambiguity-break behavior, and Unknown team smoothing.",
+      "Add a small CLI/demo runner that writes tracks.jsonl using the new modules and validates the bundle.",
+      "Tighten contract validation rules around break_reason/segment_id semantics to prevent silent drift."
+    ]
+  },
+  "verification": {
+    "functional": {
+      "status": "fail",
+      "notes": "Per-task functional audits failed due to missing runnable pipeline integration/evidence for outputs referenced in task acceptance criteria."
+    },
+    "nonfunctional": {
+      "correctness_safety": {
+        "status": "pass",
+        "notes": "Individual modules are trust-first (gating/Unknown/breaks) and deterministic, but overall system behavior cannot be fully validated without an execution path."
+      },
+      "performance": {
+        "status": "pass",
+        "notes": "Per-frame costs are reasonable for MVP; MOT is O(T*D) and should remain bounded for player-only tracking."
+      },
+      "security": {
+        "status": "pass",
+        "notes": "Reviewed modules are pure transforms; no unsafe command execution or path handling in the new detection/tracking/team logic."
+      },
+      "maintainability": {
+        "status": "pass",
+        "notes": "Clear typed vocabularies, explicit configs, stable diagnostic keys; main gap is missing integration and tests."
+      },
+      "overall_status": "pass"
+    }
+  },
+  "improvements": [
+    {
+      "id": "IMP-001",
+      "title": "Add an executable pipeline run path that emits tracks.jsonl (detections → MOT → team)",
+      "area": "pipeline",
+      "roi_0_to_10": 10,
+      "effort": "M",
+      "risk": "medium",
+      "why": "Current deliverables are not reachable from any CLI/runner, preventing the required 'minimal pipeline run' evidence and blocking functional acceptance end-to-end.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/cli.py: add a `run` subcommand that writes `tracks.jsonl` (and minimal required artifacts) from a fixture input",
+        "pipeline/src/fusbal_pipeline/player/detections.py::emit_player_detections_v1: use as the canonical record shaper",
+        "pipeline/src/fusbal_pipeline/player/mot.py::SwapAvoidantMOT.update: feed detections to tracker and write TrackRecordV1 records",
+        "pipeline/src/fusbal_pipeline/team/assignment.py::annotate_track_with_team: annotate tracked records with team/team_confidence"
+      ]
+    },
+    {
+      "id": "IMP-002",
+      "title": "Add deterministic unit tests for detections, MOT, and team smoothing",
+      "area": "pipeline",
+      "roi_0_to_10": 9,
+      "effort": "S",
+      "risk": "low",
+      "why": "The new modules are small and testable, but there are no tests guarding determinism, break-over-swap behavior, or Unknown semantics.",
+      "proposed_changes": [
+        "pipeline/tests: add tests covering deterministic ordering/IDs for emit_player_detections_v1",
+        "pipeline/tests: add tests covering ambiguous association -> break_reason=ambiguous_association for SwapAvoidantMOT.update",
+        "pipeline/tests: add tests covering hysteresis + min_confidence behavior for TeamAssigner.update"
+      ]
+    },
+    {
+      "id": "IMP-003",
+      "title": "Tighten contract validation around segment/break semantics",
+      "area": "pipeline",
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "low",
+      "why": "The contract currently validates break_reason vocabulary but does not enforce semantic relationships (e.g., break_reason should only appear when ending a segment), risking silent drift.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/contract.py::validate_track_record_v1: require break_reason only when pos_state != present (or explicitly when segment ends)",
+        "pipeline/src/fusbal_pipeline/contract.py::validate_track_record_v1: ensure segment_id is present when break_reason is present",
+        "pipeline/tests/test_contract_validation.py: add tests for break_reason/segment_id semantic rules"
+      ]
+    },
+    {
+      "id": "IMP-004",
+      "title": "Provide a fixture-based smoke run that generates a non-placeholder bundle and validates it",
+      "area": "pipeline",
+      "roi_0_to_10": 8,
+      "effort": "M",
+      "risk": "medium",
+      "why": "Task acceptance and audits reference evidence from a runnable pipeline; a deterministic fixture run would provide repeatable evidence and catch regressions.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/cli.py: add `run --fixture <name>` to build outputs deterministically",
+        "pipeline/src/fusbal_pipeline/bundle.py::ensure_bundle_layout: reuse for deterministic output directories",
+        "pipeline/src/fusbal_pipeline/cli.py::cmd_validate: keep as post-run contract verifier"
+      ]
+    },
+    {
+      "id": "IMP-005",
+      "title": "Make contract template drift-resistant by generating field lists from code/schema",
+      "area": "generation",
+      "roi_0_to_10": 7,
+      "effort": "M",
+      "risk": "medium",
+      "why": "The output contract is duplicated in a template and in code/types; without automation, these can diverge over time.",
+      "proposed_changes": [
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt: render schema-derived field lists (TrackRecordV1 + enums) during generation",
+        "pipeline/schemas/contract.v1.schema.json: treat as the single source for enumerations (break_reason/team/pos_state)",
+        "scripts/generate_all.mjs: add a generation step that pulls schema snippets into docs templates"
+      ]
+    },
+    {
+      "id": "IMP-006",
+      "title": "Emit explicit records/diagnostics for dropped ambiguous detections",
+      "area": "pipeline",
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "low",
+      "why": "Current MOT marks ambiguity and breaks tracks, but ambiguous detections can be omitted entirely; explicit 'unknown' records improve auditability and debugging.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/player/mot.py::SwapAvoidantMOT.update: when ambiguous_dets present, emit a TrackRecordV1 with pos_state=unknown and diagnostics.unknown_reason=ambiguous_association",
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt: document unknown record semantics for ambiguity handling"
+      ]
+    },
+    {
+      "id": "IMP-007",
+      "title": "Bound tracking state and implement an out_of_view heuristic",
+      "area": "pipeline",
+      "roi_0_to_10": 6,
+      "effort": "M",
+      "risk": "medium",
+      "why": "MOT currently uses occlusion for unmatched tracks and doesn't distinguish out_of_view; adding simple heuristics and caps improves correctness and performance predictability.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/player/track_types.py::MotConfig: add max_active_tracks and out_of_view_distance_px",
+        "pipeline/src/fusbal_pipeline/player/mot.py::SwapAvoidantMOT.update: map unmatched tracks to out_of_view vs occlusion based on distance/time"
+      ]
+    },
+    {
+      "id": "IMP-008",
+      "title": "Centralize diagnostics key constants to prevent inconsistencies",
+      "area": "pipeline",
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "low",
+      "why": "Diagnostics keys are referenced across modules and the contract template; centralizing reduces typos and makes audits more reliable.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/contract.py: define canonical diagnostic key names (gating_reason, association_score, unknown_reason, smoothing, color_evidence)",
+        "pipeline/src/fusbal_pipeline/player/detections.py: use canonical constants for diagnostics keys",
+        "pipeline/src/fusbal_pipeline/team/assignment.py: use canonical constants for diagnostics keys"
+      ]
+    },
+    {
+      "id": "IMP-009",
+      "title": "Improve portal evidence surfacing for per-task quality blockers",
+      "area": "portal",
+      "roi_0_to_10": 5,
+      "effort": "S",
+      "risk": "low",
+      "why": "The portal already loads per-task audits, but stronger visual emphasis on blockers would shorten triage time.",
+      "proposed_changes": [
+        "apps/portal/pages/internal/intents/[intentId].js: highlight failing task audits and surface gate.blockers inline",
+        "apps/portal/pages/internal/intents/[intentId].js: add direct links to per-task audit JSON paths under status/audit/<intent>/runs/<run>/tasks/<task>/quality_audit.json"
+      ]
+    },
+    {
+      "id": "IMP-010",
+      "title": "Enhance evidence records with git SHA + environment metadata",
+      "area": "tools",
+      "roi_0_to_10": 5,
+      "effort": "S",
+      "risk": "low",
+      "why": "Evidence is reproducible only if it captures repo state and runtime context; adding git SHA and versions improves audit strength.",
+      "proposed_changes": [
+        "tools/evidence/record_run.mjs: include git commit SHA and dirty status in payload",
+        "tools/evidence/record_run.mjs: record node version (process.version) and OS platform info"
+      ]
+    }
+  ]
+}

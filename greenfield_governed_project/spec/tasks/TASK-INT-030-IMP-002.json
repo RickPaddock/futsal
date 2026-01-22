@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-030-IMP-002",
+  "intent_id": "INT-030",
+  "title": "Deterministic unit tests for detections, MOT breaks, and team smoothing",
+  "status": "todo",
+  "scope": [
+    "Add unit tests that lock in determinism and trust-first semantics for the INT-030 modules.",
+    "Cover detection gating and stable ordering, swap-avoidant MOT break behavior, and team Unknown/hysteresis smoothing.",
+    "Keep tests small, deterministic, and fixture-driven."
+  ],
+  "acceptance": [
+    "Tests exist for `emit_player_detections_v1` deterministic ordering and gating behavior.",
+    "Tests exist for `SwapAvoidantMOT` break-on-ambiguity behavior (no swaps) and deterministic output ordering.",
+    "Tests exist for `TeamAssigner` Unknown semantics and hysteresis behavior.",
+    "All tests pass and are runnable in CI (no large assets)."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-030-IMP-002-001",
+      "title": "Pipeline unit tests for INT-030 tracking components",
+      "paths": [
+        "pipeline/tests/test_player_detections.py",
+        "pipeline/tests/test_player_mot.py",
+        "pipeline/tests/test_team_assignment.py"
+      ],
+      "acceptance": [
+        "Each module has deterministic unit tests that assert trust-first behaviors."
+      ],
+      "evidence": [
+        "`pytest -q` passes for the new tests."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-030-IMP-002-001",
+      "title": "Add deterministic detection tests (ordering + gating + stable diagnostics keys).",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_030_IMP_002.SUB_001",
+      "done_when": [
+        "Detection output ordering is asserted and stable across runs.",
+        "Low-confidence candidates are suppressed and diagnostics are consistent."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-030-IMP-002-002",
+      "title": "Add MOT tests for break-over-swap and explicit break_reason vocabulary.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_030_IMP_002.SUB_002",
+      "done_when": [
+        "Ambiguous association triggers a break record with break_reason=ambiguous_association.",
+        "No identity swap occurs in ambiguous cases."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-030-IMP-002-003",
+      "title": "Add team smoothing tests for Unknown semantics and hysteresis stability.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_030_IMP_002.SUB_003",
+      "done_when": [
+        "Weak evidence yields unknown with diagnostics.",
+        "Hysteresis prevents oscillation when evidence is near-tied."
+      ]
+    }
+  ]
+}

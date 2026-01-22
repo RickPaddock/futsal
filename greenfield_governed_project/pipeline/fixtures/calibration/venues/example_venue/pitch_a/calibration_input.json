@@ -1,0 +1,16 @@
+{
+  "camera_id": "cam_A",
+  "image_pre_undistorted": true,
+  "image_size_px": [
+    640,
+    360
+  ],
+  "pitch_id": "pitch_a",
+  "pitch_template_ref": {
+    "pitch_template_id": "example_venue/pitch_a"
+  },
+  "schema_version": 1,
+  "source_video_path": "input/example_venue/pitch_a/cam_A.mp4",
+  "venue_id": "example_venue"
+}
+

@@ -1,0 +1,222 @@
+{
+  "type": "intent_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-020",
+  "run_id": "20260121_204612",
+  "timestamp": "2026-01-21T20:49:54Z",
+  "scope": {
+    "areas_in_scope": [
+      "pipeline",
+      "portal",
+      "scripts",
+      "tools"
+    ]
+  },
+  "audit_inputs": {
+    "intent_spec_path": "spec/intents/INT-020.json",
+    "task_spec_paths": [
+      "spec/tasks/TASK-CAL-001.json",
+      "spec/tasks/TASK-CAL-002.json",
+      "spec/tasks/TASK-CAL-003.json"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/calibration/pitch_templates.py",
+      "pipeline/src/fusbal_pipeline/calibration/inputs.py",
+      "pipeline/src/fusbal_pipeline/calibration/auto_fit.py",
+      "pipeline/src/fusbal_pipeline/calibration/diagnostics.py",
+      "pipeline/src/fusbal_pipeline/calibration/manual.py",
+      "pipeline/src/fusbal_pipeline/calibration/gating.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/fixtures/calibration/venues/example_venue/pitch_a/pitch_template.json",
+      "pipeline/fixtures/calibration/venues/example_venue/pitch_a/calibration_input.json",
+      "pipeline/fixtures/calibration/venues/example_venue/pitch_a/markings_observations.json",
+      "pipeline/fixtures/calibration/venues/example_venue/pitch_a/manual_correspondences.json",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt",
+      "spec/requirements/areas/v1.json",
+      "apps/portal/lib/portal_read_model.js",
+      "apps/portal/pages/internal/intents/[intentId].js",
+      "scripts/audit/close_intent.mjs",
+      "tools/evidence/record_run.mjs"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 8,
+    "top_risks": [
+      "Homography solve uses normal equations + Gaussian elimination; may be numerically fragile on real/noisy stadium markings.",
+      "Schema/validation logic is duplicated across calibration modules and `pipeline/src/fusbal_pipeline/contract.py`, increasing drift risk.",
+      "Fixtures are synthetic and may not cover key failure modes (distortion, missing labels, outliers, degeneracy)."
+    ],
+    "top_quick_wins": [
+      "Add negative-path fixtures/tests for trust-first failures and gating behavior.",
+      "Centralize V1 threshold constants and failure-reason enums to prevent divergence.",
+      "Add JSON Schema artefacts for calibration records and validate with a shared validator."
+    ]
+  },
+  "verification": {
+    "functional": {
+      "status": "pass",
+      "notes": "Planned tasks are implemented with explicit schemas, deterministic CLIs, and contract documentation updates."
+    },
+    "nonfunctional": {
+      "correctness_safety": {
+        "status": "pass",
+        "notes": "Trust-first behavior is consistently implemented: explicit fail + diagnostics, deterministic validation, BEV gating with explicit reasons."
+      },
+      "performance": {
+        "status": "pass",
+        "notes": "All algorithms are bounded and deterministic for V1 scope (notably 32-case flip search)."
+      },
+      "security": {
+        "status": "pass",
+        "notes": "No shell execution or unsafe deserialization; JSON inputs parsed via stdlib with explicit type/shape checks."
+      },
+      "maintainability": {
+        "status": "pass",
+        "notes": "Modules are cohesive and provenance-tagged; primary maintainability risk is duplicated schema logic and threshold values."
+      },
+      "overall_status": "pass"
+    }
+  },
+  "improvements": [
+    {
+      "id": "IMP-001",
+      "title": "Consolidate calibration schema/validation into a single canonical source",
+      "area": "pipeline",
+      "roi_0_to_10": 10,
+      "effort": "M",
+      "risk": "low",
+      "why": "Calibration schemas/validators exist in multiple places, which risks drift and inconsistent behavior over time. A single canonical validator reduces maintenance cost and avoids subtle incompatibilities.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/contract.py:301: remove duplicated calibration validators or delegate to calibration modules",
+        "pipeline/src/fusbal_pipeline/calibration/inputs.py:50 and pipeline/src/fusbal_pipeline/calibration/pitch_templates.py:70: expose shared validator entrypoints and reuse them",
+        "scripts/guardrails/validate_repository.mjs: add/extend checks that schema versions match canonical constants"
+      ]
+    },
+    {
+      "id": "IMP-002",
+      "title": "Add JSON Schema files for calibration records and validate them uniformly",
+      "area": "pipeline",
+      "roi_0_to_10": 9,
+      "effort": "M",
+      "risk": "medium",
+      "why": "TypedDict + handwritten validators work, but a machine-checkable JSON Schema provides stronger contracts across languages/tools and reduces ambiguity for future automation.",
+      "proposed_changes": [
+        "pipeline/schemas/: add `pitch_template.v1.schema.json`, `calibration_input.v1.schema.json`, `markings_observations.v1.schema.json`, `manual_correspondences.v1.schema.json`, `calibration_result.v1.schema.json`, `gating_summary.v1.schema.json`",
+        "pipeline/src/fusbal_pipeline/contract.py:272: align with/extend schema references similar to CONTRACT_V1_SCHEMA_PATH",
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt: reference schema paths as normative contract artefacts"
+      ]
+    },
+    {
+      "id": "IMP-003",
+      "title": "Improve homography numerical robustness (avoid normal equations; add degeneracy checks)",
+      "area": "pipeline",
+      "roi_0_to_10": 8,
+      "effort": "M",
+      "risk": "medium",
+      "why": "The current homography solve uses normal equations which can amplify conditioning issues. Real-world markings are noisy/outlier-prone; a more stable solver reduces false positives/negatives in calibration quality gating.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/calibration/auto_fit.py:187: replace normal-equations solve with a numerically stable DLT/SVD approach (or a small, deterministic linear algebra dependency)",
+        "pipeline/src/fusbal_pipeline/calibration/auto_fit.py:232: add explicit degeneracy/collinearity checks on correspondences",
+        "pipeline/src/fusbal_pipeline/calibration/manual.py:202: reuse the same stabilized solver"
+      ]
+    },
+    {
+      "id": "IMP-004",
+      "title": "Add negative-path fixtures and deterministic tests for trust-first failures and gating",
+      "area": "pipeline",
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "low",
+      "why": "Current fixtures primarily demonstrate success paths. Adding fail fixtures hardens correctness/safety and prevents regressions in explicit failure semantics and gating reasons.",
+      "proposed_changes": [
+        "pipeline/fixtures/calibration/venues/example_venue/pitch_a/: add fixtures for `image_pre_undistorted=false`, missing required markings labels, <12 correspondences",
+        "pipeline/src/fusbal_pipeline/calibration/auto_fit.py:262: assert expected `failure_reason` values via tests",
+        "pipeline/src/fusbal_pipeline/calibration/gating.py:83: test reason codes for missing metrics and threshold failures"
+      ]
+    },
+    {
+      "id": "IMP-005",
+      "title": "Make failure reasons and gate reasons structured enums (avoid stuffing details into `notes`)",
+      "area": "pipeline",
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "low",
+      "why": "Free-text `notes` is useful for humans but hard for automation. Structured reason codes enable stable downstream behavior and clearer portal summaries.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/calibration/auto_fit.py:398: add `failure_reasons[]` (or similar) alongside `failure_reason` and keep `notes` purely explanatory",
+        "pipeline/src/fusbal_pipeline/calibration/gating.py:114: ensure `bev_gate.reasons[]` uses a stable enumerated set",
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt: document reason code enums as normative"
+      ]
+    },
+    {
+      "id": "IMP-006",
+      "title": "Handle multiple segments per label and pick best candidates (instead of first-seen)",
+      "area": "pipeline",
+      "roi_0_to_10": 7,
+      "effort": "M",
+      "risk": "medium",
+      "why": "Real markings extraction may yield multiple segments per label. Choosing first-seen can be brittle and lead to unstable calibration outcomes.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/calibration/auto_fit.py:251: replace `_pick_first_segment_by_label` with a deterministic scoring/selection strategy",
+        "pipeline/src/fusbal_pipeline/calibration/auto_fit.py:315: consider sampling multiple candidate endpoints/midpoints per label for robustness",
+        "pipeline/fixtures/calibration/venues/example_venue/pitch_a/markings_observations.json: add multi-segment examples"
+      ]
+    },
+    {
+      "id": "IMP-007",
+      "title": "Validate pixel coordinates against `image_size_px` when provided",
+      "area": "pipeline",
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "low",
+      "why": "When `image_size_px` is available, rejecting out-of-bounds markings/correspondences catches bad inputs early and improves diagnostic clarity.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/calibration/auto_fit.py:67: add optional bounds checks for segments against inputs.image_size_px",
+        "pipeline/src/fusbal_pipeline/calibration/manual.py:60: add optional bounds checks for correspondences against inputs.image_size_px (or include size in manual record)",
+        "pipeline/src/fusbal_pipeline/calibration/inputs.py:39: ensure image_size_px validation remains strict and deterministic"
+      ]
+    },
+    {
+      "id": "IMP-008",
+      "title": "Centralize V1 threshold constants and ensure they match docs and gating logic",
+      "area": "pipeline",
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "low",
+      "why": "Thresholds exist in multiple places (auto-fit checks, gating module, and contract docs). Centralizing reduces drift risk and makes auditing simpler.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/calibration/gating.py:21: make THRESHOLDS_V1 the canonical export",
+        "pipeline/src/fusbal_pipeline/calibration/auto_fit.py:330 and pipeline/src/fusbal_pipeline/calibration/auto_fit.py:379: import/use canonical thresholds instead of literals",
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt: ensure values are sourced from a single place during generation"
+      ]
+    },
+    {
+      "id": "IMP-009",
+      "title": "Add CLI `--out` option for auto-fit/manual/gating to support pipelines without manual piping",
+      "area": "pipeline",
+      "roi_0_to_10": 5,
+      "effort": "S",
+      "risk": "low",
+      "why": "Current CLIs print to stdout only. A deterministic `--out` option improves automation and reduces error-prone wrapper scripts while preserving stable JSON formatting.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/calibration/auto_fit.py:448: add `--out` (and `--result-only`) options",
+        "pipeline/src/fusbal_pipeline/calibration/manual.py:268: add `--out` (and `--result-only`) options",
+        "pipeline/src/fusbal_pipeline/calibration/gating.py:149: add `--out` option for gating summary"
+      ]
+    },
+    {
+      "id": "IMP-010",
+      "title": "Enrich calibration diagnostics with provenance fields and fit-selection details",
+      "area": "pipeline",
+      "roi_0_to_10": 5,
+      "effort": "M",
+      "risk": "low",
+      "why": "Debugging calibration quality benefits from more structured context: which labels were used, which flip pattern won, and per-point errors summary. This improves observability without changing trust-first semantics.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/calibration/auto_fit.py:328: include chosen flip key and per-point error summary stats in diagnostics",
+        "pipeline/src/fusbal_pipeline/calibration/gating.py:117: propagate key diagnostic context into gating summary metrics",
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt: add a section for optional diagnostic provenance fields"
+      ]
+    }
+  ]
+}

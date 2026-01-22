@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/md/docs/runbooks/evidence.mdt
-source_sha256: sha256:a56e9985b24f884f3933622e7deb548e61e3836e5eeea316c6df6dfc8f95841c
+source_sha256: sha256:4fdb4f40e5cbf3eb673445df5e2ab220e20b09c850b905b3d32ea3288c4e64c2
 ---
 
 # Evidence
@@ -18,6 +18,11 @@ Evidence is captured as machine-readable JSON under `status/audit/<INTENT_ID>/ru
 
 ## Record a preflight review report
 
-Preflight reviews should write a machine-readable JSON report that future humans/LLMs can reference:
+Preflight reviews should write a machine-readable JSON report that future humans/LLMs can reference.
+
+Minimum expectations for the report content:
+
+- Blockers are ranked by `roi_0_to_10` and include `effort` and `risk`.
+- If a blocker can be resolved by relaxing scope or a requirement, include an explicit `override_option` marked as requiring human approval (never assume an override is accepted).
 
 `status/audit/<INTENT_ID>/runs/<run_id>/preflight/preflight_report.json`

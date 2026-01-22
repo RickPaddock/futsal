@@ -3,7 +3,7 @@
   "task_id": "TASK-PLAYER-DET-001",
   "intent_id": "INT-030",
   "title": "Player detector(s) per frame + confidence",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Produce per-frame player detections with confidence and stable record fields.",
     "Prefer missing/unknown over wrong: low-confidence detections are suppressed or explicitly flagged.",
@@ -11,8 +11,11 @@
   ],
   "acceptance": [
     "Detections output includes at minimum frame/time, bbox/position, confidence, and diagnostic flags.",
+    "Detection record includes a stable minimal field set: frame_index (or timestamp), bbox_xyxy_px (pixels), confidence (0..1), and diagnostics (object with stable keys).",
     "Detection output is deterministic for the same input (ordering + ids where applicable).",
-    "Output contract template documents detection schema and missing/unknown semantics."
+    "Negative path: frames with no visible players produce an empty detection set (not fabricated detections) and diagnostics explain any gating decisions.",
+    "All edited code units include requirement provenance tags as applicable (e.g., FUSBAL-V1-PLAYER-001 and/or FUSBAL-V1-TRUST-001), consistent with repo guardrails.",
+    "Output contract template documents detection schema and missing/unknown semantics, including required fields and example records."
   ],
   "deliverables": [
     {
@@ -50,7 +53,7 @@
     {
       "subtask_id": "SUB-TASK-PLAYER-DET-001-001",
       "title": "Implement player detection output per frame (detections + confidence).",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_PLAYER_DET_001.SUB_001",
       "done_when": [
@@ -61,7 +64,7 @@
     {
       "subtask_id": "SUB-TASK-PLAYER-DET-001-002",
       "title": "Update output contract template for player detections.",
-      "status": "todo",
+      "status": "done",
       "area": "spec",
       "provenance_prefix": "FUSBAL.SPEC.TASK_PLAYER_DET_001.SUB_002",
       "done_when": [
@@ -71,7 +74,7 @@
     {
       "subtask_id": "SUB-TASK-PLAYER-DET-001-003",
       "title": "Add conservative gating + diagnostics for low-confidence detections.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_PLAYER_DET_001.SUB_003",
       "done_when": [

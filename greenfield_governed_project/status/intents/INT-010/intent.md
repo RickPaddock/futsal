@@ -1,11 +1,12 @@
 ---
 generated: true
 source: spec/intents/INT-010.json
-source_sha256: sha256:29ef0bce8287c5218cc444f25f11f5809f41edcb9337801ae30c09130a34d3da
+source_sha256: sha256:93c33cb89c55b53d1a7283583b823f2183dc9281c72a2095187da35351990e92
 intent_id: INT-010
 title: Define V1 output contract + pipeline scaffolding
-status: todo
+status: closed
 created_date: 2026-01-20
+closed_date: 2026-01-21
 close_gate:
   - "npm run guardrails"
   - "npm run generate:check"
@@ -46,4 +47,9 @@ close_gate:
 - Decision: `update`
 - Templates: `spec/md/docs/runbooks/evidence.mdt`, `spec/md/docs/runbooks/intent-quality.mdt`, `spec/md/docs/runbooks/intent-and-task-workflow.mdt`
 - Notes: This intent updates audit/runbook guidance so future LLMs understand evidence capture, generation writes, and portal navigation expectations.
+
+## Scope (paths)
+
+- Allowed: `spec/`, `spec/md/docs/`, `pipeline/`, `scripts/`, `tools/`, `apps/portal/`, `status/audit/`
+- Excluded: `docs/`, `status/intents/`, `status/portal/`, `status/wizard/`
 

@@ -23,6 +23,21 @@
     "TASK-INT-010-IMP-009",
     "TASK-INT-010-IMP-010"
   ],
+  "paths_allowed": [
+    "spec/",
+    "spec/md/docs/",
+    "pipeline/",
+    "scripts/",
+    "tools/",
+    "apps/portal/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
   "runbooks": {
     "decision": "update",
     "paths_mdt": [

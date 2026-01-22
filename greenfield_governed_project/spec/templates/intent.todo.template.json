@@ -3,9 +3,28 @@
   "title": "Short intent title",
   "status": "todo",
   "created_date": "YYYY-MM-DD",
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
+  "paths_allowed": [
+    "spec/",
+    "scripts/",
+    "tools/",
+    "apps/portal/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
   "close_gate": [
     "npm run guardrails",
-    "npm run generate:check",
+    "npm run generate",
     "npm run audit:intent -- --intent-id INT-999"
   ],
   "summary": [

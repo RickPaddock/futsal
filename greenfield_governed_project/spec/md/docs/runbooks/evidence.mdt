@@ -12,6 +12,11 @@ Evidence is captured as machine-readable JSON under `status/audit/<INTENT_ID>/ru
 
 ## Record a preflight review report
 
-Preflight reviews should write a machine-readable JSON report that future humans/LLMs can reference:
+Preflight reviews should write a machine-readable JSON report that future humans/LLMs can reference.
+
+Minimum expectations for the report content:
+
+- Blockers are ranked by `roi_0_to_10` and include `effort` and `risk`.
+- If a blocker can be resolved by relaxing scope or a requirement, include an explicit `override_option` marked as requiring human approval (never assume an override is accepted).
 
 `status/audit/<INTENT_ID>/runs/<run_id>/preflight/preflight_report.json`

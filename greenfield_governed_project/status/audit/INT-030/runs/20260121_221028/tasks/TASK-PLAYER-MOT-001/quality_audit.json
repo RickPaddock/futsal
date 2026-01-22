@@ -1,0 +1,94 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-030",
+  "run_id": "20260121_221028",
+  "task_id": "TASK-PLAYER-MOT-001",
+  "timestamp": "2026-01-22T10:06:01Z",
+  "functional": {
+    "status": "fail",
+    "notes": "Swap-avoidant tracking logic exists and emits segment_id + break_reason, but the acceptance requires evidence of a minimal pipeline run producing tracks with confidence/break reasons; no pipeline integration writes these to the output bundle.",
+    "evidence": [
+      "pipeline/src/fusbal_pipeline/player/mot.py::SwapAvoidantMOT.update (breaks on ambiguity + missing records with break_reason)",
+      "pipeline/src/fusbal_pipeline/player/track_types.py::BREAK_REASON_VOCAB (finite vocabulary)",
+      "pipeline/src/fusbal_pipeline/contract.py::TrackRecordV1 + validate_track_record_v1 (break_reason enum validation)",
+      "pipeline/src/fusbal_pipeline/cli.py (bundle init/validate only; no MOT execution path)"
+    ],
+    "findings": [
+      "Ambiguous associations trigger explicit breaks (break_reason=ambiguous_association) rather than swaps.",
+      "Confidence is computed deterministically from detection confidence and association score.",
+      "No pipeline runner writes track records to tracks.jsonl; required functional evidence is missing."
+    ]
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "notes": "Implements trust-first swap avoidance: ambiguity ends tracks rather than swapping identities.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/player/mot.py::SwapAvoidantMOT.update (ambiguous_tracks -> end_track('ambiguous_association'))"
+      ],
+      "findings": [
+        "Greedy matching is deterministic; ambiguity detection prevents identity swaps.",
+        "Emits explicit missing records with break_reason when ending tracks."
+      ]
+    },
+    "performance": {
+      "status": "pass",
+      "notes": "Association is O(T*D) per update; acceptable for MVP if T and D are bounded (players only).",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/player/mot.py::SwapAvoidantMOT.update (build all candidate associations)"
+      ],
+      "findings": [
+        "Potential scaling risk if active tracks or detections become large; config provides max distance and min score gating." 
+      ]
+    },
+    "security": {
+      "status": "pass",
+      "notes": "No external IO; pure in-memory transforms.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/player/mot.py (no subprocess/file operations)"
+      ],
+      "findings": [
+        "No user-controlled command execution or path usage." 
+      ]
+    },
+    "maintainability": {
+      "status": "pass",
+      "notes": "Small, explicit configuration and vocabulary; record output is stable and sorted.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/player/track_types.py (explicit BreakReason literal + vocab tuple)",
+        "pipeline/src/fusbal_pipeline/player/mot.py (out.sort deterministic ordering)"
+      ],
+      "findings": [
+        "Break reasons are explicit and finite; output ordering is deterministic."
+      ]
+    },
+    "overall_status": "pass"
+  },
+  "gate": {
+    "status": "fail",
+    "blockers": [
+      "No runnable pipeline path produces tracks with confidence and break_reason in an output bundle (tracks.jsonl)."
+    ]
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-PLAYER-MOT-001.json",
+    "deliverable_paths": [
+      "pipeline/src/fusbal_pipeline/player/mot.py",
+      "pipeline/src/fusbal_pipeline/player/track_types.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/player/mot.py",
+      "pipeline/src/fusbal_pipeline/player/track_types.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 6,
+    "notes": "Core swap-avoidant logic looks sound for MVP; functional integration/evidence is missing."
+  }
+}

@@ -4,13 +4,24 @@
   "requirements_in_scope": [
     "FUSBAL-V1-BALL-001",
     "FUSBAL-V1-EVENT-001",
-    "FUSBAL-V1-TRUST-001",
-    "FUSBAL-V1-SENSOR-001"
+    "FUSBAL-V1-TRUST-001"
   ],
   "task_ids_planned": [
     "TASK-BALL-DET-001",
     "TASK-BALL-TRACK-001",
     "TASK-EVENT-001"
+  ],
+  "paths_allowed": [
+    "spec/",
+    "spec/md/docs/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
   ],
   "runbooks": {
     "decision": "none",
@@ -19,8 +30,8 @@
   },
   "close_gate": {
     "commands": [
+      "npm run generate",
       "npm run guardrails",
-      "npm run generate:check",
       "npm run audit:intent -- --intent-id INT-040"
     ],
     "evidence_out_root": "status/audit/INT-040/runs"

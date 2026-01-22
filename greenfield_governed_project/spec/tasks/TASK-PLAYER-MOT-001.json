@@ -3,7 +3,7 @@
   "task_id": "TASK-PLAYER-MOT-001",
   "intent_id": "INT-030",
   "title": "Multi-object tracking with swap avoidance",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Track players over time from per-frame detections, prioritizing swap avoidance over continuity.",
     "Expose track confidence and explicit break reasons (e.g., occlusion, ambiguity).",
@@ -12,7 +12,11 @@
   "acceptance": [
     "Tracks prefer breaks over identity swaps; ambiguity triggers a break reason.",
     "Each track has confidence and diagnostic fields suitable for audits and downstream gating.",
-    "Output contract template documents track schema, confidence, and break reasons."
+    "Track record includes a stable minimal field set: track_id, segment_id (or explicit segment boundaries), start_frame/end_frame (or timestamps), confidence (0..1), and break_reason when a segment ends.",
+    "Negative path: in overlap/occlusion/ambiguous association, tracking emits a break (not a swap) with an explicit break_reason and records missing/unknown segments rather than silently bridging gaps.",
+    "break_reason vocabulary is explicit and finite (minimum: occlusion, ambiguous_association, out_of_view, detector_missing, manual_reset).",
+    "All edited code units include requirement provenance tags as applicable (e.g., FUSBAL-V1-PLAYER-001 and/or FUSBAL-V1-TRUST-001), consistent with repo guardrails.",
+    "Output contract template documents track schema, confidence, and break reasons (including an explicit break_reason vocabulary and example records)."
   ],
   "deliverables": [
     {
@@ -50,7 +54,7 @@
     {
       "subtask_id": "SUB-TASK-PLAYER-MOT-001-001",
       "title": "Implement MOT with swap avoidance, break reasons, and per-track confidence.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_PLAYER_MOT_001.SUB_001",
       "done_when": [
@@ -61,7 +65,7 @@
     {
       "subtask_id": "SUB-TASK-PLAYER-MOT-001-002",
       "title": "Update output contract template for player tracks and confidence fields.",
-      "status": "todo",
+      "status": "done",
       "area": "spec",
       "provenance_prefix": "FUSBAL.SPEC.TASK_PLAYER_MOT_001.SUB_002",
       "done_when": [
@@ -71,7 +75,7 @@
     {
       "subtask_id": "SUB-TASK-PLAYER-MOT-001-003",
       "title": "Define track record schema (ids, segments, confidence, break semantics).",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_PLAYER_MOT_001.SUB_003",
       "done_when": [

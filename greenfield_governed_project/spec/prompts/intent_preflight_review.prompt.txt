@@ -44,8 +44,10 @@ The 10 things this preflight MUST do
 Output requirements (in chat)
 Return your result in this exact structure:
 
-1) Preflight blockers (ranked): up to 10 items
-	- For each: Issue, Why it matters, Exact fix (wording/config change)
+1) Preflight blockers (ranked by ROI): up to 10 items
+	- For each: ROI (0–10), Effort (S|M|L), Risk (low|medium|high), Issue, Why it matters, Exact fix (wording/config change)
+	- If a blocker can be addressed either by (a) tightening specs or (b) reducing scope/relaxing a requirement, include an explicit `Override option (optional)` describing the smallest acceptable override and its impact.
+	- Overrides are recommendations only: never assume an override is approved unless explicitly confirmed by the human.
 
 2) Ambiguities & rewrites (table)
 	- Columns: Ambiguous text, Risk / likely mistake, Proposed rewrite
@@ -71,7 +73,11 @@ HARD REQUIREMENT: write the report file first
    `status/audit/<INTENT_ID>/runs/<run_id>/preflight/preflight_report.json`
 2) Then paste sections 1–4 into the chat window (do not paste the entire JSON file).
 3) End your chat output with a final section:
-   `Minimum next steps to achieve preflight pass` (5–10 bullets, ordered, actionable, and limited to the smallest set needed).
+  `Minimum next steps to achieve preflight pass`.
+  - If the overall preflight result is PASS: this section MUST contain exactly one bullet: `None (preflight passed; no spec fixes required).`
+  - If the overall preflight result is FAIL: provide 5–10 bullets, ordered and actionable, limited to the smallest set of canonical edits required to reach PASS.
+4) After that section, your FINAL sentence in chat MUST be exactly:
+   `ACTIVITY: preflight <INTENT_ID> <run_id>: finished - pass|fail`
 
 Preflight report JSON schema (write to file)
 {
@@ -80,7 +86,17 @@ Preflight report JSON schema (write to file)
   "intent_id": "<INTENT_ID>",
   "run_id": "<run_id>",
   "timestamp": "YYYY-MM-DDTHH:MM:SSZ",
-  "blockers_ranked": [ { "issue": "...", "why": "...", "exact_fix": "..." } ],
+  "blockers_ranked": [
+    {
+      "roi_0_to_10": 0,
+      "effort": "S|M|L",
+      "risk": "low|medium|high",
+      "issue": "...",
+      "why": "...",
+      "exact_fix": "...",
+      "override_option": "optional"
+    }
+  ],
   "ambiguities": [ { "ambiguous_text": "...", "risk": "...", "proposed_rewrite": "..." } ],
   "scope_alignment": {
     "inferred_surfaces": ["..."],
@@ -98,4 +114,8 @@ Preflight report JSON schema (write to file)
   "minimum_next_steps": ["..."]
 }
 
-Start now by reading the inputs for intent <INTENT_ID>, writing the JSON report file, and then producing sections 1–4, then 6 if needed, followed by `Minimum next steps to achieve preflight pass`.
+Start now by reading the inputs for intent <INTENT_ID>, writing the JSON report file, and then producing sections 1–4, then 6 if needed, followed by `Minimum next steps to achieve preflight pass` (see PASS vs FAIL rules above).
+
+FINAL sentence requirement:
+- Your FINAL sentence in chat MUST be exactly:
+`ACTIVITY: preflight <INTENT_ID> <run_id>: finished - pass|fail`

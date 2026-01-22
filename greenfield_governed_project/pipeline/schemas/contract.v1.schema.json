@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/fusbal/contract.v1.schema.json",
+  "title": "Fusbal V1 Contract",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/TrackRecordV1" },
+    { "$ref": "#/$defs/EventRecordV1" },
+    { "$ref": "#/$defs/MatchManifestV1" }
+  ],
+  "$defs": {
+    "TrackRecordV1": {
+      "title": "TrackRecordV1",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "t_ms",
+        "entity_type",
+        "entity_id",
+        "track_id",
+        "source",
+        "frame",
+        "pos_state"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "t_ms": { "type": "integer", "minimum": 0 },
+        "entity_type": { "enum": ["player", "ball"] },
+        "entity_id": { "type": "string", "minLength": 1 },
+        "track_id": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "frame": { "enum": ["pitch", "enu", "wgs84", "image_px"] },
+        "pos_state": { "enum": ["present", "missing", "unknown"] },
+        "x_m": { "type": "number" },
+        "y_m": { "type": "number" },
+        "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+        "lon": { "type": "number", "minimum": -180, "maximum": 180 },
+        "bbox_xyxy_px": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": { "type": "integer" }
+        },
+        "sigma_m": { "type": "number", "minimum": 0 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "quality": { "type": "number", "minimum": 0, "maximum": 1 },
+        "team": { "enum": ["A", "B", "unknown"] },
+        "team_confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "segment_id": { "type": "string", "minLength": 1 },
+        "break_reason": {
+          "enum": [
+            "occlusion",
+            "ambiguous_association",
+            "out_of_view",
+            "detector_missing",
+            "manual_reset"
+          ]
+        },
+        "diagnostics": { "type": "object" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "pos_state": { "const": "present" }, "frame": { "enum": ["pitch", "enu"] } },
+            "required": ["pos_state", "frame"]
+          },
+          "then": { "required": ["x_m", "y_m"] }
+        },
+        {
+          "if": {
+            "properties": { "pos_state": { "const": "present" }, "frame": { "const": "wgs84" } },
+            "required": ["pos_state", "frame"]
+          },
+          "then": { "required": ["lat", "lon"] }
+        },
+        {
+          "if": {
+            "properties": { "pos_state": { "const": "present" }, "frame": { "const": "image_px" } },
+            "required": ["pos_state", "frame"]
+          },
+          "then": { "required": ["bbox_xyxy_px"] }
+        }
+      ]
+    },
+    "EventRecordV1": {
+      "title": "EventRecordV1",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "t_ms", "event_type", "event_state", "confidence", "evidence"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "t_ms": { "type": "integer", "minimum": 0 },
+        "event_type": { "enum": ["shot", "goal"] },
+        "event_state": { "enum": ["confirmed", "candidate", "unknown"] },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/EvidencePointerV1" }
+        },
+        "source": { "type": "string", "minLength": 1 },
+        "notes": { "type": "string", "minLength": 1 },
+        "diagnostics": { "type": "object" }
+      }
+    },
+    "EvidenceTimeRangeMsV1": {
+      "title": "EvidenceTimeRangeMsV1",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_ms", "end_ms"],
+      "properties": {
+        "start_ms": { "type": "integer", "minimum": 0 },
+        "end_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "EvidenceFrameRangeV1": {
+      "title": "EvidenceFrameRangeV1",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_frame", "end_frame"],
+      "properties": {
+        "start_frame": { "type": "integer", "minimum": 0 },
+        "end_frame": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "EvidencePointerV1": {
+      "title": "EvidencePointerV1",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id"],
+      "properties": {
+        "artifact_id": { "type": "string", "minLength": 1 },
+        "time_range_ms": { "$ref": "#/$defs/EvidenceTimeRangeMsV1" },
+        "frame_range": { "$ref": "#/$defs/EvidenceFrameRangeV1" }
+      },
+      "oneOf": [
+        { "required": ["time_range_ms"], "not": { "required": ["frame_range"] } },
+        { "required": ["frame_range"], "not": { "required": ["time_range_ms"] } }
+      ]
+    },
+    "ManifestArtifactV1": {
+      "title": "ManifestArtifactV1",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "rel_path", "kind", "requirement", "description"],
+      "properties": {
+        "artifact_id": { "type": "string", "minLength": 1 },
+        "rel_path": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["file", "dir"] },
+        "requirement": { "enum": ["required", "optional", "required_if_sensors_present"] },
+        "description": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ManifestInputsV1": {
+      "title": "ManifestInputsV1",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["video_paths", "sensor_paths"],
+      "properties": {
+        "video_paths": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "sensor_paths": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "MatchManifestV1": {
+      "title": "MatchManifestV1",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "bundle_layout_version", "match_id", "inputs", "artifacts"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "bundle_layout_version": { "type": "integer" },
+        "match_id": { "type": "string", "minLength": 1 },
+        "inputs": { "$ref": "#/$defs/ManifestInputsV1" },
+        "artifacts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ManifestArtifactV1" }
+        },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}

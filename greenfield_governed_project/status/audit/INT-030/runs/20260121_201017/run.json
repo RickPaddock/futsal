@@ -1,0 +1,19 @@
+{
+  "run_id": "20260121_201017",
+  "timestamp_start": "2026-01-21T20:58:46Z",
+  "timestamp_end": "2026-01-21T20:58:46Z",
+  "command": "-- npm run guardrails",
+  "args": [
+    "--",
+    "npm",
+    "run",
+    "guardrails"
+  ],
+  "exit_code": 1,
+  "cwd": ".",
+  "actor": "human",
+  "intent_id": "INT-030",
+  "artefacts": [],
+  "stage": "run",
+  "run_json_path": "status/audit/INT-030/runs/20260121_201017/run.json"
+}

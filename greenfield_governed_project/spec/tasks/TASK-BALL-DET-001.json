@@ -3,13 +3,13 @@
   "task_id": "TASK-BALL-DET-001",
   "intent_id": "INT-040",
   "title": "Ball detector(s) + gating",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Produce per-frame ball detections with confidence and conservative false-positive gating.",
     "Prefer missing/unknown over wrong when uncertain."
   ],
   "acceptance": [
-    "Detections output includes confidence and gating diagnostics.",
+    "Detections output includes `confidence` in [0,1], `pos_state ∈ {present, missing, unknown}`, and gating diagnostics with stable keys/vocabulary (documented).",
     "Output contract template documents detection schema and semantics."
   ],
   "deliverables": [
@@ -26,7 +26,7 @@
         "Gating surfaces a reason when detections are suppressed."
       ],
       "evidence": [
-        "A minimal pipeline run produces detections with confidence + gating diagnostics."
+        "Deterministic unit tests cover conservative gating, confidence range [0,1], and `pos_state` behavior (synthetic sequences acceptable)."
       ]
     },
     {
@@ -47,7 +47,7 @@
     {
       "subtask_id": "SUB-TASK-BALL-DET-001-001",
       "title": "Define detection record schema and deterministic per-frame output.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_BALL_DET_001.SUB_001",
       "done_when": [
@@ -58,7 +58,7 @@
     {
       "subtask_id": "SUB-TASK-BALL-DET-001-002",
       "title": "Implement conservative gating + diagnostics.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_BALL_DET_001.SUB_002",
       "done_when": [
@@ -69,7 +69,7 @@
     {
       "subtask_id": "SUB-TASK-BALL-DET-001-003",
       "title": "Update output contract template for ball detections.",
-      "status": "todo",
+      "status": "done",
       "area": "spec",
       "provenance_prefix": "FUSBAL.SPEC.TASK_BALL_DET_001.SUB_003",
       "done_when": [

@@ -31,6 +31,16 @@
       },
       "description": "List of planned task IDs"
     },
+    "paths_allowed": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Repo-relative path prefixes allowed for this intent (implementation/edit scope)"
+    },
+    "paths_excluded": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Repo-relative path prefixes excluded for this intent (prevent generated/derived edits)"
+    },
     "runbooks": {
       "oneOf": [
         { "type": "null" },

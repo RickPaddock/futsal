@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-030-IMP-010",
+  "intent_id": "INT-030",
+  "title": "Evidence run.json includes git SHA and environment metadata",
+  "status": "todo",
+  "scope": [
+    "Enhance evidence run records to include git commit SHA and dirty status where available.",
+    "Record basic environment metadata (node version, platform/arch) to strengthen reproducibility.",
+    "Maintain backwards compatibility for existing evidence readers." 
+  ],
+  "acceptance": [
+    "Evidence run.json includes git metadata when available (sha and dirty boolean), else uses explicit missing/unknown values.",
+    "Evidence run.json includes node version and OS platform/arch.",
+    "`npm run guardrails` passes and evidence remains valid JSON."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-030-IMP-010-001",
+      "title": "Evidence metadata enhancements",
+      "paths": [
+        "tools/evidence/record_run.mjs"
+      ],
+      "acceptance": [
+        "Evidence includes git + environment metadata consistently."
+      ],
+      "evidence": [
+        "A recorded run.json shows the new metadata fields."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-030-IMP-010-001",
+      "title": "Add git SHA/dirty and environment metadata fields to run.json payload.",
+      "status": "todo",
+      "area": "tools",
+      "provenance_prefix": "FUSBAL.TOOLS.TASK_INT_030_IMP_010.SUB_001",
+      "done_when": [
+        "Evidence payload includes git and environment metadata with explicit fallbacks." 
+      ]
+    }
+  ]
+}

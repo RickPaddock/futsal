@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/requirements/index.json + spec/requirements/areas/core.json + spec/requirements/areas/greenfield.json + spec/requirements/areas/v1.json
-source_sha256: sha256:1f3656ac5f0a96b9e76cb4d3adbe78d1cc8e78e6bc404aca82ab7f86dfec1615
+source_sha256: sha256:8dfb19df213f7dbd0430d3be4478a7627355bd49aac0420d90e1beafac73f6f8
 ---
 
 # Requirements (generated)
@@ -467,6 +467,8 @@ Acceptance:
 Acceptance:
 - Intent list and intent detail pages expose a 'Preflight' action for non-closed intents.
 - Preflight opens a copy-ready prompt overlay that instructs the LLM to review the intent and ask clarifying questions before implementation, and to write a machine-readable preflight report JSON file before pasting the summary to chat.
+- Preflight blockers are ranked by `roi_0_to_10` (0–10) and include `effort` (S|M|L) and `risk` (low|medium|high). If a blocker can be resolved by relaxing scope/requirements, the prompt includes an explicit override option that is clearly marked as requiring human approval.
+- Preflight prompts treat PASS vs FAIL consistently: if preflight is PASS, the 'Minimum next steps to achieve preflight pass' section contains no required fixes (e.g., a single 'None' bullet) and the JSON report uses an empty `minimum_next_steps` list; if FAIL, that section lists only the minimal canonical edits required to reach PASS.
 - Preflight prompt is sourced from `spec/prompts/*.prompt.txt` via the prompt API (not hardcoded).
 - Prompt overlays include a `run_id` (editable) and rendered prompts reuse that run id.
 - Prompt API rejects prompts with leftover placeholders (e.g., `<...>`).
@@ -539,6 +541,32 @@ Acceptance:
 - If decision is `create` or `update`, intent lists the impacted runbook template paths under `runbooks.paths_mdt[]` (file-level `spec/md/docs/runbooks/*.mdt`) and provides a non-empty `runbooks.notes` rationale.
 - Guardrails and intent audit validate that referenced runbook templates exist and their generated outputs are present after generation, improving future LLM navigation.
 
+## GREENFIELD-GOV-021 — Each intent explicitly declares path scope boundaries to prevent repo creep.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `guardrails:intent_paths_scope`, `audit:intent`, `intent:close`
+- Owner: `platform`
+- Tags: `governance`, `intents`, `scope`, `llm-navigation`
+
+Acceptance:
+- Every non-draft intent includes non-empty `paths_allowed[]` and `paths_excluded[]` arrays in `spec/intents/<INTENT_ID>.json`.
+- Guardrails and intent audit validate the fields are present and exclude generated surfaces (at minimum `docs/`, `status/intents/`, `status/portal/`).
+- Generated intent scope surface `status/intents/<INTENT_ID>/scope.json` includes `paths_allowed[]` and `paths_excluded[]` for operator/LLM visibility.
+
+## GREENFIELD-GOV-022 — All workflow prompts require a final activity completion line in chat output.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `guardrails:prompt_activity_footer`, `manual:prompt_review`
+- Owner: `platform`
+- Tags: `governance`, `prompts`, `workflows`, `observability`
+
+Acceptance:
+- Each workflow prompt template under `spec/prompts/*.prompt.txt` includes a FINAL sentence requirement that uses the exact `ACTIVITY: ...` format (`pass|fail`) for the relevant kind.
+- The final non-empty line of each workflow prompt template is the expected backticked `ACTIVITY: ...` line so prompt readers can quickly verify completion format.
+- Guardrails validate the activity footer format and that it appears as the last line in the prompt template.
+
 ## GREENFIELD-TEST-001 — Unit tests exist for core guardrails validation functions.
 
 - Status: `canonical`
@@ -555,7 +583,7 @@ Acceptance:
 ## GREENFIELD-EVIDENCE-001 — Evidence recorder captures stdout/stderr for debugging failed runs.
 
 - Status: `canonical`
-- Implementation: `todo`
+- Implementation: `done`
 - Guardrails: `manual:code_review`
 - Owner: `platform`
 - Tags: `evidence`, `observability`, `debugging`
@@ -565,10 +593,23 @@ Acceptance:
 - run.json schema includes optional stdout/stderr fields when present.
 - Output size is capped (e.g., 50KB tail) to avoid huge evidence files.
 
+## GREENFIELD-EVIDENCE-002 — Portal refresh uses the same evidence run schema as the CLI evidence recorder.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `portal:refresh_evidence_schema`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `evidence`, `observability`
+
+Acceptance:
+- Portal refresh writes evidence using `tools/evidence/record_run.mjs` (or identical schema) under `status/audit/<INTENT_ID>/runs/<run_id>/portal_refresh/run.json`.
+- Refresh responses reference the evidence path and include stdout/stderr tails when failures occur.
+- Evidence records include stable timestamps, exit codes, and the invoked command.
+
 ## GREENFIELD-SCHEMA-001 — Generated portal JSON outputs are validated against schemas.
 
 - Status: `canonical`
-- Implementation: `todo`
+- Implementation: `done`
 - Guardrails: `generate:schema_validation`
 - Owner: `platform`
 - Tags: `generation`, `schemas`, `validation`
@@ -577,6 +618,18 @@ Acceptance:
 - JSON schemas exist for status/portal/internal_intents.json and status/intents/*/scope.json.
 - Schema validation runs in scripts/generate_all.mjs after generation.
 - Generation fails with actionable errors if schema validation fails.
+
+## GREENFIELD-TOOLS-001 — Shared UTC time helpers exist for consistent run ids and timestamps.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `manual:code_review`
+- Owner: `platform`
+- Tags: `tools`, `time`, `maintainability`
+
+Acceptance:
+- A shared helper exists under `scripts/lib/time.mjs` exporting `utcNow()` and `utcRunId()`.
+- Evidence recorder and portal refresh reuse the helper to avoid format drift.
 
 ## GREENFIELD-PORTAL-021 — Portal intents/tasks lists support pagination for large repos.
 
@@ -591,10 +644,35 @@ Acceptance:
 - Lists are sliced by page offset in getServerSideProps (e.g., 20 per page).
 - UI includes pagination controls (Prev/Next buttons).
 
+## GREENFIELD-PORTAL-023 — Portal read-model caches audit run discovery to reduce filesystem scans.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `portal:performance`
+- Owner: `platform`
+- Tags: `portal`, `performance`, `read-model`
+
+Acceptance:
+- `apps/portal/lib/portal_read_model.js` caches results of audit run discovery (`listAuditRunsDeep`) for a short TTL during SSR.
+- Caching does not change correctness (cache invalidation is time-based and conservative).
+
+## GREENFIELD-PORTAL-024 — Portal refresh endpoint is hardened with CSRF protection and host allowlisting.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `portal:refresh_csrf`, `manual:portal_review`
+- Owner: `platform`
+- Tags: `portal`, `security`, `workflows`
+
+Acceptance:
+- Refresh endpoint requires a CSRF token (cookie + matching request header).
+- Refresh endpoint enforces a host allowlist in production (via env `PORTAL_REFRESH_ALLOW_HOSTS`).
+- Refresh remains disabled in production unless explicitly enabled (via env `PORTAL_ALLOW_GENERATE=1`).
+
 ## GREENFIELD-PORTAL-022 — Portal audit runs view includes 'Copy evidence command' button.
 
 - Status: `canonical`
-- Implementation: `todo`
+- Implementation: `done`
 - Guardrails: `portal:ui_smoke`, `manual:portal_review`
 - Owner: `platform`
 - Tags: `portal`, `ux`, `evidence`
@@ -620,7 +698,7 @@ Acceptance:
 ## GREENFIELD-GEN-001 — Generation supports dry-run mode to preview diffs without writing files.
 
 - Status: `canonical`
-- Implementation: `todo`
+- Implementation: `done`
 - Guardrails: `generate:dry_run_check`
 - Owner: `platform`
 - Tags: `generation`, `workflows`
@@ -629,6 +707,30 @@ Acceptance:
 - scripts/generate_all.mjs supports --dry-run flag.
 - In dry-run mode, compare existing vs new content and print diffs.
 - Exit with non-zero if diffs are found (suitable for CI checks).
+
+## GREENFIELD-GOV-023 — Prompt templates are linted for placeholders and required structure.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `guardrails:prompt_lint`
+- Owner: `platform`
+- Tags: `governance`, `prompts`, `guardrails`
+
+Acceptance:
+- Guardrails validate prompt templates include a SANITY CHECK, an Output requirements section, and a strict FINAL sentence ACTIVITY footer.
+- Guardrails validate prompt templates do not contain unexpected/unsubstituted placeholders (e.g., `<TASK_ID>`).
+
+## GREENFIELD-GOV-024 — Guardrails validate evidence run.json files against a schema.
+
+- Status: `canonical`
+- Implementation: `done`
+- Guardrails: `guardrails:evidence_schema`
+- Owner: `platform`
+- Tags: `governance`, `evidence`, `guardrails`
+
+Acceptance:
+- A JSON schema exists at `spec/schemas/evidence_run.schema.json`.
+- Guardrails validate `status/audit/**/run.json` files against the schema and fail with actionable errors on violations.
 
 ## GREENFIELD-GOV-020 — Intent status transitions are validated (cannot skip states).
 
@@ -646,7 +748,7 @@ Acceptance:
 ## GREENFIELD-OPS-003 — Audit run retention policy is documented.
 
 - Status: `canonical`
-- Implementation: `todo`
+- Implementation: `done`
 - Guardrails: `manual:ops_runbook`
 - Owner: `platform`
 - Tags: `ops`, `evidence`, `documentation`
@@ -669,6 +771,45 @@ Acceptance:
 - Archives spec/intents/<INTENT_ID>.json to spec/intents/archive/<INTENT_ID>.json.
 - Generation skips archived intents in portal feed.
 - Portal has optional archived intents view.
+
+## REQ-V1-VIDEO-INGEST-001 — Video ingest: given a local single-camera match video, the pipeline can decode frames deterministically and produce a time-indexed stream for downstream detectors/trackers.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:req_tag_enforced_on_done`
+- Owner: `platform`
+- Tags: `v1`, `video`, `ingest`
+
+Acceptance:
+- A CLI command accepts a local video path and emits a deterministic frame/timestamp sequence (frame_index + t_ms).
+- Failure modes are explicit and actionable (missing file, unsupported codec, decode failure).
+- No machine-specific absolute paths are written into manifests or outputs; paths are portable/provenance-only.
+
+## REQ-V1-VIDEO-RUNNER-001 — End-to-end runner: ingest a video and export a valid V1 output bundle with tracks/events under `output/<match_id>/` (plumbing-first, deterministic).
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:req_tag_enforced_on_done`
+- Owner: `platform`
+- Tags: `v1`, `runner`, `outputs`
+
+Acceptance:
+- A CLI command runs end-to-end from a local video to a bundle directory containing at minimum `manifest.json`, `tracks.jsonl`, `events.json`, `report.json`, and required diagnostics placeholders.
+- Tracks/events conform to the contract validators and can be validated via `validate` without manual edits.
+- The runner is trust-first: when detections are unavailable or uncertain, it emits explicit missing/unknown state and does not fabricate positions/events.
+
+## REQ-V1-BALL-DETECT-BASELINE-001 — Baseline real ball detections: given a provided futsal video, the pipeline can emit non-empty ball detections/tracks on at least a subset of frames with confidence and diagnostics.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:req_tag_enforced_on_done`
+- Owner: `vision`
+- Tags: `v1`, `ball`, `detections`
+
+Acceptance:
+- A baseline ball detector runs locally (no network) and emits per-frame ball detection candidates with confidence in [0,1].
+- Detector has explicit failure/missing behavior and can be disabled; downstream tracking remains valid and schema-stable.
+- At least one deterministic UAT clip produces ball track points with `pos_state=present` on some frames and explicit missing elsewhere (no hallucination).
 
 ## FUSBAL-V1-TRUST-001 — Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.
 
@@ -731,6 +872,19 @@ Acceptance:
 Acceptance:
 - Players (and ball when available) are projected into a consistent pitch coordinate system in meters.
 - BEV video renders movement with clear confidence cues and missing-state semantics.
+
+## REQ-CAL-UNDISTORT-001 — Deferred: support raw distorted (wide-angle) frames via explicit undistortion inputs and calibration workflow.
+
+- Status: `canonical`
+- Implementation: `todo`
+- Guardrails: `guardrails:req_tag_enforced_on_done`
+- Owner: `vision`
+- Tags: `deferred`, `calibration`, `distortion`
+
+Acceptance:
+- The calibration workflow supports `image_pre_undistorted=false` with an explicit lens distortion model and parameters (versioned and validated).
+- Undistortion is applied deterministically before calibration fitting, with diagnostics that record the model and parameters used.
+- This requirement is deferred (not required for INT-020 / V1 calibration MVP scope).
 
 ## FUSBAL-V1-PLAYER-001 — Detect and track all players per match with conservative identity continuity.
 

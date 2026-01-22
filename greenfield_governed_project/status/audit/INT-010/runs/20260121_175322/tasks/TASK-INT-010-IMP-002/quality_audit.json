@@ -1,0 +1,85 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-010",
+  "run_id": "20260121_175322",
+  "task_id": "TASK-INT-010-IMP-002",
+  "timestamp": "2026-01-21T18:23:10Z",
+  "functional": {
+    "status": "pass",
+    "notes": "Stable error codes exist and validate supports JSON output mode.",
+    "evidence": [
+      "pipeline/src/fusbal_pipeline/errors.py defines stable codes and make_error().",
+      "pipeline/src/fusbal_pipeline/cli.py validate supports --format text|json and outputs { ok, errors }."
+    ],
+    "findings": [
+      "Errors are emitted with stable codes (E_*).",
+      "JSON output remains deterministic (sort_keys=True)."
+    ]
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "notes": "Error shape is JSON-safe and deterministic.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/errors.py",
+        "pipeline/src/fusbal_pipeline/cli.py emit_and_exit()"
+      ],
+      "findings": [
+        "Optional context fields omitted when None.",
+        "Text output remains actionable."
+      ]
+    },
+    "performance": {
+      "status": "pass",
+      "notes": "Error formatting overhead is small.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/cli.py"
+      ],
+      "findings": [
+        "No heavy serialization beyond emitting errors at end."
+      ]
+    },
+    "security": {
+      "status": "pass",
+      "notes": "No sensitive data added beyond paths/indices provided by validation.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/errors.py",
+        "pipeline/src/fusbal_pipeline/cli.py"
+      ],
+      "findings": [
+        "No dynamic code execution or unsafe interpolation."
+      ]
+    },
+    "maintainability": {
+      "status": "pass",
+      "notes": "Centralized error code catalog simplifies extensions.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/errors.py"
+      ],
+      "findings": [
+        "Single source of truth for codes."
+      ]
+    },
+    "overall_status": "pass"
+  },
+  "gate": {
+    "status": "pass",
+    "blockers": []
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-INT-010-IMP-002.json",
+    "deliverable_paths": [
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/src/fusbal_pipeline/errors.py"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/src/fusbal_pipeline/errors.py"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 8,
+    "notes": "Good base; consider enriching context (field/value) in some contract error mappings."
+  }
+}

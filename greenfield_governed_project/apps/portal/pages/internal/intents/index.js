@@ -1,6 +1,6 @@
 /*
 PROV: GREENFIELD.SCAFFOLD.PORTAL.04
-REQ: SYS-ARCH-15, GREENFIELD-PORTAL-002, GREENFIELD-PORTAL-005, GREENFIELD-PORTAL-011, GREENFIELD-PORTAL-014, GREENFIELD-PORTAL-018, GREENFIELD-PORTAL-020, GREENFIELD-PORTAL-021
+REQ: SYS-ARCH-15, GREENFIELD-PORTAL-002, GREENFIELD-PORTAL-005, GREENFIELD-PORTAL-011, GREENFIELD-PORTAL-014, GREENFIELD-PORTAL-018, GREENFIELD-PORTAL-020, GREENFIELD-PORTAL-021, GREENFIELD-PORTAL-024
 WHY: List intents, compute readiness from evidence, and provide copy-ready prompt overlays via API.
 */
 
@@ -29,14 +29,47 @@ const STATUS_ORDER = {
   unknown: 3,
 };
 
-export async function getServerSideProps() {
+export async function getServerSideProps(ctx) {
   const {
     repoRootFromPortalCwd,
     safeReadJson,
     listAuditRunsDeep,
     isIntentAuditRun,
     computeIntentReadiness,
+    findLatestPreflightReportInfo,
   } = await import("../../../lib/portal_read_model.js");
+
+  function parseCookies(header) {
+    const raw = String(header || "");
+    const out = {};
+    for (const part of raw.split(";")) {
+      const [k, ...rest] = part.trim().split("=");
+      if (!k) continue;
+      out[k] = decodeURIComponent(rest.join("="));
+    }
+    return out;
+  }
+
+  async function ensureCsrfCookie(ctx) {
+    const req = ctx?.req;
+    const res = ctx?.res;
+    const cookies = parseCookies(req?.headers?.cookie || "");
+    const existing = String(cookies.portal_csrf || "").trim();
+    if (existing) return existing;
+    const { randomBytes } = await import("node:crypto");
+    const token = randomBytes(16).toString("hex");
+    const parts = [
+      `portal_csrf=${token}`,
+      "Path=/",
+      "SameSite=Lax",
+      "HttpOnly",
+      `Max-Age=${60 * 60 * 24}`,
+    ];
+    res?.setHeader?.("Set-Cookie", parts.join("; "));
+    return token;
+  }
+
+  const csrfToken = await ensureCsrfCookie(ctx);
 
   const repoRoot = repoRootFromPortalCwd();
   const feedPath = path.join(repoRoot, "status", "portal", "internal_intents.json");
@@ -53,13 +86,14 @@ export async function getServerSideProps() {
     const scope = safeReadJson(path.join(repoRoot, "status", "intents", intentId, "scope.json")) || null;
     const runs = listAuditRunsDeep(repoRoot, intentId);
     const latestAudit = runs.find(isIntentAuditRun) || null;
+    const preflight = findLatestPreflightReportInfo(repoRoot, intentId);
     const audit = latestAudit
       ? { timestamp_end: latestAudit.timestamp_end || "", exit_code: latestAudit.exit_code ?? 1, command: latestAudit.command || "" }
       : null;
     const readiness = intentSpec
       ? computeIntentReadiness({ repoRoot, intentId, intentSpec, tasks: i.tasks || [], scope: scope || {}, runs })
       : { canImplement: false, canAudit: false, canClose: false, blockers: { missing_task_specs: [], missing_close_gates: [], missing_task_quality_audits: [], failing_task_quality_audits: [] } };
-    return { ...i, audit, readiness };
+    return { ...i, audit, preflight, readiness };
   }).sort((a, b) => {
     const as = String(a.status || "unknown").toLowerCase();
     const bs = String(b.status || "unknown").toLowerCase();
@@ -68,7 +102,7 @@ export async function getServerSideProps() {
     if (ao !== bo) return ao - bo;
     return String(a.intent_id).localeCompare(String(b.intent_id));
   });
-  return { props: { intents, nextIntentId } };
+  return { props: { intents, nextIntentId, csrfToken } };
 }
 
 function utcRunId() {
@@ -178,7 +212,7 @@ function PromptOverlay({ title, kind, defaultIntentId, defaultRunId, defaultClos
   );
 }
 
-export default function IntentsIndex({ intents, nextIntentId }) {
+export default function IntentsIndex({ intents, nextIntentId, csrfToken }) {
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
   const [overlay, setOverlay] = useState(null);
@@ -201,7 +235,11 @@ export default function IntentsIndex({ intents, nextIntentId }) {
   async function refreshAndReload() {
     setRefreshing(true);
     try {
-      const res = await fetch("/api/internal/refresh", { method: "POST" });
+      const res = await fetch("/api/internal/refresh", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-portal-csrf": String(csrfToken || "") },
+        body: JSON.stringify({}),
+      });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
         const msg = payload?.error ? String(payload.error) : `http_${res.status}`;
@@ -267,6 +305,8 @@ export default function IntentsIndex({ intents, nextIntentId }) {
           const readiness = i.readiness || {};
           const status = String(i.status || "unknown").toLowerCase();
           const canPreflight = status !== "closed";
+          const canAudit = status !== "closed" && readiness.canAudit;
+          const canClose = status !== "closed" && readiness.canClose;
           return (
             <div key={intentId} className="card">
               <div className="row">
@@ -281,10 +321,10 @@ export default function IntentsIndex({ intents, nextIntentId }) {
                   {readiness.canImplement ? (
                     <button className="btn btnSmall" type="button" onClick={() => openImplementPrompt(intentId)}>Implement</button>
                   ) : null}
-                  {readiness.canAudit ? (
+                  {canAudit ? (
                     <button className="btn btnSmall" type="button" onClick={() => openAuditPrompt(intentId)}>Audit</button>
                   ) : null}
-                  {readiness.canClose ? (
+                  {canClose ? (
                     <button className="btn btnSmall" type="button" onClick={() => openClosePrompt(intentId)}>Close</button>
                   ) : null}
                 </div>
@@ -302,7 +342,13 @@ export default function IntentsIndex({ intents, nextIntentId }) {
                         : "fail"
                       : "none"}
                   </span>
-                  {readiness?.canClose ? <span>Close: ready</span> : readiness?.canAudit ? <span>Close: blocked</span> : null}
+                  <span>
+                    Preflight:{" "}
+                    {i.preflight
+                      ? String(i.preflight.status || "unknown")
+                      : "none"}
+                  </span>
+                  {canClose ? <span>Close: ready</span> : canAudit ? <span>Close: blocked</span> : null}
                 </div>
               </Link>
             </div>

@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-010-IMP-008",
   "intent_id": "INT-010",
   "title": "Show per-task quality audit results in the internal portal UI",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Extend the internal portal intent detail view to surface per-task quality audit outcomes from the latest run.",
     "Display pass/fail status, blockers, and key functional/non-functional statuses per task.",
@@ -36,7 +36,7 @@
     {
       "subtask_id": "SUB-TASK-INT-010-IMP-008-001",
       "title": "Extend portal read-model to locate the latest per-task quality audit reports for an intent run.",
-      "status": "todo",
+      "status": "done",
       "area": "portal",
       "provenance_prefix": "FUSBAL.PORTAL.TASK_INT_010_IMP_008.SUB_001",
       "done_when": [
@@ -47,7 +47,7 @@
     {
       "subtask_id": "SUB-TASK-INT-010-IMP-008-002",
       "title": "Render a per-task quality audit summary table in the intent detail UI.",
-      "status": "todo",
+      "status": "done",
       "area": "portal",
       "provenance_prefix": "FUSBAL.PORTAL.TASK_INT_010_IMP_008.SUB_002",
       "done_when": [

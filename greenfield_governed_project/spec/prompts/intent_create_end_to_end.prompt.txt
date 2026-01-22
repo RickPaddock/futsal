@@ -7,6 +7,9 @@ Hard rules:
 - Edit only canonical sources: `spec/intents/*.json`, `spec/tasks/*.json`, `spec/requirements/**.json`, `spec/md/**/*.mdt`.
 - After changes: run `npm run generate` and ensure `npm run guardrails` passes.
 
+SANITY CHECK:
+- If `<INTENT_ID>` still contains angle-bracket placeholder markers, STOP: this prompt was not rendered with real values.
+
 Critical governance rules (no exceptions):
 1) If planning work introduces a NEW requirement:
    - Create a `REQ-*` subtask id in the relevant task AND
@@ -34,9 +37,10 @@ B) Write canonical spec JSON files (edit the repo)
 1) Create `spec/intents/<INTENT_ID>.json` with:
    - `status: "todo"`
    - non-empty `summary[]`, `non_goals[]`, `success_criteria[]`
+   - non-empty `paths_allowed[]` and `paths_excluded[]` that explicitly exclude generated surfaces (`docs/`, `status/intents/`, `status/portal/`) and allow evidence (`status/audit/`)
    - `close_gate[]` containing:
      - `npm run guardrails`
-     - `npm run generate:check`
+     - `npm run generate`
      - `npm run audit:intent -- --intent-id <INTENT_ID>`
    - `task_ids_planned[]` listing all task ids
    - `runbooks` section declaring the intent’s runbook/navigation impact:
@@ -77,3 +81,7 @@ C) Validate (prompt-driven; do not guess)
 Output requirements (in chat):
 - List the files you created/edited (paths only).
 - Confirm `npm run generate` + `npm run guardrails` pass.
+
+FINAL sentence requirement:
+- Your FINAL sentence in chat MUST be exactly:
+  `ACTIVITY: create <INTENT_ID>: finished - pass|fail`

@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-010-IMP-010",
   "intent_id": "INT-010",
   "title": "Add lightweight formatting/linting for the pipeline Python package",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Add lightweight formatting and linting for the pipeline Python package (focus: maintainability and consistency).",
     "Prefer low-friction tooling (fast, deterministic) and avoid heavy refactors.",
@@ -35,7 +35,7 @@
     {
       "subtask_id": "SUB-TASK-INT-010-IMP-010-001",
       "title": "Choose and configure lightweight lint/format tooling with deterministic settings.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_010_IMP_010.SUB_001",
       "done_when": [
@@ -46,7 +46,7 @@
     {
       "subtask_id": "SUB-TASK-INT-010-IMP-010-002",
       "title": "Add a repo command/script to run pipeline lint/format checks consistently.",
-      "status": "todo",
+      "status": "done",
       "area": "scripts",
       "provenance_prefix": "FUSBAL.SCRIPTS.TASK_INT_010_IMP_010.SUB_002",
       "done_when": [

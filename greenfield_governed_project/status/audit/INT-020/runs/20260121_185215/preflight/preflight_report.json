@@ -1,0 +1,94 @@
+{
+  "type": "intent_preflight_report",
+  "schema_version": 1,
+  "intent_id": "INT-020",
+  "run_id": "20260121_185215",
+  "timestamp": "2026-01-21T18:53:52Z",
+  "blockers_ranked": [
+    {
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "low",
+      "issue": "Generated intent artifact `status/intents/INT-020/intent.md` is now stale vs updated canonical `spec/intents/INT-020.json`.",
+      "why": "Reviewers and implementers may read the generated intent page and get the old scope wording (e.g., ‘robust to wide-angle distortion’), reintroducing ambiguity.",
+      "exact_fix": "Regenerate derived artifacts via `npm run generate` (do not hand-edit `status/**`).",
+      "override_option": "Optional: proceed without regeneration for preflight only. Impact: higher risk of human confusion from stale generated summaries."
+    },
+    {
+      "roi_0_to_10": 4,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "`paths_allowed` in INT-020 still allows all of `pipeline/`, broader than calibration-only deliverables.",
+      "why": "Increases scope-creep risk and makes reviews harder if unrelated pipeline changes get bundled under INT-020.",
+      "exact_fix": "Narrow `spec/intents/INT-020.json` `paths_allowed` to calibration-specific subpaths (e.g., `pipeline/src/fusbal_pipeline/calibration/`, `pipeline/fixtures/calibration/`, `pipeline/src/fusbal_pipeline/contract.py`).",
+      "override_option": "Optional: keep `pipeline/` but add an explicit non-goal: ‘no changes outside calibration modules and fixtures’. Impact: relies on human enforcement rather than guardrails."
+    }
+  ],
+  "ambiguities": [
+    {
+      "ambiguous_text": "Gate BEV outputs on calibration quality",
+      "risk": "Readers may not know which metrics/thresholds apply; could accidentally emit BEV when gated.",
+      "proposed_rewrite": "Gate BEV deterministically using the V1 metrics and thresholds; when gated, BEV is marked missing with explicit reasons and diagnostics are still emitted."
+    },
+    {
+      "ambiguous_text": "Pitch templates and calibration inputs are explicit and stable (suitable for versioning)",
+      "risk": "‘Stable’ can be interpreted loosely; schemas may drift without a clear minimum contract.",
+      "proposed_rewrite": "Pitch templates and calibration inputs are JSON records with `schema_version: 1`, explicit coordinate frames, and a stable per-venue/pitch directory layout under `pipeline/fixtures/calibration/venues/<venue_id>/<pitch_id>/`."
+    }
+  ],
+  "scope_alignment": {
+    "inferred_surfaces": [
+      "spec/intents/INT-020.json",
+      "spec/tasks/TASK-CAL-001.json",
+      "spec/tasks/TASK-CAL-002.json",
+      "spec/tasks/TASK-CAL-003.json",
+      "spec/requirements/areas/v1.json (FUSBAL-V1-CAL-001, FUSBAL-V1-BEV-001, FUSBAL-V1-TRUST-001)",
+      "spec/requirements/areas/v1.json (deferred: REQ-CAL-UNDISTORT-001)",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt",
+      "spec/md/docs/runbooks/calibration-and-bev.mdt",
+      "status/intents/INT-020/* (generated, read-only)",
+      "status/audit/INT-020/runs/* (evidence outputs)"
+    ],
+    "paths_allowed": [
+      "spec/",
+      "spec/md/docs/",
+      "pipeline/",
+      "status/audit/"
+    ],
+    "paths_excluded": [
+      "docs/",
+      "status/intents/",
+      "status/portal/",
+      "status/wizard/"
+    ],
+    "mismatches": [
+      "Derived `status/intents/INT-020/intent.md` is stale vs updated canonical intent; regenerate.",
+      "Allowing all of `pipeline/` is broader than calibration-only deliverables; consider narrowing to reduce creep risk."
+    ],
+    "recommended_edits": [
+      "Regenerate derived artifacts after canonical changes.",
+      "Optionally narrow INT-020 `paths_allowed` to calibration-specific pipeline subpaths."
+    ]
+  },
+  "closeability": {
+    "tasks": {
+      "status": "PASS",
+      "notes": "All planned tasks exist (TASK-CAL-001/002/003), are spelled exactly, reference INT-020, and have deliverables/evidence hooks. Coverage metric and manual schema are now defined deterministically; gating has no overrides in V1."
+    },
+    "work_packages": {
+      "status": "PASS",
+      "notes": "Generated work_packages cover all planned tasks; no unassigned tasks detected."
+    },
+    "close_gates": {
+      "status": "PASS",
+      "notes": "Close gate commands are present and governance-aligned (`guardrails`, `generate`, `audit:intent`)."
+    },
+    "guardrail_plan": {
+      "status": "PASS",
+      "notes": "In-scope requirements are valid and canonical (FUSBAL-V1-CAL-001, FUSBAL-V1-BEV-001, FUSBAL-V1-TRUST-001) with tag-enforced guardrails; distortion support is explicitly deferred via REQ-CAL-UNDISTORT-001."
+    }
+  },
+  "minimum_next_steps": [
+    "None (preflight passed; no spec fixes required)."
+  ]
+}

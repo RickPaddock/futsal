@@ -1,0 +1,100 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-020",
+  "run_id": "20260121_204612",
+  "task_id": "TASK-CAL-003",
+  "timestamp": "2026-01-21T20:49:54Z",
+  "functional": {
+    "status": "pass",
+    "notes": "Manual correspondences validate deterministically and yield a calibration result; BEV gating enforces V1 thresholds with explicit reasons.",
+    "evidence": [
+      "pipeline/src/fusbal_pipeline/calibration/manual.py: validate_manual_correspondences_v1(), _manual_fit_result(), cmd_manual_fit()",
+      "pipeline/src/fusbal_pipeline/calibration/gating.py: THRESHOLDS_V1, gate_bev_v1(), cmd_gate()",
+      "pipeline/fixtures/calibration/venues/example_venue/pitch_a/manual_correspondences.json",
+      "Command: `PYTHONPATH=pipeline/src python -m fusbal_pipeline.calibration.manual --manual pipeline/fixtures/calibration/venues/example_venue/pitch_a/manual_correspondences.json` (exit 0, ok=true, num_inliers=12, inlier_ratio=1.0, coverage=1.0)",
+      "Command: `PYTHONPATH=pipeline/src python -m fusbal_pipeline.calibration.gating --inputs pipeline/fixtures/calibration/venues/example_venue/pitch_a/calibration_input.json --result <( ...auto_fit... | python -c '...print(result)...')` (exit 0, ok=true, bev_gate.status=pass)",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt: documents manual_correspondences and gating summary"
+    ],
+    "findings": [
+      "Manual schema enforces `correspondences.length >= 12` and finite numeric points, matching V1 acceptance.",
+      "Gating produces explicit pass/fail plus reasons array and includes both metrics and thresholds in output."
+    ]
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "notes": "Trust-first: failures are explicit; gating never reports pass if any required metric is missing/invalid.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/calibration/manual.py:66",
+        "pipeline/src/fusbal_pipeline/calibration/gating.py:83"
+      ],
+      "findings": [
+        "Missing/invalid metrics yield explicit `missing_*` reasons and a fail gate.",
+        "Manual fit returns `fit_singular` explicitly when homography cannot be solved."
+      ]
+    },
+    "performance": {
+      "status": "pass",
+      "notes": "Manual fit and gating are small, deterministic computations over bounded inputs.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/calibration/manual.py:202",
+        "pipeline/src/fusbal_pipeline/calibration/gating.py:83"
+      ],
+      "findings": [
+        "No external IO beyond reading provided JSON; no large data structures or unbounded loops."
+      ]
+    },
+    "security": {
+      "status": "pass",
+      "notes": "JSON parsing only; no exec; file paths are handled via `Path`.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/calibration/gating.py:45",
+        "pipeline/src/fusbal_pipeline/calibration/manual.py:186"
+      ],
+      "findings": [
+        "No obvious injection risks; outputs are printed as JSON with stable key ordering."
+      ]
+    },
+    "maintainability": {
+      "status": "pass",
+      "notes": "Clear separation of manual result vs gating; minor coupling to private auto_fit helpers and duplicated thresholds.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/calibration/manual.py:16",
+        "pipeline/src/fusbal_pipeline/calibration/auto_fit.py:187",
+        "pipeline/src/fusbal_pipeline/calibration/gating.py:21"
+      ],
+      "findings": [
+        "`manual.py` imports underscored helpers from `auto_fit.py`, creating internal-coupling drift risk.",
+        "Thresholds appear in both `auto_fit.py` and `gating.py` (and in the contract template), increasing sync burden."
+      ]
+    },
+    "overall_status": "pass"
+  },
+  "gate": {
+    "status": "pass",
+    "blockers": []
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-CAL-003.json",
+    "deliverable_paths": [
+      "pipeline/src/fusbal_pipeline/calibration/manual.py",
+      "pipeline/src/fusbal_pipeline/calibration/gating.py",
+      "pipeline/fixtures/calibration/venues/example_venue/pitch_a/manual_correspondences.json",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/calibration/manual.py",
+      "pipeline/src/fusbal_pipeline/calibration/gating.py",
+      "pipeline/src/fusbal_pipeline/calibration/auto_fit.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/fixtures/calibration/venues/example_venue/pitch_a/manual_correspondences.json",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 8,
+    "notes": "Implements trust-first gating and manual fallback with deterministic validation; biggest maintainability risk is duplicated thresholds and cross-module private imports."
+  }
+}

@@ -203,7 +203,8 @@ Close gating rule:
   - `nonfunctional.overall_status: "pass"` AND each nonfunctional category status is `"pass"`
 
 D) Validate + refresh surfaces
-1) Run: `npm run generate`
+1) Run generate and capture evidence:
+  `node tools/evidence/record_run.mjs --intent-id <INTENT_ID> --out status/audit/<INTENT_ID>/runs/<run_id>/generate/run.json npm run generate`
 2) Run: `npm run guardrails`
 3) Tell me where the report file is and confirm it will appear in the portal after pressing Refresh on the intent page.
 
@@ -215,3 +216,7 @@ Output requirements (in chat):
   - the quality report path: `status/audit/<INTENT_ID>/runs/<run_id>/quality_audit.json`
   - all 10 improvement titles + ROI/effort/risk
 Do not paste the entire JSON into chat.
+
+FINAL sentence requirement:
+- Your FINAL sentence in chat MUST be exactly:
+  `ACTIVITY: quality_audit <INTENT_ID> <run_id>: finished - pass|fail`

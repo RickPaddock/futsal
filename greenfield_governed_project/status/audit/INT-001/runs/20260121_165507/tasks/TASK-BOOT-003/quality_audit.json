@@ -1,0 +1,76 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-001",
+  "run_id": "20260121_165507",
+  "task_id": "TASK-BOOT-003",
+  "timestamp": "2026-01-21T16:56:00Z",
+  "functional": {
+    "status": "pass",
+    "notes": "Evidence recorder exists and portal surfaces governed artifacts with a refresh flow.",
+    "evidence": [
+      "tools/evidence/record_run.mjs",
+      "apps/portal/pages/api/internal/refresh.js",
+      "apps/portal/pages/internal/intents/index.js",
+      "apps/portal/pages/internal/intents/[intentId].js"
+    ],
+    "findings": [
+      "Evidence capture produces deterministic run records including command, timestamps, and exit_code.",
+      "Portal intent/task views are driven by generated `status/portal/internal_intents.json` and link to audit artifacts under `status/audit/`."
+    ]
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "notes": "Evidence capture is explicit and schema-stable; portal surfaces missing artifacts explicitly.",
+      "evidence": ["tools/evidence/record_run.mjs (run.json schema)", "apps/portal/pages/internal/intents/[intentId].js:latestJsonUnderRuns"],
+      "findings": ["Recorder includes timestamps and exit_code; portal shows missing reports rather than hiding them."]
+    },
+    "performance": {
+      "status": "pass",
+      "notes": "Portal reads from JSON feed and scans recent audit run folders; acceptable for small/medium repos.",
+      "evidence": ["apps/portal/pages/internal/intents/[intentId].js:listAuditRunsDeep usage"],
+      "findings": ["Potential scaling risks exist if audit runs grow unbounded (mitigated by run retention practices)."]
+    },
+    "security": {
+      "status": "pass",
+      "notes": "Refresh endpoint uses same-origin checks; still relies on being an internal-only tool.",
+      "evidence": ["apps/portal/pages/api/internal/refresh.js:isSameOrigin", "apps/portal/pages/api/internal/refresh.js:allowRefresh"],
+      "findings": ["No direct user-provided command execution beyond triggering `npm run generate` server-side."]
+    },
+    "maintainability": {
+      "status": "pass",
+      "notes": "Evidence recorder is small and self-contained; portal code is structured and uses a shared read-model.",
+      "evidence": ["tools/evidence/record_run.mjs", "apps/portal/pages/internal/intents/index.js"],
+      "findings": ["Read-model indirection reduces direct file-system logic in React components."]
+    },
+    "overall_status": "pass"
+  },
+  "gate": {
+    "status": "pass",
+    "blockers": []
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-BOOT-003.json",
+    "deliverable_paths": [
+      "tools/evidence/record_run.mjs",
+      "apps/portal/pages/internal/intents/index.js",
+      "apps/portal/pages/internal/intents/[intentId].js",
+      "apps/portal/pages/internal/tasks/index.js",
+      "apps/portal/pages/internal/tasks/[taskId].js",
+      "apps/portal/pages/api/internal/refresh.js",
+      "scripts/generate_all.mjs"
+    ],
+    "code_paths_reviewed": [
+      "tools/evidence/record_run.mjs",
+      "apps/portal/pages/api/internal/refresh.js",
+      "apps/portal/pages/internal/intents/index.js",
+      "apps/portal/pages/internal/intents/[intentId].js"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 7,
+    "notes": "Strong internal transparency baseline; primary risks are long-term scaling of filesystem scans and refresh endpoint hardening."
+  }
+}
+

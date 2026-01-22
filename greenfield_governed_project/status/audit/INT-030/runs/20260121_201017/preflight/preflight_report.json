@@ -1,0 +1,83 @@
+{
+  "type": "intent_preflight_report",
+  "schema_version": 1,
+  "intent_id": "INT-030",
+  "run_id": "20260121_201017",
+  "timestamp": "2026-01-21T20:12:14Z",
+  "blockers_ranked": [],
+  "ambiguities": [
+    {
+      "ambiguous_text": "Detect and track all players",
+      "risk": "Unclear: what counts as a player, pitch filtering rules, and how to treat partial/false detections.",
+      "proposed_rewrite": "For each frame, emit 0..N player detections (or 0 records) using frame=\"image_px\" with bbox_xyxy_px and confidence (0..1); allow empty output and prefer missing/unknown over wrong. Include diagnostics.gating_reason when suppressed or downgraded."
+    },
+    {
+      "ambiguous_text": "conservative identity continuity (breaks preferred over swaps)",
+      "risk": "Without explicit break/swap definitions, implementations can still swap IDs silently.",
+      "proposed_rewrite": "When association is ambiguous, end the current segment_id and emit break_reason (finite vocabulary); do not reassign an existing track_id to a different physical player (breaks preferred over swaps)."
+    },
+    {
+      "ambiguous_text": "confidence and diagnostics (trust-first)",
+      "risk": "Vague diagnostics often become ad-hoc strings; hard to audit and brittle.",
+      "proposed_rewrite": "Records include confidence (0..1) and a diagnostics object with stable keys (minimum: gating_reason, association_score, smoothing, unknown_reason). Team assignment uses team=\"A\"|\"B\"|\"unknown\" plus team_confidence (0..1)."
+    },
+    {
+      "ambiguous_text": "temporal smoothing",
+      "risk": "Smoothing can hide rapid switches or overfit; undefined window/behavior.",
+      "proposed_rewrite": "Team labels are smoothed using an explicit window size (N frames or seconds) and a hysteresis rule; if evidence is contradictory within the window, output Unknown with a diagnostic reason rather than forcing A/B."
+    },
+    {
+      "ambiguous_text": "contract is updated",
+      "risk": "Which contract sections/fields? Risk of partial updates.",
+      "proposed_rewrite": "Update spec/md/docs/data/OUTPUT_CONTRACT.mdt to include field lists + examples for: player detections (frame=image_px, bbox_xyxy_px), player tracks (segment_id + break_reason vocabulary), and team assignment (team + team_confidence + smoothing diagnostics)."
+    }
+  ],
+  "scope_alignment": {
+    "inferred_surfaces": [
+      "pipeline/src/fusbal_pipeline/player/*",
+      "pipeline/src/fusbal_pipeline/team/*",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt",
+      "status/audit/INT-030/runs/*"
+    ],
+    "paths_allowed": [
+      "spec/",
+      "spec/md/docs/",
+      "pipeline/",
+      "status/audit/"
+    ],
+    "paths_excluded": [
+      "docs/",
+      "status/intents/",
+      "status/portal/",
+      "status/wizard/"
+    ],
+    "mismatches": [
+      "None."
+    ],
+    "recommended_edits": [
+      "None."
+    ]
+  },
+  "closeability": {
+    "tasks": {
+      "status": "PASS",
+      "notes": "All task_ids_planned exist under spec/tasks and reference intent_id INT-030; each is status: todo with scope, acceptance, deliverables, and subtasks present."
+    },
+    "work_packages": {
+      "status": "PASS",
+      "notes": "Generated work_packages.json covers all three planned tasks with clear titles; no unassigned tasks found."
+    },
+    "close_gates": {
+      "status": "PASS",
+      "notes": "close_gate order updated to run generate before guardrails and audit:intent."
+    },
+    "guardrail_plan": {
+      "status": "PASS",
+      "notes": "Task acceptance now includes explicit negative-path behaviors and requirement provenance expectations to reduce late guardrail/audit risk."
+    }
+  },
+  "minimum_next_steps": [
+    "None (preflight passed; no spec fixes required)."
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "run_id": "20260121_175322",
+  "timestamp_start": "2026-01-21T18:41:53Z",
+  "timestamp_end": "2026-01-21T18:41:54Z",
+  "command": "env -C /Users/macmini/Dev/Richard/fusbal/greenfield_governed_project npm run generate",
+  "args": [
+    "env",
+    "-C",
+    "/Users/macmini/Dev/Richard/fusbal/greenfield_governed_project",
+    "npm",
+    "run",
+    "generate"
+  ],
+  "exit_code": 0,
+  "cwd": ".",
+  "actor": "human",
+  "intent_id": "INT-010",
+  "artefacts": [],
+  "stage": "generate",
+  "run_json_path": "status/audit/INT-010/runs/20260121_175322/generate/run.json",
+  "stdout": "\n> generate\n> node scripts/generate_all.mjs\n\n[generate] ok\n"
+}

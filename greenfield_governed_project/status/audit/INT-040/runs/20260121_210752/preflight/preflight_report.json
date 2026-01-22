@@ -1,0 +1,148 @@
+{
+  "type": "intent_preflight_report",
+  "schema_version": 1,
+  "intent_id": "INT-040",
+  "run_id": "20260121_210752",
+  "timestamp": "2026-01-21T21:11:46Z",
+  "blockers_ranked": [
+    {
+      "roi_0_to_10": 10,
+      "effort": "M",
+      "risk": "high",
+      "issue": "Output contract does not define ball detection/track details or event evidence pointers, but tasks/intent require them.",
+      "why": "Implementation can\u2019t be validated or audited without a canonical schema for ball records, missing semantics, and event evidence pointers; teams will invent ad-hoc fields and drift from governance.",
+      "exact_fix": "Tighten spec acceptance to require OUTPUT_CONTRACT template updates: (1) Ball detection records (fields + pos_state semantics + diagnostics keys), (2) Ball track representation (explicit missing spans and/or per-sample pos_state), (3) EventRecordV1 adds evidence pointer field(s) and candidate/unknown semantics.",
+      "override_option": "Allow V1 to ship events without evidence pointers (confidence-only); impact: audits can\u2019t locate supporting frames/segments; increases downstream trust risk."
+    },
+    {
+      "roi_0_to_10": 9,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "INT-040 close_gate command order is inconsistent with runbooks (guardrails before generate).",
+      "why": "Guardrails commonly validate generated surfaces; running them before `npm run generate` risks false failures or stale evidence.",
+      "exact_fix": "In `spec/intents/INT-040.json`, reorder `close_gate` to: `npm run generate`, `npm run guardrails`, `npm run audit:intent -- --intent-id INT-040`."
+    },
+    {
+      "roi_0_to_10": 9,
+      "effort": "S",
+      "risk": "high",
+      "issue": "Key trust-first terms are underspecified in INT-040 (confidence scale, missing vs unknown, \u2018never hallucinate\u2019, \u2018conservative/high precision\u2019).",
+      "why": "Without measurable definitions, implementers may interpolate/predict ball positions, use inconsistent confidence ranges, or claim precision without tests.",
+      "exact_fix": "Update `spec/intents/INT-040.json` success_criteria to define: confidence in [0,1]; `pos_state` semantics (present/missing/unknown); \u2018never hallucinate\u2019 = do not emit `pos_state=present` without direct evidence for that frame/span; \u2018conservative\u2019 = allow omission/candidate over false positives and require explicit candidate marking."
+    },
+    {
+      "roi_0_to_10": 8,
+      "effort": "M",
+      "risk": "high",
+      "issue": "TASK acceptance/evidence relies on \u201ca minimal pipeline run\u201d but does not specify deterministic commands or test fixtures for ball/events.",
+      "why": "Close gates require evidence; without a deterministic command/test, work can\u2019t be reproduced and audits become subjective.",
+      "exact_fix": "Update each planned task\u2019s `deliverables[].evidence[]` to reference deterministic evidence: unit tests with synthetic sequences (e.g. `pytest pipeline/tests/test_ball_tracking_v1.py -q`) and/or a documented CLI command once fixtures exist."
+    },
+    {
+      "roi_0_to_10": 7,
+      "effort": "M",
+      "risk": "high",
+      "issue": "Shot vs goal definitions and candidate/unknown behavior are not specified beyond \u201cconservative\u201d.",
+      "why": "Event inference can easily drift into subjective heuristics, scope creep, or false assertions (trust regression).",
+      "exact_fix": "Add to `spec/tasks/TASK-EVENT-001.json` explicit definitions: event types, required fields, and a minimum set of test scenarios (positive/negative) that must pass; specify when to emit candidate vs omit.",
+      "override_option": "Limit V1 to goals-only (omit shots) until a shot definition + tests exist; impact: reduced feature scope but faster to close safely."
+    },
+    {
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "paths_allowed includes `apps/portal/`, `scripts/`, `tools/` though no planned tasks require them.",
+      "why": "Broad allowlists increase implementation creep risk and make audits harder.",
+      "exact_fix": "In `spec/intents/INT-040.json`, restrict `paths_allowed` to the minimum needed (likely `spec/`, `spec/md/docs/`, `pipeline/`, `status/audit/`).",
+      "override_option": "Keep current allowlist; impact: reviewers must enforce scope manually and risk accidental portal/tool edits."
+    },
+    {
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "Sensor optionality requirement (FUSBAL-V1-SENSOR-001) is in scope but tasks do not mention fallback behavior.",
+      "why": "Without explicit acceptance, implementations may accidentally require sensor inputs or alter contracts when sensors are absent.",
+      "exact_fix": "Add acceptance bullets to TASK-BALL-* and TASK-EVENT-001: sensor inputs are optional; when absent/unhealthy, outputs remain valid and schema unchanged (camera-only)."
+    }
+  ],
+  "ambiguities": [
+    {
+      "ambiguous_text": "Track the ball with explicit missing/unknown state; never hallucinate position when not visible.",
+      "risk": "Implementer may interpolate/predict across gaps and still claim \u2018not hallucinating\u2019.",
+      "proposed_rewrite": "Emit `pos_state` per sample/span with values {present, missing, unknown}; do not emit `pos_state=present` unless supported by a detection/evidence for that timestamp; gaps must be explicit missing/unknown records (not implied)."
+    },
+    {
+      "ambiguous_text": "Infer shots/goals with high precision; mark candidates when uncertain.",
+      "risk": "No definition of shot/goal or when to emit candidate vs omit; precision claim becomes untestable.",
+      "proposed_rewrite": "Define EventRecordV1 fields and minimum rule set; require test cases that demonstrate: (a) no events for negative scenarios, (b) \u2018candidate\u2019 emitted for ambiguous scenarios, (c) \u2018goal\u2019 only when specified evidence conditions are met."
+    },
+    {
+      "ambiguous_text": "Events include confidence and evidence pointers; uncertain events are explicitly flagged.",
+      "risk": "\u2018Evidence pointer\u2019 format and linkage to bundle artifacts is undefined; downstream can\u2019t locate evidence.",
+      "proposed_rewrite": "Add `evidence[]` pointers with `{artifact_id, path, t_ms_range/frame_range}` referencing bundle artifacts (e.g. overlay clip or frame ids) and require contract template examples."
+    },
+    {
+      "ambiguous_text": "Produce per-frame ball detections with confidence and conservative false-positive gating.",
+      "risk": "Different confidence ranges/thresholds and inconsistent gating diagnostics.",
+      "proposed_rewrite": "Confidence is a number in [0,1]. When a detection is suppressed, emit a deterministic diagnostics key `diagnostics.gating_reason` from an enumerated vocabulary."
+    }
+  ],
+  "scope_alignment": {
+    "inferred_surfaces": [
+      "pipeline/src/fusbal_pipeline/ball/*",
+      "pipeline/src/fusbal_pipeline/events/*",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt",
+      "status/audit/INT-040/runs/<run_id>/..."
+    ],
+    "paths_allowed": [
+      "spec/",
+      "spec/md/docs/",
+      "pipeline/",
+      "scripts/",
+      "tools/",
+      "apps/portal/",
+      "status/audit/"
+    ],
+    "paths_excluded": [
+      "docs/",
+      "status/intents/",
+      "status/portal/",
+      "status/wizard/"
+    ],
+    "mismatches": [
+      "Allowlist includes `apps/portal/`, `scripts/`, `tools/` but INT-040 planned tasks only target `pipeline/` + `spec/`.",
+      "Event evidence pointers are required by intent/tasks but not present in current output contract template."
+    ],
+    "recommended_edits": [
+      "Narrow `paths_allowed` to minimum needed for this intent.",
+      "Ensure generated surfaces stay excluded; keep `status/audit/` allowed for evidence writes.",
+      "Update contract template during implementation to add ball/event schema details implied by tasks."
+    ]
+  },
+  "closeability": {
+    "tasks": {
+      "status": "FAIL",
+      "notes": "Tasks exist and match intent_id, but acceptance/evidence is not fully objective (no deterministic commands/tests; key schema requirements missing)."
+    },
+    "work_packages": {
+      "status": "PASS",
+      "notes": "Generated `status/intents/INT-040/work_packages.json` covers all planned tasks and titles are clear."
+    },
+    "close_gates": {
+      "status": "FAIL",
+      "notes": "Close gate order is likely wrong (`guardrails` before `generate`); evidence expectations for ball/events are not yet deterministic."
+    },
+    "guardrail_plan": {
+      "status": "FAIL",
+      "notes": "In-scope requirements have guardrails, but the intent/tasks do not state how REQ provenance tagging will be applied for changed code units, and contract changes implied by tasks are not yet specified."
+    }
+  },
+  "minimum_next_steps": [
+    "Edit `spec/intents/INT-040.json` to (a) reorder close_gate, (b) define confidence range [0,1], (c) define missing vs unknown, (d) tighten success_criteria language to be testable.",
+    "Edit `spec/tasks/TASK-BALL-DET-001.json`, `spec/tasks/TASK-BALL-TRACK-001.json`, `spec/tasks/TASK-EVENT-001.json` to add objective acceptance/evidence (unit tests + deterministic commands when fixtures exist).",
+    "Decide and encode minimal shot/goal definitions and when to emit candidate vs omit (add to TASK-EVENT-001).",
+    "Add explicit acceptance for sensor optionality (camera-only remains valid) across ball + event tasks.",
+    "During implementation, update `spec/md/docs/data/OUTPUT_CONTRACT.mdt` to add ball schema and event evidence pointers, then regenerate and re-run guardrails/audit."
+  ]
+}

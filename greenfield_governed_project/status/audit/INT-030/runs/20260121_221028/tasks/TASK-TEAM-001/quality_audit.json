@@ -1,0 +1,93 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-030",
+  "run_id": "20260121_221028",
+  "task_id": "TASK-TEAM-001",
+  "timestamp": "2026-01-22T10:06:01Z",
+  "functional": {
+    "status": "fail",
+    "notes": "Team assignment logic exists (A/B/unknown with smoothing + diagnostics), but acceptance requires evidence of a minimal pipeline run producing team outputs; there is no integration that applies team assignment to track records in the output bundle.",
+    "evidence": [
+      "pipeline/src/fusbal_pipeline/team/colors.py::color_label_to_team_evidence (conservative evidence mapping)",
+      "pipeline/src/fusbal_pipeline/team/assignment.py::TeamAssigner.update (smoothing + Unknown semantics)",
+      "pipeline/src/fusbal_pipeline/team/assignment.py::annotate_track_with_team (adds team/team_confidence + merges diagnostics)",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt (documents team A/B/unknown and diagnostics keys)",
+      "pipeline/src/fusbal_pipeline/cli.py (no team assignment execution path)"
+    ],
+    "findings": [
+      "Unknown is a first-class output for low/absent evidence; diagnostics explain why.",
+      "No pipeline runner produces annotated track records including team/team_confidence; required functional evidence is missing."
+    ]
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "notes": "Trust-first behavior: returns Unknown when evidence is weak, avoids oscillation via hysteresis.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/team/assignment.py::TeamAssigner.update (min_confidence + hysteresis + unknown_reason)"
+      ],
+      "findings": [
+        "Explicit Unknown paths (no_color_evidence, low_confidence) with structured diagnostics."
+      ]
+    },
+    "performance": {
+      "status": "pass",
+      "notes": "O(window) rolling mean implemented as bounded deque; constant-time per update for typical window sizes.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/team/assignment.py::TeamAssigner (deque maxlen=window_frames)"
+      ],
+      "findings": [
+        "History is bounded per track_id via deque maxlen." 
+      ]
+    },
+    "security": {
+      "status": "pass",
+      "notes": "No IO; does not persist raw pixels or untrusted data.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/team/colors.py (label mapping only)"
+      ],
+      "findings": [
+        "Diagnostics exclude raw image data (only labels/probabilities)." 
+      ]
+    },
+    "maintainability": {
+      "status": "pass",
+      "notes": "Clear separation of evidence mapping vs smoothing; explicit config parameters.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/team/colors.py (TeamColorConfig)",
+        "pipeline/src/fusbal_pipeline/team/assignment.py (TeamSmoothingConfig)"
+      ],
+      "findings": [
+        "Configurable parameters are explicit (window_frames, min_confidence, hysteresis)."
+      ]
+    },
+    "overall_status": "pass"
+  },
+  "gate": {
+    "status": "fail",
+    "blockers": [
+      "No runnable pipeline path emits team annotations (team/team_confidence) into output tracks.jsonl; acceptance evidence is missing."
+    ]
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-TEAM-001.json",
+    "deliverable_paths": [
+      "pipeline/src/fusbal_pipeline/team/assignment.py",
+      "pipeline/src/fusbal_pipeline/team/colors.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/team/assignment.py",
+      "pipeline/src/fusbal_pipeline/team/colors.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 6,
+    "notes": "Implementation looks coherent and conservative; functional integration/evidence is missing."
+  }
+}

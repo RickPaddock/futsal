@@ -1,0 +1,181 @@
+{
+  "type": "intent_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-001",
+  "run_id": "20260121_165507",
+  "timestamp": "2026-01-21T16:56:00Z",
+  "scope": {
+    "areas_in_scope": ["pipeline", "portal", "scripts", "tools"]
+  },
+  "audit_inputs": {
+    "intent_spec_path": "spec/intents/INT-001.json",
+    "task_spec_paths": [
+      "spec/tasks/TASK-BOOT-001.json",
+      "spec/tasks/TASK-BOOT-002.json",
+      "spec/tasks/TASK-BOOT-003.json",
+      "spec/tasks/TASK-BOOT-004.json"
+    ],
+    "code_paths_reviewed": [
+      "scripts/generate_all.mjs",
+      "scripts/guardrails/validate_repository.mjs",
+      "scripts/audit/audit_intent.mjs",
+      "scripts/audit/close_intent.mjs",
+      "tools/evidence/record_run.mjs",
+      "apps/portal/pages/api/internal/refresh.js",
+      "apps/portal/pages/internal/intents/index.js",
+      "apps/portal/pages/internal/intents/[intentId].js",
+      "spec/md/docs/LLM_NAVIGATION.mdt",
+      "spec/md/docs/LLM_QUICK_REFERENCE.mdt",
+      "spec/md/docs/runbooks/intent-and-task-workflow.mdt",
+      "spec/md/docs/runbooks/intent-close.mdt",
+      "spec/md/docs/runbooks/intent-quality.mdt"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 8,
+    "top_risks": [
+      "Portal refresh endpoint and audit-run filesystem scans may need additional hardening/scaling as the repo grows.",
+      "Prompt compliance (ACTIVITY footer) is enforced by simple substring checks; could be made stricter to avoid false positives."
+    ],
+    "top_quick_wins": [
+      "Tighten guardrail validation for activity footer format.",
+      "Unify portal refresh evidence with tools/evidence recorder schema."
+    ]
+  },
+  "verification": {
+    "functional": {
+      "status": "pass",
+      "notes": "Generators, guardrails, evidence capture, and portal surfaces exist and audits/guardrails pass for INT-001. Portal refresh was validated via `npm run generate:check` (no-write drift check) because this audit run only permits writes under status/audit."
+    },
+    "nonfunctional": {
+      "correctness_safety": { "status": "pass", "notes": "Trust-first failures and deterministic outputs are enforced via guardrails and drift checks." },
+      "performance": { "status": "pass", "notes": "Current implementation is acceptable for repo size; moderate future scaling work recommended." },
+      "security": { "status": "pass", "notes": "No obvious injection surfaces in scripts/tools; portal refresh uses same-origin checks but should remain internal-only." },
+      "maintainability": { "status": "pass", "notes": "Prompt-driven workflows, schemas, and tests provide clear governance guardrails." },
+      "overall_status": "pass"
+    }
+  },
+  "improvements": [
+    {
+      "id": "IMP-001",
+      "title": "Make ACTIVITY footer validation strict (format + last-line enforcement)",
+      "area": "guardrails",
+      "roi_0_to_10": 9,
+      "effort": "S",
+      "risk": "low",
+      "why": "Substring checks can false-pass when prompts mention ACTIVITY but do not enforce it as the final chat sentence; strict enforcement improves auditability and operator confidence.",
+      "proposed_changes": [
+        "Update `scripts/guardrails/validate_repository.mjs` to require `FINAL sentence requirement` blocks and validate exact `ACTIVITY:` format per prompt kind in `spec/prompts/*.prompt.txt`."
+      ]
+    },
+    {
+      "id": "IMP-002",
+      "title": "Unify portal refresh run evidence with `tools/evidence/record_run.mjs` schema",
+      "area": "portal",
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "low",
+      "why": "Portal refresh currently writes a custom run.json; unifying schemas reduces tooling drift and improves evidence comparability.",
+      "proposed_changes": [
+        "Refactor `apps/portal/pages/api/internal/refresh.js` to reuse `tools/evidence/record_run.mjs` behavior (timestamps, stdout/stderr capture, artefact hashing) or centralize schema in a shared helper."
+      ]
+    },
+    {
+      "id": "IMP-003",
+      "title": "Add caching for audit run discovery in portal read-model",
+      "area": "portal",
+      "roi_0_to_10": 7,
+      "effort": "M",
+      "risk": "low",
+      "why": "Listing audit runs by scanning directories can become a bottleneck as run volume grows; caching improves responsiveness.",
+      "proposed_changes": [
+        "Cache `listAuditRunsDeep()` results per intent within `apps/portal/lib/portal_read_model.js` for a short TTL during SSR."
+      ]
+    },
+    {
+      "id": "IMP-004",
+      "title": "Add evidence retention runbook + optional pruning script",
+      "area": "workflows",
+      "roi_0_to_10": 7,
+      "effort": "M",
+      "risk": "low",
+      "why": "Audit run folders can grow without bound; a retention policy reduces disk usage and improves portal scan time.",
+      "proposed_changes": [
+        "Implement `GREENFIELD-OPS-003` by adding `spec/md/docs/runbooks/evidence-retention.mdt` and `scripts/prune_old_evidence.mjs`."
+      ]
+    },
+    {
+      "id": "IMP-005",
+      "title": "Strengthen evidence schema validation in guardrails",
+      "area": "guardrails",
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "low",
+      "why": "More strict evidence validation reduces downstream audit/portal parsing surprises.",
+      "proposed_changes": [
+        "Add/extend an Ajv schema for evidence `run.json` and validate it for all runs under `status/audit/**/runs/**/` in `scripts/guardrails/validate_repository.mjs`."
+      ]
+    },
+    {
+      "id": "IMP-006",
+      "title": "Add optional dry-run diff output for `generate:check` failures",
+      "area": "generation",
+      "roi_0_to_10": 6,
+      "effort": "M",
+      "risk": "low",
+      "why": "When drift occurs, developers benefit from seeing what changed without writing files; improves iteration speed.",
+      "proposed_changes": [
+        "Implement `GREENFIELD-GEN-001` `--dry-run` diff output mode in `scripts/generate_all.mjs`."
+      ]
+    },
+    {
+      "id": "IMP-007",
+      "title": "Harden portal refresh endpoint (CSRF token + stricter allowlist)",
+      "area": "portal",
+      "roi_0_to_10": 5,
+      "effort": "M",
+      "risk": "medium",
+      "why": "Even internal endpoints benefit from defense-in-depth; prevents accidental cross-origin triggers and clarifies production posture.",
+      "proposed_changes": [
+        "Add a CSRF token or nonce to `apps/portal/pages/api/internal/refresh.js` and require it from the UI.",
+        "Restrict refresh to localhost/dev by default and require explicit env allowlist in production."
+      ]
+    },
+    {
+      "id": "IMP-008",
+      "title": "Add a small shared helper for consistent UTC timestamps across tooling",
+      "area": "tools",
+      "roi_0_to_10": 5,
+      "effort": "S",
+      "risk": "low",
+      "why": "Multiple files implement `utcNow()` and `utcRunId()`; centralizing reduces subtle inconsistencies.",
+      "proposed_changes": [
+        "Create a shared helper under `scripts/lib/time.mjs` and reuse in `tools/evidence/record_run.mjs` and portal refresh code."
+      ]
+    },
+    {
+      "id": "IMP-009",
+      "title": "Improve prompt template linting (placeholder + structure checks)",
+      "area": "guardrails",
+      "roi_0_to_10": 5,
+      "effort": "S",
+      "risk": "low",
+      "why": "Prompt regressions (unsubstituted placeholders, missing output sections) can block workflows; linting catches issues early.",
+      "proposed_changes": [
+        "Extend `scripts/guardrails/validate_repository.mjs` to check for leftover `<...>` placeholders and required output sections in `spec/prompts/*.prompt.txt`."
+      ]
+    },
+    {
+      "id": "IMP-010",
+      "title": "Add a portal ‘Copy evidence command’ button for each run stage",
+      "area": "portal",
+      "roi_0_to_10": 4,
+      "effort": "M",
+      "risk": "low",
+      "why": "Operators can quickly capture evidence for the exact command they just ran; reduces mistakes and improves audit completeness.",
+      "proposed_changes": [
+        "Implement `GREENFIELD-PORTAL-022` by adding a copy-to-clipboard button next to audit run listings in `apps/portal/pages/internal/intents/[intentId].js`."
+      ]
+    }
+  ]
+}

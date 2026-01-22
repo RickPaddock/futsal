@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-030-IMP-008",
+  "intent_id": "INT-030",
+  "title": "Centralize diagnostics key constants",
+  "status": "todo",
+  "scope": [
+    "Define canonical diagnostics key constants in one location and use them across detection, tracking, and team modules.",
+    "Reduce drift/typos in diagnostics keys referenced by the output contract documentation.",
+    "Keep behavior unchanged beyond key consistency."
+  ],
+  "acceptance": [
+    "Canonical diagnostics key names are defined in a central module.",
+    "INT-030 modules reference the canonical constants rather than ad-hoc strings.",
+    "`npm run guardrails` passes."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-030-IMP-008-001",
+      "title": "Diagnostics keys centralized and used",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/contract.py",
+        "pipeline/src/fusbal_pipeline/player/detections.py",
+        "pipeline/src/fusbal_pipeline/player/mot.py",
+        "pipeline/src/fusbal_pipeline/team/assignment.py",
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Modules and docs use consistent diagnostics keys."
+      ],
+      "evidence": [
+        "A quick grep shows diagnostics keys are sourced from constants in code."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-030-IMP-008-001",
+      "title": "Introduce diagnostics key constants and refactor modules to use them.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_030_IMP_008.SUB_001",
+      "done_when": [
+        "All new diagnostics keys are sourced from a canonical constant set." 
+      ]
+    }
+  ]
+}

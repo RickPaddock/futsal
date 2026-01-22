@@ -8,9 +8,21 @@
     "paths_mdt": [],
     "notes": "No runbook changes required for this intent."
   },
+  "paths_allowed": [
+    "spec/",
+    "spec/md/docs/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
   "close_gate": [
+    "npm run generate",
     "npm run guardrails",
-    "npm run generate:check",
     "npm run audit:intent -- --intent-id INT-040"
   ],
   "summary": [
@@ -19,18 +31,19 @@
   ],
   "non_goals": [
     "Full event taxonomy or match analytics beyond shots/goals for V1.",
-    "Maximizing recall at the expense of precision (trust-first, conservative outputs)."
+    "Maximizing recall at the expense of precision (trust-first, conservative outputs).",
+    "Sensor ingestion/fusion work for V1 (camera-only output remains valid and schema-stable; sensors handled in a dedicated intent)."
   ],
   "success_criteria": [
-    "Ball detections and tracks include confidence, diagnostics, and explicit missing semantics.",
-    "Shots/goals events include confidence and evidence pointers; uncertain events are explicitly flagged.",
-    "Output contract template documents detection/track/event schemas and trust-first semantics."
+    "Ball detections and tracks include `confidence` in [0,1], structured diagnostics, and `pos_state ∈ {present, missing, unknown}` where: `present` requires direct gated evidence for that frame/span; `missing` means evaluated but no acceptable ball position exists (include a reason); `unknown` is reserved for unevaluable frames/spans (include a reason). Missing/unknown MUST be explicit records/spans (not implied by gaps).",
+    "Trust-first: MUST NOT emit `pos_state=\"present\"` without direct evidence for that time/frame/span; prefer missing/unknown over fabricated positions.",
+    "Shots/goals events include `event_state ∈ {confirmed, candidate, unknown}`, `confidence` in [0,1], and evidence pointers referencing bundle artifacts (at minimum: `artifact_id` and exactly one of {time_range_ms, frame_range}); uncertain events are omitted or explicitly emitted as candidate/unknown (never asserted as confirmed).",
+    "Output contract template documents ball detection/track/event schemas (field lists, enums, minimal examples), including evidence-pointer semantics."
   ],
   "requirements_in_scope": [
     "FUSBAL-V1-BALL-001",
     "FUSBAL-V1-EVENT-001",
-    "FUSBAL-V1-TRUST-001",
-    "FUSBAL-V1-SENSOR-001"
+    "FUSBAL-V1-TRUST-001"
   ],
   "task_ids_planned": [
     "TASK-BALL-DET-001",

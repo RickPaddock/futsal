@@ -1,0 +1,78 @@
+{
+  "type": "intent_preflight_report",
+  "schema_version": 1,
+  "intent_id": "INT-010",
+  "run_id": "20260121_174133",
+  "timestamp": "2026-01-21T17:41:41Z",
+  "blockers_ranked": [],
+  "ambiguities": [
+    {
+      "ambiguous_text": "A bundle created with placeholders passes `validate` (or passes with explicit, well-defined warnings if warnings are supported).",
+      "risk": "Undefined warning semantics makes pass/fail subjective and can break close gating.",
+      "proposed_rewrite": "A bundle created with placeholders passes `validate` with exit code 0; this task does not introduce a warnings model."
+    },
+    {
+      "ambiguous_text": "Tighten numeric/range validation for key contract fields (e.g. confidence bounds, coordinate bounds, timestamp sanity).",
+      "risk": "If bounds/fields are not enumerated, implementers may invent constraints or skip validation.",
+      "proposed_rewrite": "Enumerate exact rules for existing fields: confidence/quality in [0,1]; timestamps >=0; wgs84 lat/lon bounds; sigma_m >=0; errors include field path + invalid value."
+    },
+    {
+      "ambiguous_text": "Export the V1 contract as JSON Schema for downstream validators.",
+      "risk": "Unclear whether schema covers records, manifests, or the full on-disk bundle structure.",
+      "proposed_rewrite": "Schema scope is record-level + manifest-level objects (TrackRecordV1, EventRecordV1, MatchManifestV1), not the full on-disk bundle directory structure; declare JSON Schema draft/version via `$schema`."
+    }
+  ],
+  "scope_alignment": {
+    "inferred_surfaces": [
+      "Output contract templates under spec/md/docs/data/",
+      "Pipeline package contract/bundle/CLI modules under pipeline/src/fusbal_pipeline/",
+      "Optional JSON Schema artefacts under pipeline/schemas/",
+      "Portal intent detail UI/read-model for per-task audit visibility",
+      "Governance prompts and close/audit scripts for evidence capture",
+      "Evidence outputs under status/audit/INT-010/runs/<run_id>/..."
+    ],
+    "paths_allowed": [
+      "spec/",
+      "spec/md/docs/",
+      "pipeline/",
+      "scripts/",
+      "tools/",
+      "apps/portal/",
+      "status/audit/"
+    ],
+    "paths_excluded": [
+      "docs/",
+      "status/intents/",
+      "status/portal/",
+      "status/wizard/"
+    ],
+    "mismatches": [],
+    "recommended_edits": [
+      "Optional: Replace RUN_ID/YYY-MM-DD placeholders in close_gate command string with a comment-style token if you prefer, but keep it out of generated surfaces; functional governance does not require this change."
+    ]
+  },
+  "closeability": {
+    "tasks": {
+      "status": "PASS",
+      "notes": "All planned task ids exist and are spelled correctly. Key previously ambiguous tasks now have deterministic acceptance criteria (placeholders pass validate; explicit numeric/range bounds; JSON Schema scope and draft/version requirements)."
+    },
+    "work_packages": {
+      "status": "PASS",
+      "notes": "Generated work_packages cover all planned tasks (no unassigned tasks) and package titles are clear."
+    },
+    "close_gates": {
+      "status": "PASS",
+      "notes": "Close is closeable in principle: intent lists audit+guardrails+generate, and the repository close process enforces per-task quality audit evidence and runbook/scope requirements."
+    },
+    "guardrail_plan": {
+      "status": "PASS",
+      "notes": "All in-scope requirement IDs are valid and have defined guardrail mechanisms. INT-010 clearly scopes changes to canonical sources and excludes generated surfaces; remaining implementation work will be validated via audit:intent + per-task quality audits + guardrails."
+    }
+  },
+  "minimum_next_steps": [
+    "Run implementation only for the remaining todo tasks (TASK-INT-010-IMP-001..010), keeping changes within paths_allowed.",
+    "When ready to close, run an audit run for INT-010 that produces per-task quality audit reports for all planned tasks under a single run_id.",
+    "Run `npm run intent:close -- --intent-id INT-010 --run-id <run_id> --require-quality-audit --closed-date YYYY-MM-DD` as a dry-run to confirm all evidence exists and passes.",
+    "Apply close with `--apply` only after dry-run passes, then rerun `npm run generate` and `npm run guardrails`."
+  ]
+}

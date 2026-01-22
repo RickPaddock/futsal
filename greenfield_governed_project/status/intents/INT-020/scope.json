@@ -11,15 +11,29 @@
     "TASK-CAL-002",
     "TASK-CAL-003"
   ],
+  "paths_allowed": [
+    "spec/",
+    "spec/md/docs/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
   "runbooks": {
-    "decision": "none",
-    "paths_mdt": [],
-    "notes": "No runbook changes required for this intent."
+    "decision": "create",
+    "paths_mdt": [
+      "spec/md/docs/runbooks/calibration-and-bev.mdt"
+    ],
+    "notes": "This intent introduces calibration input records, pitch templates, auto-fit diagnostics, and trust-first BEV gating. A runbook is required so future LLMs/humans can navigate and reproduce calibration workflows safely."
   },
   "close_gate": {
     "commands": [
       "npm run guardrails",
-      "npm run generate:check",
+      "npm run generate",
       "npm run audit:intent -- --intent-id INT-020"
     ],
     "evidence_out_root": "status/audit/INT-020/runs"

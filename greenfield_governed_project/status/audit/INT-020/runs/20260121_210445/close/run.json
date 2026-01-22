@@ -1,0 +1,37 @@
+{
+  "run_id": "20260121_210445",
+  "timestamp_start": "2026-01-21T21:30:29Z",
+  "timestamp_end": "2026-01-21T21:30:30Z",
+  "command": "npm run intent:close -- --intent-id INT-020 --run-id 20260121_210445 --require-quality-audit --closed-date 2026-01-21 --apply",
+  "args": [
+    "npm",
+    "run",
+    "intent:close",
+    "--",
+    "--intent-id",
+    "INT-020",
+    "--run-id",
+    "20260121_210445",
+    "--require-quality-audit",
+    "--closed-date",
+    "2026-01-21",
+    "--apply"
+  ],
+  "exit_code": 0,
+  "cwd": ".",
+  "actor": "human",
+  "intent_id": "INT-020",
+  "artefacts": [
+    {
+      "path": "status/audit/INT-020/runs/20260121_210445/audit/audit_report.json",
+      "sha256": "sha256:b990160f1bb888968818b1afb9eb8c52b0930a1cb96403b7f4455f98a010f9f3"
+    },
+    {
+      "path": "status/audit/INT-020/runs/20260121_210445/quality_audit.json",
+      "sha256": "sha256:74f0dca57c680ec1f741acda3c99ec7865cf2469272dddea9ea95fd69f73fe51"
+    }
+  ],
+  "stage": "close",
+  "run_json_path": "status/audit/INT-020/runs/20260121_210445/close/run.json",
+  "stdout": "\n> intent:close\n> node scripts/audit/close_intent.mjs --intent-id INT-020 --run-id 20260121_210445 --require-quality-audit --closed-date 2026-01-21 --apply\n\n[close] updated spec/intents/INT-020.json\n[close] ok\n"
+}

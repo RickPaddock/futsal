@@ -3,7 +3,7 @@
   "task_id": "TASK-CAL-002",
   "intent_id": "INT-020",
   "title": "Auto-fit from field markings + diagnostics",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Implement automatic camera-to-pitch fit using visible field markings where possible.",
     "Record reprojection error diagnostics and calibration quality metrics for trust-first gating.",
@@ -11,7 +11,10 @@
   ],
   "acceptance": [
     "Auto-fit produces a calibration result when confidence/quality is sufficient; otherwise returns explicit failure with diagnostics.",
-    "Diagnostics include reprojection error and enough evidence fields to debug calibration quality.",
+    "V1 distortion handling is explicit: inputs are assumed pre-undistorted; if distortion prevents reliable fitting, auto-fit MUST return explicit failure (not a best-guess).",
+    "Markings inputs are explicitly defined: auto-fit consumes a `markings_observations` record (JSON) consisting of labeled 2D line segments in pixel coordinates (e.g., touchlines, goal box lines, center line). Marking extraction itself is out of scope for this task.",
+    "`marking_coverage_score_0_to_1` is deterministic in V1: define required labels set = {`touchline_left`, `touchline_right`, `center_line`, `goal_box_left`, `goal_box_right`}. Then `marking_coverage_score_0_to_1 = (# of required labels present at least once in `segments[].label`) / 5`. If `segments[]` is empty, score is `0.0`.",
+    "Diagnostics include reprojection error metrics and enough evidence fields to debug calibration quality.",
     "Output contract template documents auto-fit outputs and diagnostic fields."
   ],
   "deliverables": [
@@ -21,14 +24,16 @@
       "paths": [
         "pipeline/src/fusbal_pipeline/calibration/auto_fit.py",
         "pipeline/src/fusbal_pipeline/calibration/diagnostics.py",
+        "pipeline/fixtures/calibration/venues/example_venue/pitch_a/markings_observations.json",
         "pipeline/src/fusbal_pipeline/contract.py"
       ],
       "acceptance": [
         "Auto-fit returns calibration parameters plus reprojection diagnostics when successful.",
-        "Failures are explicit and include diagnostic information (trust-first)."
+        "Failures are explicit and include diagnostic information (trust-first).",
+        "Diagnostics include (at minimum) `rms_reprojection_error_px`, `inlier_ratio`, `num_inliers`, and a `failure_reason` enum/string on failure."
       ],
       "evidence": [
-        "A minimal pipeline run produces calibration diagnostics (success or explicit failure)."
+        "A deterministic command exists and produces a diagnostics record from the fixture: `python -m fusbal_pipeline.calibration.auto_fit --inputs pipeline/fixtures/calibration/venues/example_venue/pitch_a/calibration_input.json --markings pipeline/fixtures/calibration/venues/example_venue/pitch_a/markings_observations.json` (or equivalent documented CLI entrypoint)."
       ]
     },
     {
@@ -49,7 +54,7 @@
     {
       "subtask_id": "SUB-TASK-CAL-002-001",
       "title": "Define calibration result + diagnostics record schema (including failure semantics).",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_CAL_002.SUB_001",
       "done_when": [
@@ -60,7 +65,7 @@
     {
       "subtask_id": "SUB-TASK-CAL-002-002",
       "title": "Implement field-markings auto-fit and emit reprojection error diagnostics.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_CAL_002.SUB_002",
       "done_when": [
@@ -71,7 +76,7 @@
     {
       "subtask_id": "SUB-TASK-CAL-002-003",
       "title": "Update output contract template for auto-fit calibration outputs.",
-      "status": "todo",
+      "status": "done",
       "area": "spec",
       "provenance_prefix": "FUSBAL.SPEC.TASK_CAL_002.SUB_003",
       "done_when": [

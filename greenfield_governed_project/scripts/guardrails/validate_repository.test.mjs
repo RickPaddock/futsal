@@ -154,6 +154,31 @@ describe("Guardrails validation", () => {
         }
       }
     });
+
+    it("should validate intent path scope structure", () => {
+      const intentsDir = path.join(repoRoot, "spec", "intents");
+      const files = fs.readdirSync(intentsDir).filter((f) => f.endsWith(".json"));
+
+      for (const file of files) {
+        const intent = JSON.parse(fs.readFileSync(path.join(intentsDir, file), "utf8"));
+        if (String(intent.status || "").trim() === "draft") continue;
+        assert.ok(Array.isArray(intent.paths_allowed), `Intent ${intent.intent_id} missing paths_allowed[]`);
+        assert.ok(Array.isArray(intent.paths_excluded), `Intent ${intent.intent_id} missing paths_excluded[]`);
+        assert.ok(intent.paths_allowed.length > 0, `Intent ${intent.intent_id} paths_allowed[] must be non-empty`);
+        assert.ok(intent.paths_excluded.length > 0, `Intent ${intent.intent_id} paths_excluded[] must be non-empty`);
+      }
+    });
+
+    it("should validate workflow prompts include activity footer instruction", () => {
+      const promptsDir = path.join(repoRoot, "spec", "prompts");
+      assert.ok(fs.existsSync(promptsDir), "spec/prompts should exist");
+      const files = fs.readdirSync(promptsDir).filter((f) => f.endsWith(".prompt.txt"));
+      assert.ok(files.length > 0, "spec/prompts should contain .prompt.txt files");
+      for (const file of files) {
+        const text = fs.readFileSync(path.join(promptsDir, file), "utf8");
+        assert.ok(text.includes("ACTIVITY:"), `Prompt ${file} missing ACTIVITY footer requirement`);
+      }
+    });
   });
 
   describe("Task validation", () => {
@@ -205,6 +230,8 @@ describe("Guardrails validation", () => {
           assert.strictEqual(scope.intent_id, intent.intent_id);
           assert.ok(Array.isArray(scope.requirements_in_scope));
           assert.ok(Array.isArray(scope.task_ids_planned));
+          assert.ok(Array.isArray(scope.paths_allowed));
+          assert.ok(Array.isArray(scope.paths_excluded));
           assert.ok(scope.close_gate);
           assert.ok(Array.isArray(scope.close_gate.commands));
         }
@@ -262,7 +289,8 @@ describe("Guardrails validation", () => {
       const expectedSchemas = [
         "intent_scope.schema.json",
         "work_packages.schema.json",
-        "internal_intents.schema.json"
+        "internal_intents.schema.json",
+        "evidence_run.schema.json"
       ];
       
       for (const schema of expectedSchemas) {

@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-RUN-VIDEO-001",
+  "intent_id": "INT-050",
+  "title": "End-to-end run-video: ingest film → export bundle (plumbing proof)",
+  "status": "todo",
+  "scope": [
+    "Add a CLI command that ingests a local video, runs available detectors/trackers/events modules, and exports a valid V1 output bundle under `output/<match_id>/`.",
+    "Plumbing-first: support a mode where detectors are disabled (Null detectors) and the system still produces a valid, trust-first bundle with explicit missing outputs.",
+    "Persist deterministic `tracks.jsonl` and `events.json` outputs and validate them using existing contract validators."
+  ],
+  "acceptance": [
+    "A `run-video` CLI command exists that takes at minimum: `--video <path>`, `--match-id <id>`, `--out <bundle_dir>`.",
+    "The command produces a bundle that passes `python -m fusbal_pipeline validate <bundle_dir>` and contains contract-valid `tracks.jsonl` and `events.json`.",
+    "Determinism: running twice with the same inputs/config yields identical `tracks.jsonl` and `events.json` byte-for-byte.",
+    "Trust-first: when detectors are disabled or uncertain, outputs explicitly represent missing/unknown; no fabricated ball positions or confirmed events."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-RUN-VIDEO-001-001",
+      "title": "Run-video CLI implementation producing a valid bundle",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/cli.py",
+        "pipeline/src/fusbal_pipeline/bundle.py",
+        "pipeline/src/fusbal_pipeline/contract.py"
+      ],
+      "acceptance": [
+        "Bundle includes `manifest.json`, `tracks.jsonl`, `events.json`, required diagnostics placeholders, and a minimal report.",
+        "Validation uses existing validators; failures are actionable."
+      ],
+      "evidence": [
+        "A local run on a provided video path produces a bundle that passes `validate` (video not committed to repo)."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-RUN-VIDEO-001-001",
+      "title": "Wire ingest → detectors/trackers → writers into `run-video` CLI.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_RUN_VIDEO_001.SUB_001",
+      "done_when": [
+        "`run-video` writes deterministic tracks/events outputs.",
+        "Outputs validate against the contract."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-RUN-VIDEO-001-002",
+      "title": "Add plumbing-first mode: Null detectors still produce valid missing outputs.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_RUN_VIDEO_001.SUB_002",
+      "done_when": [
+        "A run mode exists where detectors are disabled but bundle export still succeeds.",
+        "Missing/unknown semantics are explicit and validated."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-RUN-VIDEO-001-003",
+      "title": "Add determinism tests for run-video outputs (synthetic/mocked ingest).",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_RUN_VIDEO_001.SUB_003",
+      "done_when": [
+        "A unit/integration test asserts two runs with identical inputs produce identical tracks/events output bytes."
+      ]
+    }
+  ]
+}
+

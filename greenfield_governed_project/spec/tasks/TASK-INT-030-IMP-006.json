@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-030-IMP-006",
+  "intent_id": "INT-030",
+  "title": "Emit explicit unknown records/diagnostics for ambiguous detections",
+  "status": "todo",
+  "scope": [
+    "Improve auditability by emitting explicit TrackRecordV1 records for ambiguous detections rather than silently dropping them.",
+    "Use trust-first semantics: ambiguous detections become pos_state=unknown with diagnostics.unknown_reason=ambiguous_association.",
+    "Keep output ordering deterministic."
+  ],
+  "acceptance": [
+    "When associations are ambiguous, output includes an explicit record with pos_state=unknown and diagnostics describing ambiguity.",
+    "Ambiguity still causes breaks for tracks (break_reason=ambiguous_association) rather than swaps.",
+    "Output remains deterministic (stable ordering)."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-030-IMP-006-001",
+      "title": "Ambiguity produces explicit unknown records",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/player/mot.py",
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Unknown-record semantics for ambiguity are implemented and documented."
+      ],
+      "evidence": [
+        "A unit test demonstrates an ambiguous case yields unknown records plus a break."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-030-IMP-006-001",
+      "title": "Emit TrackRecordV1 unknown records for ambiguous detections.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_030_IMP_006.SUB_001",
+      "done_when": [
+        "Ambiguous detections are represented as explicit unknown records with diagnostics."
+      ]
+    }
+  ]
+}

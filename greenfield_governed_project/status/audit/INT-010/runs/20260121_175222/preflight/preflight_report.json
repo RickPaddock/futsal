@@ -1,0 +1,55 @@
+{
+  "type": "intent_preflight_report",
+  "schema_version": 1,
+  "intent_id": "INT-010",
+  "run_id": "20260121_175222",
+  "timestamp": "2026-01-21T17:52:28Z",
+  "blockers_ranked": [],
+  "ambiguities": [],
+  "scope_alignment": {
+    "inferred_surfaces": [
+      "Output contract templates under spec/md/docs/data/",
+      "Pipeline package contract/bundle/CLI modules under pipeline/src/fusbal_pipeline/",
+      "Optional JSON Schema artefacts under pipeline/schemas/",
+      "Portal intent detail UI/read-model for per-task audit visibility",
+      "Governance prompts and close/audit scripts for evidence capture",
+      "Evidence outputs under status/audit/INT-010/runs/<run_id>/..."
+    ],
+    "paths_allowed": [
+      "spec/",
+      "spec/md/docs/",
+      "pipeline/",
+      "scripts/",
+      "tools/",
+      "apps/portal/",
+      "status/audit/"
+    ],
+    "paths_excluded": [
+      "docs/",
+      "status/intents/",
+      "status/portal/",
+      "status/wizard/"
+    ],
+    "mismatches": [],
+    "recommended_edits": []
+  },
+  "closeability": {
+    "tasks": {
+      "status": "PASS",
+      "notes": "All planned task ids exist and are spelled correctly. Acceptance criteria for previously ambiguous tasks are deterministic and measurable (placeholders validate with exit_code=0; explicit numeric/range bounds; JSON Schema scope and draft/version requirements)."
+    },
+    "work_packages": {
+      "status": "PASS",
+      "notes": "Generated work_packages cover all planned tasks (no unassigned tasks) and titles are clear."
+    },
+    "close_gates": {
+      "status": "PASS",
+      "notes": "Intent close gates and repository close process are consistent: audit:intent + guardrails + generate, plus close enforcement of per-task quality audit evidence for the run_id used at close."
+    },
+    "guardrail_plan": {
+      "status": "PASS",
+      "notes": "All in-scope requirement IDs are valid and declare guardrail/coverage mechanisms. The preflight prompt/requirement semantics now ensure PASS implies no required fixes."
+    }
+  },
+  "minimum_next_steps": []
+}

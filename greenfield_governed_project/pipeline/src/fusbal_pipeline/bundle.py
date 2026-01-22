@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-
 ArtifactKind = Literal["file", "dir"]
 ArtifactRequirement = Literal["required", "optional", "required_if_sensors_present"]
 
@@ -182,3 +181,56 @@ def ensure_bundle_layout(bundle_root: Path) -> MatchBundlePaths:
     paths = MatchBundlePaths(root=bundle_root)
     paths.diagnostics_dir.mkdir(parents=True, exist_ok=True)
     return paths
+
+
+def ensure_placeholder_outputs_v1(bundle_root: Path, *, sensors_present: bool) -> None:
+    """Create minimal, deterministic placeholder outputs for a bundle.
+
+    PROV: FUSBAL.PIPELINE.BUNDLE.PLACEHOLDERS.01
+    REQ: SYS-ARCH-15
+    WHY: Allow demos/tests to scaffold a bundle that passes `validate` without generating real
+    tracking data.
+    """
+
+    paths = MatchBundlePaths(root=bundle_root)
+    bundle_root.mkdir(parents=True, exist_ok=True)
+    paths.diagnostics_dir.mkdir(parents=True, exist_ok=True)
+
+    def write_text_if_missing(p: Path, text: str) -> None:
+        if p.exists():
+            return
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf8")
+
+    def write_bytes_if_missing(p: Path, data: bytes) -> None:
+        if p.exists():
+            return
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(data)
+
+    # Required files that `validate` checks. (Manifest is written by `init`.)
+    write_bytes_if_missing(paths.overlay_mp4, b"")
+    write_text_if_missing(paths.tracks_jsonl, "")
+    write_text_if_missing(paths.events_json, "[]\n")
+    write_text_if_missing(
+        paths.report_json,
+        '{"placeholder": true, "note": "placeholder report"}\n',
+    )
+    write_text_if_missing(
+        paths.report_html,
+        '<!doctype html><html><head><meta charset="utf-8" />'
+        "<title>Fusbal Report</title></head><body><h1>Placeholder report</h1></body></html>\n",
+    )
+    write_text_if_missing(
+        paths.diagnostics_calibration_json,
+        '{"placeholder": true, "note": "placeholder calibration"}\n',
+    )
+    write_text_if_missing(
+        paths.diagnostics_quality_summary_json,
+        '{"placeholder": true, "note": "placeholder quality summary"}\n',
+    )
+    if sensors_present:
+        write_text_if_missing(
+            paths.diagnostics_sync_json,
+            '{"placeholder": true, "note": "placeholder sync"}\n',
+        )

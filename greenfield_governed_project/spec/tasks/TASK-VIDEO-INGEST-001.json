@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-VIDEO-INGEST-001",
+  "intent_id": "INT-050",
+  "title": "Deterministic video ingest + frame timebase",
+  "status": "todo",
+  "scope": [
+    "Given a local single-camera match video file, decode frames deterministically and emit a frame stream with `frame_index` and `t_ms` suitable for downstream detection/tracking.",
+    "Extract and record video metadata (fps, resolution, frame_count if available) into diagnostics for audit/UAT.",
+    "Prefer portability: do not require absolute paths and do not embed machine-specific paths into manifests or outputs."
+  ],
+  "acceptance": [
+    "A deterministic ingest API exists (library + CLI entrypoint) that can iterate frames from a local video (mp4 typical) and produce `frame_index` and `t_ms` for each decoded frame.",
+    "Failure modes are explicit and actionable (missing file, unsupported codec/container, decode errors) and do not crash without context.",
+    "Unit tests cover: (a) stable timebase computation for a synthetic/fixture input, (b) negative-path error messaging for missing inputs."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-VIDEO-INGEST-001-001",
+      "title": "Video ingest module with deterministic frame stream + metadata",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/video/__init__.py",
+        "pipeline/src/fusbal_pipeline/video/ingest.py"
+      ],
+      "acceptance": [
+        "Module can open a local video and yield (frame_index, t_ms, frame_bytes|array, metadata).",
+        "API is deterministic and does not require network."
+      ],
+      "evidence": [
+        "Unit tests validate timebase determinism and basic negative paths (no real video committed to repo; use mocks/small synthetic fixtures)."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-VIDEO-INGEST-001-002",
+      "title": "CLI wiring for video ingest smoke run",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/cli.py"
+      ],
+      "acceptance": [
+        "CLI supports a `run-video` or `ingest-video` command that can open a local video and report basic metadata deterministically."
+      ],
+      "evidence": [
+        "A documented command example succeeds locally with a provided video path (not committed to repo)."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-VIDEO-INGEST-001-001",
+      "title": "Implement deterministic video frame iterator + timebase.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_VIDEO_INGEST_001.SUB_001",
+      "done_when": [
+        "Each decoded frame has a deterministic `frame_index` and computed `t_ms` suitable for audits.",
+        "Video metadata is captured as diagnostics."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-VIDEO-INGEST-001-002",
+      "title": "Add CLI entrypoint and negative-path handling.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_VIDEO_INGEST_001.SUB_002",
+      "done_when": [
+        "CLI can open a local video path and emit deterministic metadata.",
+        "Errors are actionable and include file path context."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-VIDEO-INGEST-001-003",
+      "title": "Add unit tests for determinism and missing-input errors.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_VIDEO_INGEST_001.SUB_003",
+      "done_when": [
+        "Tests cover deterministic timebase behavior and at least one missing-file error case."
+      ]
+    }
+  ]
+}
+

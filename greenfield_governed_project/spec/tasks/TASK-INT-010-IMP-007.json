@@ -3,16 +3,18 @@
   "task_id": "TASK-INT-010-IMP-007",
   "intent_id": "INT-010",
   "title": "Export the V1 contract as JSON Schema for downstream validators",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Provide JSON Schema files that represent the V1 contract for downstream validation in other languages/tools.",
     "Keep schemas deterministic and versioned.",
-    "Do not require reading Python code to obtain the schema."
+    "Do not require reading Python code to obtain the schema.",
+    "Schema scope is record-level + manifest-level objects (TrackRecordV1, EventRecordV1, MatchManifestV1), not the full on-disk bundle directory structure."
   ],
   "acceptance": [
     "A versioned JSON Schema file exists for the V1 contract and is checked into the repo.",
-    "Schema matches the documented contract fields and semantics.",
-    "A sample output can be validated against the schema with an off-the-shelf JSON Schema validator."
+    "The schema declares an explicit JSON Schema draft/version (e.g. 2020-12) via `$schema`.",
+    "The schema includes definitions for: TrackRecordV1, EventRecordV1, and MatchManifestV1 (or equivalent named definitions) and aligns with the documented contract fields and semantics.",
+    "A sample track record, event record, and manifest can each be validated against the schema using an off-the-shelf JSON Schema validator."
   ],
   "deliverables": [
     {
@@ -24,6 +26,7 @@
       ],
       "acceptance": [
         "Schema file is versioned and stored under `pipeline/schemas/`.",
+        "Schema content is deterministic (stable ordering/formatting) and includes named definitions for the manifest + record objects.",
         "Contract code references or documents schema version alignment."
       ],
       "evidence": [
@@ -36,7 +39,7 @@
     {
       "subtask_id": "SUB-TASK-INT-010-IMP-007-001",
       "title": "Define and commit JSON Schema artefacts for the V1 contract.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_010_IMP_007.SUB_001",
       "done_when": [
@@ -47,7 +50,7 @@
     {
       "subtask_id": "SUB-TASK-INT-010-IMP-007-002",
       "title": "Document/encode the alignment between contract code version and JSON Schema version.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_010_IMP_007.SUB_002",
       "done_when": [

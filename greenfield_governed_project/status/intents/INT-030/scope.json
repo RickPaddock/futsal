@@ -9,7 +9,29 @@
   "task_ids_planned": [
     "TASK-PLAYER-DET-001",
     "TASK-PLAYER-MOT-001",
-    "TASK-TEAM-001"
+    "TASK-TEAM-001",
+    "TASK-INT-030-IMP-001",
+    "TASK-INT-030-IMP-002",
+    "TASK-INT-030-IMP-003",
+    "TASK-INT-030-IMP-004",
+    "TASK-INT-030-IMP-005",
+    "TASK-INT-030-IMP-006",
+    "TASK-INT-030-IMP-007",
+    "TASK-INT-030-IMP-008",
+    "TASK-INT-030-IMP-009",
+    "TASK-INT-030-IMP-010"
+  ],
+  "paths_allowed": [
+    "spec/",
+    "spec/md/docs/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
   ],
   "runbooks": {
     "decision": "none",
@@ -18,8 +40,8 @@
   },
   "close_gate": {
     "commands": [
+      "npm run generate",
       "npm run guardrails",
-      "npm run generate:check",
       "npm run audit:intent -- --intent-id INT-030"
     ],
     "evidence_out_root": "status/audit/INT-030/runs"

@@ -11,6 +11,7 @@ import { repoRootFromHere, relPosix } from "./lib/paths.mjs";
 import { sha256Bytes, sha256File } from "./lib/sha256.mjs";
 
 const ajv = new Ajv({ allErrors: true });
+let DRY_RUN_DIFFS_FOUND = false;
 
 function readJson(p) {
   return JSON.parse(fs.readFileSync(p, "utf8"));
@@ -66,8 +67,29 @@ function writeFileChecked(outPath, content, check, dryRun) {
     return;
   }
   if (dryRun) {
-    const action = fs.existsSync(outPath) ? "UPDATE" : "CREATE";
+    const existing = fs.existsSync(outPath) ? fs.readFileSync(outPath, "utf8") : null;
+    if (existing === content) return;
+    const action = existing === null ? "CREATE" : "UPDATE";
     process.stdout.write(`[dry-run] ${action}: ${relPosix(outPath)}\n`);
+    DRY_RUN_DIFFS_FOUND = true;
+    const maxLines = 18;
+    const oldLines = (existing || "").split(/\r?\n/);
+    const newLines = String(content || "").split(/\r?\n/);
+    let first = 0;
+    while (first < oldLines.length && first < newLines.length && oldLines[first] === newLines[first]) first++;
+    let lastOld = oldLines.length - 1;
+    let lastNew = newLines.length - 1;
+    while (lastOld >= first && lastNew >= first && oldLines[lastOld] === newLines[lastNew]) {
+      lastOld--;
+      lastNew--;
+    }
+    const oldChunk = oldLines.slice(first, Math.min(oldLines.length, first + maxLines));
+    const newChunk = newLines.slice(first, Math.min(newLines.length, first + maxLines));
+    if (oldChunk.length || newChunk.length) {
+      process.stdout.write(`[dry-run] diff (around first change @line ${first + 1})\n`);
+      for (const l of oldChunk) process.stdout.write(`- ${l}\n`);
+      for (const l of newChunk) process.stdout.write(`+ ${l}\n`);
+    }
     return;
   }
   ensureDir(path.dirname(outPath));
@@ -167,16 +189,18 @@ function generateIntentFiles({ repoRoot, vars, check, dryRun }) {
     const statusDir = path.join(repoRoot, "status", "intents", intentId);
     if (!dryRun) ensureDir(statusDir);
 
-    const scope = {
-      intent_id: intentId,
-      title: obj.title || "",
-      requirements_in_scope: obj.requirements_in_scope || [],
-      task_ids_planned: obj.task_ids_planned || [],
-      runbooks: obj.runbooks || null,
-      close_gate: { commands: obj.close_gate || [], evidence_out_root: `status/audit/${intentId}/runs` },
-    };
-    validateJson(repoRoot, scope, "intent_scope");
-    const scopeJson = JSON.stringify(scope, null, 2) + "\n";
+	    const scope = {
+	      intent_id: intentId,
+	      title: obj.title || "",
+	      requirements_in_scope: obj.requirements_in_scope || [],
+	      task_ids_planned: obj.task_ids_planned || [],
+	      paths_allowed: obj.paths_allowed || [],
+	      paths_excluded: obj.paths_excluded || [],
+	      runbooks: obj.runbooks || null,
+	      close_gate: { commands: obj.close_gate || [], evidence_out_root: `status/audit/${intentId}/runs` },
+	    };
+	    validateJson(repoRoot, scope, "intent_scope");
+	    const scopeJson = JSON.stringify(scope, null, 2) + "\n";
     writeFileChecked(path.join(statusDir, "scope.json"), scopeJson, check, dryRun);
 
     const workPackages = {
@@ -218,21 +242,29 @@ function generateIntentFiles({ repoRoot, vars, check, dryRun }) {
       mdLines.push("");
     }
 
-    mdLines.push("## Runbooks (LLM navigation)");
-    mdLines.push("");
-    const rb = obj.runbooks || {};
-    mdLines.push(`- Decision: \`${rb.decision || "missing"}\``);
-    if (Array.isArray(rb.paths_mdt) && rb.paths_mdt.length) {
-      mdLines.push(`- Templates: ${rb.paths_mdt.map((p) => `\`${p}\``).join(", ")}`);
-    } else {
-      mdLines.push(`- Templates: (none)`);
-    }
-    mdLines.push(`- Notes: ${rb.notes || ""}`);
-    mdLines.push("");
+	    mdLines.push("## Runbooks (LLM navigation)");
+	    mdLines.push("");
+	    const rb = obj.runbooks || {};
+	    mdLines.push(`- Decision: \`${rb.decision || "missing"}\``);
+	    if (Array.isArray(rb.paths_mdt) && rb.paths_mdt.length) {
+	      mdLines.push(`- Templates: ${rb.paths_mdt.map((p) => `\`${p}\``).join(", ")}`);
+	    } else {
+	      mdLines.push(`- Templates: (none)`);
+	    }
+	    mdLines.push(`- Notes: ${rb.notes || ""}`);
+	    mdLines.push("");
 
-    writeFileChecked(path.join(statusDir, "intent.md"), mdLines.join("\n") + "\n", check, dryRun);
-  }
-}
+	    mdLines.push("## Scope (paths)");
+	    mdLines.push("");
+	    const allowed = Array.isArray(obj.paths_allowed) ? obj.paths_allowed.map(String).map((s) => s.trim()).filter(Boolean) : [];
+	    const excluded = Array.isArray(obj.paths_excluded) ? obj.paths_excluded.map(String).map((s) => s.trim()).filter(Boolean) : [];
+	    mdLines.push(`- Allowed: ${allowed.length ? allowed.map((p) => `\`${p}\``).join(", ") : "(missing)"}`);
+	    mdLines.push(`- Excluded: ${excluded.length ? excluded.map((p) => `\`${p}\``).join(", ") : "(missing)"}`);
+	    mdLines.push("");
+
+	    writeFileChecked(path.join(statusDir, "intent.md"), mdLines.join("\n") + "\n", check, dryRun);
+	  }
+	}
 
 function generateInternalIntentsFeed({ repoRoot, vars, check, dryRun }) {
   const requirementsBundle = loadRequirementsBundle({ repoRoot, requirementsSourceRel: vars.requirements_source });
@@ -326,6 +358,9 @@ try {
     process.stdout.write("[generate] ok\n");
   } else if (!process.argv.includes("--dry-run")) {
     process.stdout.write("[generate] ok\n");
+  } else if (process.argv.includes("--dry-run") && DRY_RUN_DIFFS_FOUND) {
+    process.stderr.write("[generate] dry-run found diffs\n");
+    process.exitCode = 1;
   }
 } catch (err) {
   const msg = err instanceof Error ? err.message : String(err);

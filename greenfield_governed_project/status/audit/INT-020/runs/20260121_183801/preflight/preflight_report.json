@@ -1,0 +1,152 @@
+{
+  "type": "intent_preflight_report",
+  "schema_version": 1,
+  "intent_id": "INT-020",
+  "run_id": "20260121_183801",
+  "timestamp": "2026-01-21T18:41:08Z",
+  "blockers_ranked": [
+    {
+      "roi_0_to_10": 9,
+      "effort": "M",
+      "risk": "high",
+      "issue": "`marking_coverage_score_0_to_1` is used as a hard gating threshold but is not defined (how it is computed, from what inputs, and what counts as coverage).",
+      "why": "Without a deterministic definition, implementers will guess a metric, leading to inconsistent gating behavior and audit failures due to drift across venues/pitches.",
+      "exact_fix": "Define `marking_coverage_score_0_to_1` deterministically in canonical specs (inputs, computation, edge cases). Best fit: add an explicit definition to `spec/tasks/TASK-CAL-002.json` acceptance (metric definition + required diagnostics fields) and reference it from `spec/tasks/TASK-CAL-003.json` gating acceptance.",
+      "override_option": "Optional: drop `marking_coverage_score_0_to_1` from V1 gating thresholds (keep rms/inlier metrics only). Impact: BEV may be allowed with sparse markings coverage if the fit overfits to a small subset."
+    },
+    {
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "high",
+      "issue": "TASK-CAL-003 allows ‘human-approved’ overrides of deterministic gating thresholds, but the override mechanism is unspecified (where it is recorded, what evidence is required, and how outputs are labeled).",
+      "why": "An unspecified override path is a high-risk trap: it invites ad-hoc behavior that breaks determinism, makes audits unreproducible, and can silently ship BEV outputs when calibration is unsafe.",
+      "exact_fix": "Replace the vague override phrase in `spec/tasks/TASK-CAL-003.json` with an explicit, recorded mechanism (e.g., a versioned field in `calibration_input.json` or a dedicated `override.json` artifact) and specify required fields (enabled flag, reason, author, date) plus how `bev_gate.status` and manifest entries behave under override.",
+      "override_option": "Optional: remove override support from V1 (no overrides). Impact: stricter gating may block BEV in some edge cases but preserves determinism and trust-first posture."
+    },
+    {
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "Manual fallback is in-scope (INT-020 + FUSBAL-V1-CAL-001), but the manual correspondences record is not explicitly defined in intent/task artifacts (minimum fields, coordinate frames, validation, and how it maps to diagnostics metrics like `num_inliers`).",
+      "why": "Without an explicit schema and metric mapping, implementations will diverge and downstream tooling (contract/audits) cannot validate deterministically.",
+      "exact_fix": "Add an explicit, versioned `manual_correspondences.json` minimum schema and validation rules to `spec/tasks/TASK-CAL-003.json`, including how to compute/populate `num_inliers`, `inlier_ratio`, and `marking_coverage_score_0_to_1` for the manual path.",
+      "override_option": "Optional: reduce scope by removing manual fallback from INT-020 and deferring to a later intent. Impact: weakens compliance with FUSBAL-V1-CAL-001 and reduces BEV availability when auto-fit fails."
+    },
+    {
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "INT-020 summary claims robustness to ‘wide-angle distortion’ while TASK-CAL-002 explicitly assumes inputs are pre-undistorted and must fail (not guess) when distortion prevents reliable fitting.",
+      "why": "This mismatch is a classic scope trap: one reader will implement undistortion support while another will enforce the pre-undistorted assumption. It also affects how calibration success/failure is judged.",
+      "exact_fix": "Edit `spec/intents/INT-020.json` summary/success criteria to make distortion handling explicit: V1 assumes pre-undistorted inputs; if not, calibration fails with diagnostics (or explicitly expand scope to include an undistortion step).",
+      "override_option": "Optional: expand V1 scope to include undistortion and distortion-model estimation. Impact: significantly larger vision scope and test surface; will likely require new tasks and requirements."
+    },
+    {
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "low",
+      "issue": "INT-020 success criteria references deterministic gating but does not restate the actual numeric thresholds (only TASK-CAL-003 does).",
+      "why": "Intent closure and audits are simpler when the intent’s success criteria are self-contained and objectively checkable. Without numbers, readers can miss the canonical thresholds or treat them as negotiable.",
+      "exact_fix": "Edit `spec/intents/INT-020.json` success_criteria to include (or explicitly reference) the exact V1 gating thresholds from `spec/tasks/TASK-CAL-003.json`.",
+      "override_option": "Optional: keep thresholds only in the task spec and add an intent success criterion that says ‘use TASK-CAL-003 thresholds verbatim’. Impact: slightly higher chance of intent-level misunderstanding."
+    },
+    {
+      "roi_0_to_10": 5,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "Scope control is permissive: `paths_allowed` includes all of `pipeline/`, which invites unrelated pipeline changes under this intent.",
+      "why": "Broad path allowances are a common source of accidental scope creep and review friction, especially when multiple intents land concurrently.",
+      "exact_fix": "Narrow `spec/intents/INT-020.json` `paths_allowed` from `pipeline/` to the smallest set needed (e.g., `pipeline/src/fusbal_pipeline/calibration/`, `pipeline/fixtures/calibration/`, and `pipeline/src/fusbal_pipeline/contract.py`).",
+      "override_option": "Optional: keep `pipeline/` but add a hard non-goal stating ‘no changes outside calibration modules and fixtures’. Impact: relies on human enforcement rather than guardrails."
+    }
+  ],
+  "ambiguities": [
+    {
+      "ambiguous_text": "Implement pitch mapping that is robust to wide-angle distortion and imperfect markings.",
+      "risk": "Conflicts with the V1 assumption that inputs are pre-undistorted; could trigger unintended undistortion/distortion-model work or inconsistent failure semantics.",
+      "proposed_rewrite": "Implement pitch mapping robust to imperfect/partial markings; V1 assumes frames are pre-undistorted (`image_pre_undistorted=true`) and MUST fail explicitly with diagnostics when that assumption is violated."
+    },
+    {
+      "ambiguous_text": "Gate BEV outputs on calibration quality; always still deliver overlay/video diagnostics.",
+      "risk": "‘Calibration quality’ can be interpreted differently (which metrics? which thresholds?); implementers may accidentally still emit BEV.",
+      "proposed_rewrite": "Gate BEV outputs deterministically using the V1 quality metrics and thresholds; when gated, BEV artifacts are marked missing with explicit reasons and diagnostics are still produced."
+    },
+    {
+      "ambiguous_text": "Manual fallback and calibration quality gating use deterministic thresholds; ... (unless explicitly overridden by a human-approved workflow).",
+      "risk": "Undefined override mechanism invites ad-hoc exceptions and breaks determinism/auditability.",
+      "proposed_rewrite": "Remove override language for V1, or define an explicit override artifact/field with required metadata and deterministic output labeling."
+    },
+    {
+      "ambiguous_text": "... includes ... `marking_coverage_score_0_to_1` ...",
+      "risk": "Metric definition missing; threshold cannot be applied consistently.",
+      "proposed_rewrite": "Define `marking_coverage_score_0_to_1` deterministically (required labels set, formula, and behavior when labels are missing)."
+    },
+    {
+      "ambiguous_text": "Provide a minimal manual fallback input format for correspondences...",
+      "risk": "Without an explicit schema, manual fallback will be ad-hoc and not reproducible, undermining audits.",
+      "proposed_rewrite": "Define `manual_correspondences.json` schema (versioned) with explicit image pixel points, pitch meter points, frames, minimum count, and deterministic validation rules."
+    }
+  ],
+  "scope_alignment": {
+    "inferred_surfaces": [
+      "spec/intents/INT-020.json",
+      "spec/tasks/TASK-CAL-001.json",
+      "spec/tasks/TASK-CAL-002.json",
+      "spec/tasks/TASK-CAL-003.json",
+      "spec/requirements/areas/v1.json (referenced requirements)",
+      "spec/md/docs/* templates (contract/runbooks)",
+      "pipeline/src/fusbal_pipeline/calibration/* (implementation later)",
+      "pipeline/fixtures/calibration/* (fixtures later)",
+      "status/audit/INT-020/runs/* (evidence outputs)"
+    ],
+    "paths_allowed": [
+      "spec/",
+      "spec/md/docs/",
+      "pipeline/",
+      "status/audit/"
+    ],
+    "paths_excluded": [
+      "docs/",
+      "status/intents/",
+      "status/portal/",
+      "status/wizard/"
+    ],
+    "mismatches": [
+      "Allowing all of `pipeline/` is broader than the deliverables listed in TASK-CAL-* (calibration modules + fixtures); consider narrowing to reduce creep risk.",
+      "`status/audit/` is allowed even though most of `status/` is excluded; this is correct for evidence, but ensure contributors do not edit other generated `status/*` outputs.",
+      "Intent-level language about distortion robustness conflicts with task-level assumption of pre-undistorted frames.",
+      "Manual fallback is claimed in-scope but lacks a fully specified artifact contract in the task specs."
+    ],
+    "recommended_edits": [
+      "Tighten INT-020 wording to make distortion handling explicit.",
+      "Narrow `paths_allowed` for INT-020 to calibration-specific pipeline subpaths.",
+      "Define deterministic coverage/metrics and the manual correspondence schema (including override rules or removal)."
+    ]
+  },
+  "closeability": {
+    "tasks": {
+      "status": "PASS",
+      "notes": "All planned task ids exist (TASK-CAL-001/002/003), reference INT-020, and each has deliverables and evidence hooks. Remaining issue is underspecified metric/schema/override details (see blockers)."
+    },
+    "work_packages": {
+      "status": "PASS",
+      "notes": "Generated work packages cover all planned tasks; no unassigned tasks detected. Titles are clear and aligned with task scopes."
+    },
+    "close_gates": {
+      "status": "PASS",
+      "notes": "Close gate commands are present and align with repository governance (`guardrails`, `generate`, `audit:intent`)."
+    },
+    "guardrail_plan": {
+      "status": "FAIL",
+      "notes": "In-scope requirements are valid (FUSBAL-V1-CAL-001, FUSBAL-V1-BEV-001, FUSBAL-V1-TRUST-001) and carry `guardrails:req_tag_enforced_on_done`, but key gating/override semantics and manual fallback schema are underspecified, increasing risk of non-compliant or unverifiable implementations."
+    }
+  },
+  "minimum_next_steps": [
+    "Define `marking_coverage_score_0_to_1` deterministically in `spec/tasks/TASK-CAL-002.json` (inputs, computation, edge cases).",
+    "Make the gating override (currently ‘human-approved workflow’) explicit and recorded, or remove overrides from V1 in `spec/tasks/TASK-CAL-003.json`.",
+    "Add an explicit `manual_correspondences.json` minimum schema + validation rules to `spec/tasks/TASK-CAL-003.json`, including how to populate gating metrics for manual outcomes.",
+    "Align `spec/intents/INT-020.json` summary/success criteria with the ‘pre-undistorted’ V1 assumption (or explicitly expand scope).",
+    "Restate or explicitly reference the exact V1 numeric gating thresholds in `spec/intents/INT-020.json` success_criteria.",
+    "Optionally narrow `spec/intents/INT-020.json` `paths_allowed` to calibration-specific pipeline subpaths to reduce scope creep risk."
+  ]
+}

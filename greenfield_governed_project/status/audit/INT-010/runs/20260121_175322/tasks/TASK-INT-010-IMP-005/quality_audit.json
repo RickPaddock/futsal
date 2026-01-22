@@ -1,0 +1,84 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-010",
+  "run_id": "20260121_175322",
+  "task_id": "TASK-INT-010-IMP-005",
+  "timestamp": "2026-01-21T18:23:10Z",
+  "functional": {
+    "status": "pass",
+    "notes": "Bundle manifest is deterministic with sorted entries and stable schema version.",
+    "evidence": [
+      "pipeline/src/fusbal_pipeline/bundle.py build_manifest_v1() sorts outputs and produces a stable dict.",
+      "pipeline/src/fusbal_pipeline/cli.py validate emits manifest JSON with stable formatting."
+    ],
+    "findings": [
+      "Manifest ordering is stable across runs on the same inputs.",
+      "Schema version is explicit and validated."
+    ]
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "notes": "Determinism reduces audit noise and supports reproducible evidence.",
+      "evidence": [
+        "pipeline/tests/test_manifest_determinism.py",
+        "pipeline/src/fusbal_pipeline/bundle.py"
+      ],
+      "findings": [
+        "Regression coverage exists for ordering drift."
+      ]
+    },
+    "performance": {
+      "status": "pass",
+      "notes": "Sorting overhead is negligible given small output sets.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/bundle.py"
+      ],
+      "findings": [
+        "No heavy IO beyond reading existing outputs."
+      ]
+    },
+    "security": {
+      "status": "pass",
+      "notes": "Manifest contains only file metadata and paths.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/bundle.py"
+      ],
+      "findings": [
+        "No sensitive secrets collected."
+      ]
+    },
+    "maintainability": {
+      "status": "pass",
+      "notes": "Manifest logic is isolated and test-backed.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/bundle.py",
+        "pipeline/tests/test_manifest_determinism.py"
+      ],
+      "findings": [
+        "Extensible for future schema versions."
+      ]
+    },
+    "overall_status": "pass"
+  },
+  "gate": {
+    "status": "pass",
+    "blockers": []
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-INT-010-IMP-005.json",
+    "deliverable_paths": [
+      "pipeline/src/fusbal_pipeline/bundle.py",
+      "pipeline/tests/test_manifest_determinism.py"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/bundle.py",
+      "pipeline/tests/test_manifest_determinism.py"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 8,
+    "notes": "Looks solid; ensure sha256 computation (if any) remains optional and deterministic."
+  }
+}

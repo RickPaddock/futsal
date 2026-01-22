@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { repoRootFromHere, relPosix } from "../../scripts/lib/paths.mjs";
+import { utcNow } from "../../scripts/lib/time.mjs";
 
 function sha256File(p) {
   const buf = fs.readFileSync(p);
@@ -32,12 +33,21 @@ function parseArgs(argv) {
   return out;
 }
 
-function utcNow() {
-  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
 function ensureDir(p) {
   fs.mkdirSync(p, { recursive: true });
+}
+
+function deriveRunMetadata({ repoRoot, outPath }) {
+  const rel = relPosix(path.relative(repoRoot, outPath));
+  const m = rel.match(/^status\/audit\/[^/]+\/runs\/([^/]+)\/(.+?)\/run\.json$/);
+  if (m) {
+    return { runId: m[1], stage: m[2], runJsonPath: rel };
+  }
+  const m2 = rel.match(/^status\/audit\/[^/]+\/runs\/([^/]+)\/run\.json$/);
+  if (m2) {
+    return { runId: m2[1], stage: "run", runJsonPath: rel };
+  }
+  return { runId: path.basename(path.dirname(outPath)), stage: "run", runJsonPath: rel };
 }
 
 function collectArtefacts(repoRoot, artefacts) {
@@ -62,6 +72,7 @@ if (!args.cmd.length) {
 }
 
 const outPath = path.isAbsolute(args.out) ? args.out : path.join(repoRoot, args.out);
+const meta = deriveRunMetadata({ repoRoot, outPath });
 const timestampStart = utcNow();
 const res = spawnSync(args.cmd[0], args.cmd.slice(1), { cwd: repoRoot, stdio: ["inherit", "pipe", "pipe"] });
 const timestampEnd = utcNow();
@@ -78,7 +89,7 @@ if (stderr) process.stderr.write(stderr);
 
 ensureDir(path.dirname(outPath));
 const payload = {
-  run_id: path.basename(path.dirname(outPath)),
+  run_id: meta.runId,
   timestamp_start: timestampStart,
   timestamp_end: timestampEnd,
   command: args.cmd.join(" "),
@@ -86,11 +97,12 @@ const payload = {
   exit_code: res.status ?? 1,
   cwd: ".",
   actor: args.actor,
-  intent_id: args.intentId || undefined,
+  intent_id: args.intentId || "",
   artefacts: collectArtefacts(repoRoot, args.artefacts),
+  stage: meta.stage,
+  run_json_path: meta.runJsonPath,
 };
 if (stdout) payload.stdout = stdout;
 if (stderr) payload.stderr = stderr;
 fs.writeFileSync(outPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
 process.exit(res.status ?? 1);
-

@@ -49,9 +49,9 @@
     {
       "intent_id": "INT-010",
       "title": "Define V1 output contract + pipeline scaffolding",
-      "status": "todo",
+      "status": "closed",
       "created_date": "2026-01-20",
-      "closed_date": "",
+      "closed_date": "2026-01-21",
       "requirements_in_scope": [
         {
           "id": "AUD-REQ-10",
@@ -88,52 +88,52 @@
         {
           "task_id": "TASK-INT-010-IMP-001",
           "title": "Stream `tracks.jsonl` validation for large bundles",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-010-IMP-002",
           "title": "Add structured error codes and optional JSON output for CLI validation",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-010-IMP-003",
           "title": "Add minimal unit tests for manifest determinism and schema validation",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-010-IMP-004",
           "title": "Extend `init` to optionally scaffold placeholder outputs",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-010-IMP-005",
           "title": "Tighten numeric/range validation for track/event fields",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-010-IMP-006",
           "title": "Improve manifest portability (avoid forced absolute paths)",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-010-IMP-007",
           "title": "Export the V1 contract as JSON Schema for downstream validators",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-010-IMP-008",
           "title": "Show per-task quality audit results in the internal portal UI",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-010-IMP-009",
           "title": "Capture evidence for `npm run generate` runs and enforce at close",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-010-IMP-010",
           "title": "Add lightweight formatting/linting for the pipeline Python package",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-V1-CLI-001",
@@ -155,9 +155,9 @@
     {
       "intent_id": "INT-020",
       "title": "Calibration + BEV mapping MVP",
-      "status": "todo",
+      "status": "closed",
       "created_date": "2026-01-20",
-      "closed_date": "",
+      "closed_date": "2026-01-21",
       "requirements_in_scope": [
         {
           "id": "FUSBAL-V1-BEV-001",
@@ -182,17 +182,17 @@
         {
           "task_id": "TASK-CAL-001",
           "title": "Pitch templates + calibration inputs per venue/pitch",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-CAL-002",
           "title": "Auto-fit from field markings + diagnostics",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-CAL-003",
           "title": "Manual fallback + explicit calibration quality gating",
-          "status": "todo"
+          "status": "done"
         }
       ]
     },
@@ -224,19 +224,69 @@
       ],
       "tasks": [
         {
+          "task_id": "TASK-INT-030-IMP-001",
+          "title": "Executable pipeline run emits tracks.jsonl (detections → MOT → team)",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-002",
+          "title": "Deterministic unit tests for detections, MOT breaks, and team smoothing",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-003",
+          "title": "Tighten contract validation for segment/break semantics",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-004",
+          "title": "Fixture-based smoke run generates a valid, non-placeholder bundle",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-005",
+          "title": "Reduce contract template drift by injecting schema snippets during generation",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-006",
+          "title": "Emit explicit unknown records/diagnostics for ambiguous detections",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-007",
+          "title": "Bound MOT state and add out_of_view heuristic",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-008",
+          "title": "Centralize diagnostics key constants",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-009",
+          "title": "Portal surfaces emphasize per-task quality blockers",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-010",
+          "title": "Evidence run.json includes git SHA and environment metadata",
+          "status": "todo"
+        },
+        {
           "task_id": "TASK-PLAYER-DET-001",
           "title": "Player detector(s) per frame + confidence",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-PLAYER-MOT-001",
           "title": "Multi-object tracking with swap avoidance",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-TEAM-001",
           "title": "Bib-color team assignment with smoothing",
-          "status": "todo"
+          "status": "done"
         }
       ]
     },
@@ -260,12 +310,6 @@
           "tracking_implementation": "todo"
         },
         {
-          "id": "FUSBAL-V1-SENSOR-001",
-          "title": "Sensors are optional inputs that only improve outputs when healthy; camera-only output remains sellable.",
-          "status": "canonical",
-          "tracking_implementation": "todo"
-        },
-        {
           "id": "FUSBAL-V1-TRUST-001",
           "title": "Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.",
           "status": "canonical",
@@ -276,16 +320,96 @@
         {
           "task_id": "TASK-BALL-DET-001",
           "title": "Ball detector(s) + gating",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-BALL-TRACK-001",
           "title": "Intermittent ball tracking + missing state",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-EVENT-001",
           "title": "Conservative shots/goals inference",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "intent_id": "INT-050",
+      "title": "Video ingest → plumbing proof → baseline real detections (UAT)",
+      "status": "todo",
+      "created_date": "2026-01-22",
+      "closed_date": "",
+      "requirements_in_scope": [
+        {
+          "id": "FUSBAL-V1-BALL-001",
+          "title": "Track the ball when visible and explicitly represent missing/unknown spans without hallucination.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-DATA-001",
+          "title": "All sources emit a canonical track record format suitable for fusion and reporting.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-EVENT-001",
+          "title": "Infer shots and goals conservatively in V1 (high precision) and emit confidence + evidence pointers.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-OUT-001",
+          "title": "Produce a deterministic per-match output bundle (overlay, BEV, tracks, events, report) with diagnostics.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-TRUST-001",
+          "title": "Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "REQ-V1-BALL-DETECT-BASELINE-001",
+          "title": "Baseline real ball detections: given a provided futsal video, the pipeline can emit non-empty ball detections/tracks on at least a subset of frames with confidence and diagnostics.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "REQ-V1-VIDEO-INGEST-001",
+          "title": "Video ingest: given a local single-camera match video, the pipeline can decode frames deterministically and produce a time-indexed stream for downstream detectors/trackers.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "REQ-V1-VIDEO-RUNNER-001",
+          "title": "End-to-end runner: ingest a video and export a valid V1 output bundle with tracks/events under `output/<match_id>/` (plumbing-first, deterministic).",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "SYS-ARCH-15",
+          "title": "All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        }
+      ],
+      "tasks": [
+        {
+          "task_id": "TASK-BALL-DET-BASELINE-001",
+          "title": "Baseline local ball detector (real detections for UAT clip)",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-RUN-VIDEO-001",
+          "title": "End-to-end run-video: ingest film → export bundle (plumbing proof)",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-VIDEO-INGEST-001",
+          "title": "Deterministic video ingest + frame timebase",
           "status": "todo"
         }
       ]

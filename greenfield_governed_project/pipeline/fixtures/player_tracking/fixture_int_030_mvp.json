@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "intent_id": "INT-030",
+  "source": "fixture_cam_A",
+  "fps": 10,
+  "frames": [
+    {
+      "frame_index": 0,
+      "t_ms": 0,
+      "detections": [
+        {"bbox_xyxy_px": [100, 100, 140, 220], "confidence": 0.95, "diagnostics": {"color_label": "yellow"}},
+        {"bbox_xyxy_px": [300, 110, 340, 230], "confidence": 0.92, "diagnostics": {"color_label": "blue"}}
+      ]
+    },
+    {
+      "frame_index": 1,
+      "t_ms": 100,
+      "detections": [
+        {"bbox_xyxy_px": [110, 100, 150, 220], "confidence": 0.93, "diagnostics": {"color_label": "yellow"}},
+        {"bbox_xyxy_px": [290, 110, 330, 230], "confidence": 0.90, "diagnostics": {"color_label": "blue"}}
+      ]
+    },
+    {
+      "frame_index": 2,
+      "t_ms": 200,
+      "detections": [
+        {"bbox_xyxy_px": [200, 100, 240, 220], "confidence": 0.88, "diagnostics": {"color_label": "yellow"}},
+        {"bbox_xyxy_px": [210, 105, 250, 225], "confidence": 0.87, "diagnostics": {"color_label": "blue"}}
+      ]
+    },
+    {
+      "frame_index": 3,
+      "t_ms": 300,
+      "detections": [
+        {"bbox_xyxy_px": [220, 100, 260, 220], "confidence": 0.86, "diagnostics": {"color_label": "unknown"}}
+      ]
+    },
+    {
+      "frame_index": 4,
+      "t_ms": 400,
+      "detections": []
+    }
+  ]
+}

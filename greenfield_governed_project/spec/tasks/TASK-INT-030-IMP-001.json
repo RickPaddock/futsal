@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-030-IMP-001",
+  "intent_id": "INT-030",
+  "title": "Executable pipeline run emits tracks.jsonl (detections → MOT → team)",
+  "status": "todo",
+  "scope": [
+    "Add a deterministic executable path that produces a non-placeholder bundle including tracks.jsonl using the INT-030 player detection, swap-avoidant MOT, and team assignment components.",
+    "Keep the implementation trust-first: prefer missing/unknown/breaks over wrong continuity.",
+    "Use fixture-based inputs (no real CV required) so runs are repeatable and suitable for audits." 
+  ],
+  "acceptance": [
+    "A CLI entrypoint can run a deterministic fixture and write a bundle that passes `fusbal-pipeline validate`.",
+    "The generated `tracks.jsonl` contains player records with stable fields (schema_version, t_ms, entity_type, entity_id, track_id, source, frame, pos_state) and includes confidence, segment_id, break_reason (when segments end), and team/team_confidence where applicable.",
+    "Ambiguous associations end segments with an explicit break_reason rather than swapping identities.",
+    "Team assignment emits A/B/unknown with smoothing diagnostics; unknown is used when evidence is weak."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-030-IMP-001-001",
+      "title": "Pipeline run command (fixture-based) writes a valid bundle",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/cli.py",
+        "pipeline/src/fusbal_pipeline/player/detections.py",
+        "pipeline/src/fusbal_pipeline/player/mot.py",
+        "pipeline/src/fusbal_pipeline/team/assignment.py",
+        "pipeline/src/fusbal_pipeline/bundle.py"
+      ],
+      "acceptance": [
+        "A new CLI command (or flags) runs a fixture and writes bundle outputs deterministically.",
+        "The produced bundle validates with existing contract + bundle validators."
+      ],
+      "evidence": [
+        "Run the fixture and validate the output bundle successfully."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-INT-030-IMP-001-002",
+      "title": "Deterministic fixture input for player tracking MVP",
+      "paths": [
+        "pipeline/fixtures/player_tracking/fixture_int_030_mvp.json"
+      ],
+      "acceptance": [
+        "Fixture is deterministic and includes per-frame detection candidates and optional team color labels sufficient to exercise breaks/unknown/team smoothing." 
+      ],
+      "evidence": [
+        "Fixture is used by the new CLI run path."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-030-IMP-001-001",
+      "title": "Add a fixture-based `run` command that generates a non-placeholder bundle and tracks.jsonl.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_030_IMP_001.SUB_001",
+      "done_when": [
+        "The command writes a deterministic bundle and `tracks.jsonl` using the INT-030 modules.",
+        "The bundle passes `fusbal-pipeline validate`."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-030-IMP-001-002",
+      "title": "Define a deterministic fixture that exercises ambiguity breaks and Unknown team assignment.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_030_IMP_001.SUB_002",
+      "done_when": [
+        "Fixture covers at least: clean tracking, ambiguous association causing break, and weak team evidence causing unknown.",
+        "Fixture produces deterministic record ordering and IDs."
+      ]
+    }
+  ]
+}

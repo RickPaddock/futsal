@@ -1,7 +1,7 @@
 /*
 PROV: GREENFIELD.GOV.CLOSE_INTENT.01
-REQ: SYS-ARCH-15, AUD-REQ-10, GREENFIELD-GOV-015, GREENFIELD-GOV-017, GREENFIELD-GOV-018
-WHY: Close an intent by applying status updates to canonical sources after a successful audit (including runbook navigation hygiene).
+REQ: SYS-ARCH-15, AUD-REQ-10, GREENFIELD-GOV-015, GREENFIELD-GOV-017, GREENFIELD-GOV-018, GREENFIELD-GOV-021
+WHY: Close an intent by applying status updates to canonical sources after a successful audit (including runbook navigation hygiene and explicit path scope).
 */
 
 import fs from "node:fs";
@@ -47,6 +47,14 @@ function requireEvidenceRunOk(repoRoot, abs) {
   const exitCode = Number(obj?.exit_code ?? 1);
   if (exitCode !== 0) throw new Error(`evidence_nonzero_exit:${relFrom(repoRoot, abs)}:${exitCode}`);
   return obj;
+}
+
+function requireEvidenceCommandIncludes(repoRoot, abs, needle) {
+  const obj = readJson(abs);
+  const cmd = String(obj?.command || "");
+  if (!cmd.includes(needle)) {
+    throw new Error(`evidence_command_mismatch:${relFrom(repoRoot, abs)}:expected_includes:${needle}`);
+  }
 }
 
 function requireAuditReportOk(repoRoot, abs) {
@@ -164,6 +172,20 @@ function requireRunbooksDecisionOk(repoRoot, intentId, intent) {
   }
 }
 
+function requirePathScopeOk(intentId, intent) {
+  const status = String(intent?.status || "").trim();
+  if (status === "draft") return;
+  const allowed = Array.isArray(intent?.paths_allowed) ? intent.paths_allowed.map(String).map((s) => s.trim()).filter(Boolean) : null;
+  const excluded = Array.isArray(intent?.paths_excluded) ? intent.paths_excluded.map(String).map((s) => s.trim()).filter(Boolean) : null;
+  if (!allowed) throw new Error(`intent_paths_allowed_required:${intentId}`);
+  if (!excluded) throw new Error(`intent_paths_excluded_required:${intentId}`);
+  if (!allowed.length) throw new Error(`intent_paths_allowed_empty:${intentId}`);
+  if (!excluded.length) throw new Error(`intent_paths_excluded_empty:${intentId}`);
+  const requiredExcluded = ["docs/", "status/intents/", "status/portal/"];
+  const missing = requiredExcluded.filter((pfx) => !excluded.some((x) => x === pfx || x.startsWith(pfx)));
+  if (missing.length) throw new Error(`intent_paths_excluded_missing_generated:${intentId}:${missing.join(",")}`);
+}
+
 function scanRepoReqTags(repoRoot) {
   const exts = new Set([".js", ".mjs", ".ts", ".tsx", ".py", ".sh"]);
   const skip = new Set([
@@ -258,6 +280,7 @@ function main() {
   }
 
   requireRunbooksDecisionOk(repoRoot, intentId, intent);
+  requirePathScopeOk(intentId, intent);
 
   const requirementsIndexPath = path.join(repoRoot, requirementsSourceRel);
   const index = readJson(requirementsIndexPath);
@@ -306,12 +329,18 @@ function main() {
     const auditRun = path.join(runRoot, "audit", "run.json");
     const auditReport = path.join(runRoot, "audit", "audit_report.json");
     const guardrailsRun = path.join(runRoot, "guardrails", "run.json");
+    const generateRun = path.join(runRoot, "generate", "run.json");
     const qualityReport = path.join(runRoot, "quality_audit.json");
 
     requireEvidenceRunOk(repoRoot, auditRun);
+    requireEvidenceCommandIncludes(repoRoot, auditRun, "npm run audit:intent");
     requireAuditReportOk(repoRoot, auditReport);
     requireEvidenceRunOk(repoRoot, guardrailsRun);
+    requireEvidenceCommandIncludes(repoRoot, guardrailsRun, "npm run guardrails");
     if (args.requireQualityAudit) {
+      // Ensure derived surfaces were refreshed for the audited run.
+      requireEvidenceRunOk(repoRoot, generateRun);
+      requireEvidenceCommandIncludes(repoRoot, generateRun, "npm run generate");
       requireIntentQualityAuditOk(repoRoot, qualityReport, { intentId, runId: args.runId });
       for (const tid of plannedTasks) {
         const taskId = String(tid || "").trim();

@@ -1,17 +1,19 @@
 /*
 PROV: GREENFIELD.SCAFFOLD.GUARDRAILS.01
-REQ: AUD-REQ-10, SYS-ARCH-15, GREENFIELD-GOV-018, GREENFIELD-GOV-019, GREENFIELD-TEST-001
-WHY: Enforce governance invariants (generated markdown only, deterministic outputs, evidence format, runbook navigation hygiene) with inline error recovery guidance.
+REQ: AUD-REQ-10, SYS-ARCH-15, GREENFIELD-GOV-018, GREENFIELD-GOV-019, GREENFIELD-GOV-021, GREENFIELD-GOV-022, GREENFIELD-GOV-023, GREENFIELD-GOV-024, GREENFIELD-TEST-001
+WHY: Enforce governance invariants (generated markdown only, deterministic outputs, evidence format, runbook navigation hygiene, explicit intent path scope, and prompt/evidence linting) with inline error recovery guidance.
 */
 
 import fs from "node:fs";
 import path from "node:path";
+import Ajv from "ajv";
 import { repoRootFromHere, relPosix } from "../lib/paths.mjs";
 
 const SKIP_DIR_NAMES = new Set([
   ".git",
   ".next",
   ".cache",
+  ".pytest_cache",
   ".turbo",
   ".vercel",
   ".idea",
@@ -29,6 +31,19 @@ const SKIP_DIR_NAMES = new Set([
 
 function readJson(p) {
   return JSON.parse(fs.readFileSync(p, "utf8"));
+}
+
+const ajv = new Ajv({ allErrors: true });
+
+function validateJson(repoRoot, data, schemaName) {
+  const schemaPath = path.join(repoRoot, "spec", "schemas", `${schemaName}.schema.json`);
+  if (!fs.existsSync(schemaPath)) return;
+  const schema = readJson(schemaPath);
+  const validate = ajv.compile(schema);
+  const ok = validate(data);
+  if (ok) return;
+  const msg = (validate.errors || []).map((e) => `${e.instancePath} ${e.message}`).join("; ");
+  throw new Error(`schema_validation_failed:${schemaName}:${msg}`);
 }
 
 function iterFiles(root, predicate) {
@@ -160,6 +175,160 @@ function validateIntentRunbooks({ repoRoot, intentId, intent }) {
   return errors;
 }
 
+function normalizePathPrefixes(value) {
+  if (!Array.isArray(value)) return null;
+  const out = [];
+  for (const v of value) {
+    const rel = String(v || "").trim().replace(/\\/g, "/");
+    if (!rel) continue;
+    out.push(rel);
+  }
+  return out;
+}
+
+function validateIntentPathScope({ intentId, intent }) {
+  const status = String(intent?.status || "").trim();
+  if (status === "draft") return [];
+
+  const errors = [];
+  const allowed = normalizePathPrefixes(intent?.paths_allowed);
+  const excluded = normalizePathPrefixes(intent?.paths_excluded);
+
+  if (!allowed) errors.push(`intent_paths_allowed_required:${intentId} → Fix: Add paths_allowed[] (repo-relative prefixes, e.g. ["spec/","pipeline/","apps/portal/"])`);
+  if (!excluded) errors.push(`intent_paths_excluded_required:${intentId} → Fix: Add paths_excluded[] (repo-relative prefixes, e.g. ["docs/","status/intents/","status/portal/"])`);
+  if (!allowed || !excluded) return errors;
+
+  if (!allowed.length) errors.push(`intent_paths_allowed_empty:${intentId} → Fix: Add at least one allowed prefix`);
+  if (!excluded.length) errors.push(`intent_paths_excluded_empty:${intentId} → Fix: Add at least one excluded prefix (typically generated surfaces)`);
+
+  function validatePrefix(kind, rel) {
+    if (!rel || typeof rel !== "string") return `${kind}_empty`;
+    if (rel.startsWith("/") || /^[A-Za-z]:\//.test(rel)) return `${kind}_absolute:${rel}`;
+    if (rel.includes("..")) return `${kind}_parent_ref:${rel}`;
+    if (rel.includes("<") || rel.includes(">")) return `${kind}_placeholder:${rel}`;
+    return null;
+  }
+
+  for (const rel of allowed) {
+    const issue = validatePrefix("paths_allowed", rel);
+    if (issue) errors.push(`intent_paths_allowed_invalid:${intentId}:${issue}`);
+  }
+  for (const rel of excluded) {
+    const issue = validatePrefix("paths_excluded", rel);
+    if (issue) errors.push(`intent_paths_excluded_invalid:${intentId}:${issue}`);
+  }
+
+  const requiredExcluded = ["docs/", "status/intents/", "status/portal/"];
+  const missingRequiredExcluded = requiredExcluded.filter((pfx) => !excluded.some((x) => x === pfx || x.startsWith(pfx)));
+  if (missingRequiredExcluded.length) {
+    errors.push(`intent_paths_excluded_missing_generated:${intentId} → Fix: Ensure paths_excluded includes: ${missingRequiredExcluded.map((x) => `"${x}"`).join(", ")}`);
+  }
+
+  if (excluded.some((x) => x === "status/" || x.startsWith("status/")) && !allowed.some((x) => x === "status/audit/" || x.startsWith("status/audit/"))) {
+    errors.push(`intent_paths_allow_status_audit:${intentId} → Fix: If excluding status/, explicitly allow status/audit/ for evidence runs`);
+  }
+
+  return errors;
+}
+
+function validatePromptActivityFooter({ repoRoot }) {
+  const promptsDir = path.join(repoRoot, "spec", "prompts");
+  if (!fs.existsSync(promptsDir)) return [];
+  const files = fs.readdirSync(promptsDir, { withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith(".prompt.txt")).map((d) => d.name).sort();
+  const errors = [];
+  const cfg = {
+    "intent_create_end_to_end.prompt.txt": { expected: "`ACTIVITY: create <INTENT_ID>: finished - pass|fail`", allow: ["INTENT_ID", "requirements_source", "requirements_areas"] },
+    "intent_preflight_review.prompt.txt": { expected: "`ACTIVITY: preflight <INTENT_ID> <run_id>: finished - pass|fail`", allow: ["INTENT_ID", "INTENT_TITLE", "run_id"] },
+    "intent_implement_end_to_end.prompt.txt": { expected: "`ACTIVITY: implement <INTENT_ID> <run_id>: finished - pass|fail`", allow: ["INTENT_ID", "run_id", "requirements_source", "requirements_areas"] },
+    "intent_quality_audit.prompt.txt": { expected: "`ACTIVITY: quality_audit <INTENT_ID> <run_id>: finished - pass|fail`", allow: ["INTENT_ID", "run_id"] },
+    "intent_close_end_to_end.prompt.txt": { expected: "`ACTIVITY: close <INTENT_ID> <run_id>: finished - pass|fail`", allow: ["INTENT_ID", "run_id", "closed_date"] },
+  };
+
+  function listPlaceholders(text) {
+    const out = new Set();
+    const re = /<([a-zA-Z0-9_]+)>/g;
+    let m;
+    while ((m = re.exec(text))) out.add(m[1]);
+    return [...out].sort();
+  }
+
+  for (const name of files) {
+    const abs = path.join(promptsDir, name);
+    const text = fs.readFileSync(abs, "utf8");
+    const rel = relPosix(path.relative(repoRoot, abs));
+    const expected = cfg[name]?.expected || null;
+    if (!expected) {
+      errors.push(`prompt_unknown_template:${name} → Fix: Add strict ACTIVITY footer expectations to guardrails for ${rel}`);
+      continue;
+    }
+    if (!text.includes("FINAL sentence requirement")) {
+      errors.push(`prompt_missing_final_sentence_section:${name} → Fix: Add FINAL sentence requirement block to ${rel}`);
+    }
+    if (!text.includes(expected)) {
+      errors.push(`prompt_missing_expected_activity_line:${name} → Fix: Ensure ${rel} includes exactly ${expected}`);
+    }
+    const lastNonEmpty = text.split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim()).slice(-1)[0] || "";
+    if (lastNonEmpty.trim() !== expected) {
+      errors.push(`prompt_activity_line_not_last:${name} → Fix: Make the final non-empty line of ${rel} exactly ${expected}`);
+    }
+    if (text.includes("<TASK_ID>")) {
+      errors.push(`prompt_unsubstituted_placeholder:${name}:<TASK_ID> → Fix: Replace <TASK_ID> with TASK_ID (no angle brackets) in ${rel}`);
+    }
+    if (!/SANITY CHECK:/i.test(text)) {
+      errors.push(`prompt_missing_sanity_check:${name} → Fix: Add SANITY CHECK placeholder stop rule in ${rel}`);
+    }
+    if (!/Output requirements/i.test(text)) {
+      errors.push(`prompt_missing_output_requirements:${name} → Fix: Add Output requirements section in ${rel}`);
+    }
+
+    const placeholders = listPlaceholders(text);
+    const allowed = new Set(cfg[name]?.allow || []);
+    for (const p of placeholders) {
+      if (!allowed.has(p)) {
+        errors.push(`prompt_unknown_placeholder:${name}:<${p}> → Fix: Remove or rename placeholder <${p}> in ${rel} (allowed: ${[...allowed].join(", ")})`);
+      }
+    }
+  }
+  return errors;
+}
+
+function validateEvidenceRuns({ repoRoot }) {
+  const auditRoot = path.join(repoRoot, "status", "audit");
+  if (!fs.existsSync(auditRoot)) return [];
+  const errors = [];
+  const intents = fs.readdirSync(auditRoot, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
+
+  function iterRunJsonFiles(dir) {
+    const out = [];
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) out.push(...iterRunJsonFiles(abs));
+      else if (e.isFile() && e.name === "run.json") out.push(abs);
+    }
+    return out;
+  }
+
+  for (const intentId of intents) {
+    const runsDir = path.join(auditRoot, intentId, "runs");
+    if (!fs.existsSync(runsDir)) continue;
+    for (const runId of fs.readdirSync(runsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)) {
+      const runRoot = path.join(runsDir, runId);
+      const runJsons = iterRunJsonFiles(runRoot);
+      for (const abs of runJsons) {
+        try {
+          const obj = readJson(abs);
+          validateJson(repoRoot, obj, "evidence_run");
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          errors.push(`evidence_invalid:${relPosix(path.relative(repoRoot, abs))} → ${msg}`);
+        }
+      }
+    }
+  }
+
+  return errors;
+}
+
 function scanRepoReqTags(repoRoot) {
   const exts = new Set([".js", ".mjs", ".ts", ".tsx", ".py", ".sh"]);
   const files = iterFiles(repoRoot, (p) => exts.has(path.extname(p)));
@@ -243,7 +412,15 @@ function validateGovernanceSpec(repoRoot) {
     intentById.set(intentId, obj);
     const runbookErrors = validateIntentRunbooks({ repoRoot, intentId, intent: obj });
     if (runbookErrors.length) throw new Error(`intent_runbooks_invalid:${runbookErrors[0]}`);
+    const pathScopeErrors = validateIntentPathScope({ intentId, intent: obj });
+    if (pathScopeErrors.length) throw new Error(`intent_paths_scope_invalid:${pathScopeErrors[0]}`);
   }
+
+  const promptFooterErrors = validatePromptActivityFooter({ repoRoot });
+  if (promptFooterErrors.length) throw new Error(`prompts_activity_footer_invalid:${promptFooterErrors[0]}`);
+
+  const evidenceErrors = validateEvidenceRuns({ repoRoot });
+  if (evidenceErrors.length) throw new Error(`evidence_invalid:${evidenceErrors[0]}`);
 
   const tasksDir = path.join(repoRoot, "spec", "tasks");
   const taskFiles = fs.existsSync(tasksDir) ? fs.readdirSync(tasksDir).filter((n) => n.endsWith(".json")).sort() : [];

@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-030-IMP-005",
+  "intent_id": "INT-030",
+  "title": "Reduce contract template drift by injecting schema snippets during generation",
+  "status": "todo",
+  "scope": [
+    "Update generation so the output contract template can include schema-derived snippets (e.g., enums and field lists) from `pipeline/schemas/contract.v1.schema.json`.",
+    "Keep generation deterministic and avoid hand-editing generated markdown outputs.",
+    "Minimize template-engine complexity (use existing ${VAR} replacement mechanism)."
+  ],
+  "acceptance": [
+    "Generation exposes at least one schema-derived variable usable in `spec/md/docs/data/OUTPUT_CONTRACT.mdt` (e.g., break_reason vocabulary and team labels).",
+    "`npm run generate` remains deterministic and `npm run guardrails` passes.",
+    "Contract documentation and schema cannot silently diverge for the injected snippets."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-030-IMP-005-001",
+      "title": "Generation injects schema-derived variables into templates",
+      "paths": [
+        "scripts/generate_all.mjs",
+        "pipeline/schemas/contract.v1.schema.json",
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Templates can reference injected schema snippet variables via ${VAR} placeholders."
+      ],
+      "evidence": [
+        "Generated docs show the schema-derived snippet content."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-030-IMP-005-001",
+      "title": "Parse contract schema and expose enums/snippets as generation variables.",
+      "status": "todo",
+      "area": "generation",
+      "provenance_prefix": "FUSBAL.GEN.TASK_INT_030_IMP_005.SUB_001",
+      "done_when": [
+        "Generator provides deterministic snippet variables derived from the schema file.",
+        "Template uses at least one such variable."
+      ]
+    }
+  ]
+}

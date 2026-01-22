@@ -1,0 +1,19 @@
+{
+  "run_id": "20260121_221028",
+  "timestamp_start": "2026-01-22T10:04:41Z",
+  "timestamp_end": "2026-01-22T10:04:41Z",
+  "command": "npm run guardrails",
+  "args": [
+    "npm",
+    "run",
+    "guardrails"
+  ],
+  "exit_code": 0,
+  "cwd": ".",
+  "actor": "human",
+  "intent_id": "INT-030",
+  "artefacts": [],
+  "stage": "guardrails",
+  "run_json_path": "status/audit/INT-030/runs/20260121_221028/guardrails/run.json",
+  "stdout": "\n> guardrails\n> node scripts/guardrails/validate_repository.mjs\n\n[generate] ok\n✓ guardrails ok\n"
+}

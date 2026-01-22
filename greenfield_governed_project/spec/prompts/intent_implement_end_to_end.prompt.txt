@@ -23,9 +23,10 @@ A) Preflight (do not modify anything yet)
      - `decision`: `none` | `create` | `update`
      - `paths_mdt[]`: `spec/md/docs/runbooks/*.mdt` file paths (empty if `decision: none`)
      - `notes`: non-empty rationale for future LLM navigation
+   - non-empty `paths_allowed[]` and `paths_excluded[]` that explicitly exclude generated surfaces (`docs/`, `status/intents/`, `status/portal/`) and allow evidence (`status/audit/`)
    - `close_gate[]` includes:
      - `npm run guardrails`
-     - `npm run generate:check`
+     - `npm run generate`
      - `npm run audit:intent -- --intent-id <INTENT_ID>`
    - `quality_areas[]` includes BOTH:
      - exactly one `area_id: "functional"` with non-empty `task_ids[]`
@@ -83,3 +84,7 @@ Output requirements (in chat):
   - `status/audit/<INTENT_ID>/runs/<run_id>/generate/run.json`
   - `status/audit/<INTENT_ID>/runs/<run_id>/guardrails/run.json`
 - Summarize which tasks/subtasks were marked `done`.
+
+FINAL sentence requirement:
+- Your FINAL sentence in chat MUST be exactly:
+  `ACTIVITY: implement <INTENT_ID> <run_id>: finished - pass|fail`

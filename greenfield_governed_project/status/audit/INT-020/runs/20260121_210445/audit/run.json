@@ -1,0 +1,29 @@
+{
+  "run_id": "20260121_210445",
+  "timestamp_start": "2026-01-21T21:30:18Z",
+  "timestamp_end": "2026-01-21T21:30:18Z",
+  "command": "npm run audit:intent -- --intent-id INT-020 --out status/audit/INT-020/runs/20260121_210445/audit/audit_report.json",
+  "args": [
+    "npm",
+    "run",
+    "audit:intent",
+    "--",
+    "--intent-id",
+    "INT-020",
+    "--out",
+    "status/audit/INT-020/runs/20260121_210445/audit/audit_report.json"
+  ],
+  "exit_code": 0,
+  "cwd": ".",
+  "actor": "human",
+  "intent_id": "INT-020",
+  "artefacts": [
+    {
+      "path": "status/audit/INT-020/runs/20260121_210445/audit/audit_report.json",
+      "sha256": "sha256:b990160f1bb888968818b1afb9eb8c52b0930a1cb96403b7f4455f98a010f9f3"
+    }
+  ],
+  "stage": "audit",
+  "run_json_path": "status/audit/INT-020/runs/20260121_210445/audit/run.json",
+  "stdout": "\n> audit:intent\n> node scripts/audit/audit_intent.mjs --intent-id INT-020 --out status/audit/INT-020/runs/20260121_210445/audit/audit_report.json\n\n[audit] wrote status/audit/INT-020/runs/20260121_210445/audit/audit_report.json\n[audit] ok\n"
+}

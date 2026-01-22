@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-030-IMP-004",
+  "intent_id": "INT-030",
+  "title": "Fixture-based smoke run generates a valid, non-placeholder bundle",
+  "status": "todo",
+  "scope": [
+    "Add a fixture-backed smoke run that exercises the INT-030 detection/MOT/team pipeline path.",
+    "Ensure the generated bundle validates via the existing CLI validate command.",
+    "Keep smoke run deterministic and suitable for CI/guardrails."
+  ],
+  "acceptance": [
+    "A smoke test runs the fixture-based pipeline and produces a bundle that passes `fusbal-pipeline validate`.",
+    "The smoke test asserts at least one player record is emitted and that break/team semantics appear in at least one record when the fixture is designed to produce them.",
+    "The smoke test is deterministic (no timestamps/randomness in outputs beyond allowed fields)."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-030-IMP-004-001",
+      "title": "Fixture-based smoke test",
+      "paths": [
+        "pipeline/tests/test_int_030_fixture_run.py",
+        "pipeline/fixtures/player_tracking/fixture_int_030_mvp.json"
+      ],
+      "acceptance": [
+        "Smoke test runs and validates the resulting bundle."
+      ],
+      "evidence": [
+        "CI/pytest executes the smoke test reliably."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-030-IMP-004-001",
+      "title": "Add a smoke test that runs the new CLI run command and validates the bundle.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_INT_030_IMP_004.SUB_001",
+      "done_when": [
+        "Smoke test runs fixture, then calls validate, and asserts ok."
+      ]
+    }
+  ]
+}

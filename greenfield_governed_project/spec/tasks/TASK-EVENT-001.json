@@ -3,15 +3,15 @@
   "task_id": "TASK-EVENT-001",
   "intent_id": "INT-040",
   "title": "Conservative shots/goals inference",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Infer shots and goals conservatively (high precision), with explicit Unknown/candidate states when uncertain.",
     "Emit events with confidence and evidence pointers that allow users/audits to inspect supporting frames/segments.",
     "Do not expand scope into full match analytics (only shots/goals for V1)."
   ],
   "acceptance": [
-    "Events include confidence and evidence pointers (frame/time span + artifact reference).",
-    "Uncertain events are explicitly marked as candidates/unknown rather than asserted as true.",
+    "Events include `event_state ∈ {confirmed, candidate, unknown}`, `confidence` in [0,1], and evidence pointers `{artifact_id, time_range_ms|frame_range}` that allow locating supporting bundle artifacts; `artifact_id` matches a contract-documented artifact key.",
+    "Uncertain events are omitted or explicitly marked candidate/unknown rather than asserted as true.",
     "Output contract template documents the events schema and evidence semantics."
   ],
   "deliverables": [
@@ -29,7 +29,7 @@
         "Inference is conservative: prefer candidate/unknown over false positives."
       ],
       "evidence": [
-        "A minimal pipeline run produces an events stream with evidence pointers."
+        "Deterministic unit tests cover: (a) no events on negative scenarios, (b) candidate/unknown emission on ambiguous scenarios, (c) evidence pointers are well-formed and resolvable to bundle artifacts."
       ]
     },
     {
@@ -50,7 +50,7 @@
     {
       "subtask_id": "SUB-TASK-EVENT-001-001",
       "title": "Implement conservative shots/goals inference emitting confidence + evidence pointers.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_EVENT_001.SUB_001",
       "done_when": [
@@ -61,7 +61,7 @@
     {
       "subtask_id": "SUB-TASK-EVENT-001-002",
       "title": "Update output contract template for events schema.",
-      "status": "todo",
+      "status": "done",
       "area": "spec",
       "provenance_prefix": "FUSBAL.SPEC.TASK_EVENT_001.SUB_002",
       "done_when": [
@@ -71,7 +71,7 @@
     {
       "subtask_id": "SUB-TASK-EVENT-001-003",
       "title": "Define evidence pointer format and link it to bundle artifacts.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_EVENT_001.SUB_003",
       "done_when": [

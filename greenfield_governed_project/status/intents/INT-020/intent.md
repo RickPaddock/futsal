@@ -1,20 +1,21 @@
 ---
 generated: true
 source: spec/intents/INT-020.json
-source_sha256: sha256:f28987cddeebade10b6b6a25e47901ac44411b115db42be5760eb024d32336cf
+source_sha256: sha256:93d722ad5a29171d8a387d25a5878390c65bf06d4b843d861a51f6c89a865a18
 intent_id: INT-020
 title: Calibration + BEV mapping MVP
-status: todo
+status: closed
 created_date: 2026-01-20
+closed_date: 2026-01-21
 close_gate:
   - "npm run guardrails"
-  - "npm run generate:check"
+  - "npm run generate"
   - "npm run audit:intent -- --intent-id INT-020"
 ---
 
 # Intent: INT-020
 
-- Implement pitch mapping that is robust to wide-angle distortion and imperfect markings.
+- Implement pitch mapping robust to imperfect/partial markings; V1 assumes frames are pre-undistorted (`image_pre_undistorted=true`) and MUST fail explicitly with diagnostics when that assumption is violated.
 - Gate BEV outputs on calibration quality; always still deliver overlay/video diagnostics.
 
 ## Work packages
@@ -30,7 +31,12 @@ close_gate:
 
 ## Runbooks (LLM navigation)
 
-- Decision: `none`
-- Templates: (none)
-- Notes: No runbook changes required for this intent.
+- Decision: `create`
+- Templates: `spec/md/docs/runbooks/calibration-and-bev.mdt`
+- Notes: This intent introduces calibration input records, pitch templates, auto-fit diagnostics, and trust-first BEV gating. A runbook is required so future LLMs/humans can navigate and reproduce calibration workflows safely.
+
+## Scope (paths)
+
+- Allowed: `spec/`, `spec/md/docs/`, `pipeline/`, `status/audit/`
+- Excluded: `docs/`, `status/intents/`, `status/portal/`, `status/wizard/`
 

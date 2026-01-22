@@ -1,0 +1,147 @@
+{
+  "type": "intent_preflight_report",
+  "schema_version": 1,
+  "intent_id": "INT-020",
+  "run_id": "20260121_175052",
+  "timestamp": "2026-01-21T18:05:47Z",
+  "blockers_ranked": [
+    {
+      "roi_0_to_10": 10,
+      "effort": "S",
+      "risk": "low",
+      "issue": "Calibration quality gating is underspecified (no numeric thresholds, no explicit fail/skip rules for BEV outputs).",
+      "why": "Without objective gating rules, implementation will drift, BEV outputs may be produced when calibration is unreliable, and audits cannot verify correctness/safety.",
+      "exact_fix": "In `spec/intents/INT-020.json` success_criteria and in `spec/tasks/TASK-CAL-003.json` acceptance, define a concrete calibration quality model (fields + units) and explicit gating rules (pass/fail thresholds, required diagnostics, and what BEV outputs must be suppressed on fail).",
+      "override_option": "Allow BEV output only in an explicit `--force-bev` mode that is off by default and MUST mark outputs as `unsafe_unvalidated_calibration` in the contract; V1 default remains: no BEV when calibration is low-quality."
+    },
+    {
+      "roi_0_to_10": 9,
+      "effort": "S",
+      "risk": "low",
+      "issue": "Data contracts for pitch templates, calibration inputs, and manual correspondences are not fully specified as file formats (encoding, coordinate frames, versioning, storage location).",
+      "why": "Ambiguity here commonly causes incompatible formats, unclear upgrade paths, and non-deterministic parsing; it also blocks guardrails from validating inputs/outputs.",
+      "exact_fix": "In `spec/tasks/TASK-CAL-001.json` and `spec/tasks/TASK-CAL-003.json`, add explicit file format decisions, required version fields, coordinate frame definitions, and where these records live (file-level path patterns and examples referenced from `spec/md/docs/data/OUTPUT_CONTRACT.mdt`).",
+      "override_option": "If format bikeshedding is high-risk/time-consuming, standardize on JSON (not YAML) for V1 with a `schema_version` field and explicit coordinate frames; defer alternate formats until after V1."
+    },
+    {
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "low",
+      "issue": "Evidence requirements are vague (“A minimal pipeline run…”) with no reproducible command, fixtures, or expected outputs.",
+      "why": "Preflight cannot confirm auditability; implementers may choose ad-hoc scripts, making later quality audits inconsistent and hard to debug.",
+      "exact_fix": "For each task deliverable evidence clause, specify a deterministic command and concrete fixture paths (sample calibration input + expected diagnostics output locations), and ensure those paths are included in deliverables or explicitly marked as generated artefacts.",
+      "override_option": "If fixtures are too heavy, require a tiny synthetic fixture (single-frame or minimal points set) committed under `pipeline/fixtures/` and a deterministic CLI that runs on it; defer real-video fixtures."
+    },
+    {
+      "roi_0_to_10": 7,
+      "effort": "M",
+      "risk": "medium",
+      "issue": "Auto-fit scope is ambiguous (what markings are inputs, how markings are represented, and whether lens distortion is modeled).",
+      "why": "Algorithm selection and interfaces differ substantially depending on whether inputs are line segments, keypoints, or segmentation masks and whether distortion is handled; ambiguity risks wasted work or wrong interfaces.",
+      "exact_fix": "In `spec/tasks/TASK-CAL-002.json` scope/acceptance, define the expected marking inputs (type + schema), the minimum set of markings supported in V1, and whether distortion handling is required (and at what minimum level).",
+      "override_option": "Constrain V1 to pre-undistorted frames OR to homography-only fitting without explicit distortion modeling; require explicit failure when distortion makes fit unreliable."
+    },
+    {
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "low",
+      "issue": "Runbooks decision is set to `none` despite introducing new calibration inputs, schemas, and trust-first gating behavior.",
+      "why": "Future LLMs and humans will lack a single navigation entry describing how calibration artifacts are created, validated, and how gating affects outputs; this increases operational risk and slows future changes.",
+      "exact_fix": "Change `spec/intents/INT-020.json` `runbooks.decision` to `create` or `update` and add at least one template under `spec/md/docs/runbooks/` covering calibration artifacts + gating semantics (and reference it in `runbooks.paths_mdt[]`).",
+      "override_option": "Keep `runbooks.decision: none` only if the changes are fully captured in the output contract and task specs with enough examples that a separate runbook would be redundant."
+    },
+    {
+      "roi_0_to_10": 4,
+      "effort": "S",
+      "risk": "low",
+      "issue": "Scope allowlist is broader than needed for the stated work (includes `apps/portal/` and `tools/`).",
+      "why": "Over-broad `paths_allowed` increases scope creep risk and makes reviews/audits noisier.",
+      "exact_fix": "Narrow `spec/intents/INT-020.json` `paths_allowed` to only what the planned tasks require (likely `pipeline/`, `spec/md/docs/`, and minimal supporting `scripts/`/`tools/` only if required for evidence).",
+      "override_option": "If you expect portal/evidence tooling changes during INT-020, keep `tools/` allowed but add explicit deliverable paths to avoid scope creep."
+    }
+  ],
+  "ambiguities": [
+    {
+      "ambiguous_text": "robust to wide-angle distortion and imperfect markings",
+      "risk": "Implementers may overbuild or ignore distortion/marking variability; nonfunctional constraints become untestable.",
+      "proposed_rewrite": "Define supported distortion handling for V1 (e.g., input assumes pre-undistorted frames OR accept camera intrinsics/distortion coefficients), and define minimum marking coverage needed to attempt auto-fit; otherwise return explicit failure with diagnostics."
+    },
+    {
+      "ambiguous_text": "Gate BEV outputs on calibration quality",
+      "risk": "BEV may be generated inconsistently; “quality” becomes subjective, breaking trust-first guarantees.",
+      "proposed_rewrite": "Define a calibration quality record with explicit metrics (e.g., RMS reprojection error in pixels, inlier ratio, marking coverage score), and a deterministic gating rule mapping metrics to pass/fail with required diagnostics."
+    },
+    {
+      "ambiguous_text": "Auto-fit emits reprojection error diagnostics and returns explicit failure semantics when uncertain",
+      "risk": "Diagnostics may not be sufficient to debug or to enforce gating; “uncertain” becomes subjective.",
+      "proposed_rewrite": "Specify required diagnostic fields on both success and failure (metrics + evidence fields), and define the exact conditions that trigger explicit failure vs success."
+    },
+    {
+      "ambiguous_text": "Manual fallback input format for correspondences",
+      "risk": "Multiple incompatible formats; unclear coordinate frames; difficult to validate.",
+      "proposed_rewrite": "Define manual correspondence schema including: version, image frame references, pitch coordinate frame, point/line correspondence structure, units, and validation constraints (min pairs, bounds)."
+    },
+    {
+      "ambiguous_text": "support multiple venues/pitches without duplicating large blobs in a single file",
+      "risk": "Storage layout becomes ad-hoc; versioning and reuse are unclear.",
+      "proposed_rewrite": "Define a file layout strategy (e.g., one file per venue/pitch) and a stable identifier scheme; document it in the output contract template with examples."
+    }
+  ],
+  "scope_alignment": {
+    "inferred_surfaces": [
+      "Calibration artifact schemas (pitch template, auto-fit result, manual correspondences)",
+      "Calibration diagnostics and trust-first BEV gating semantics",
+      "Output contract updates documenting the above"
+    ],
+    "paths_allowed": [
+      "spec/",
+      "spec/md/docs/",
+      "pipeline/",
+      "scripts/",
+      "tools/",
+      "apps/portal/",
+      "status/audit/"
+    ],
+    "paths_excluded": [
+      "docs/",
+      "status/intents/",
+      "status/portal/",
+      "status/wizard/"
+    ],
+    "mismatches": [
+      "`apps/portal/` is allowed but not required by the planned calibration tasks.",
+      "`tools/` is allowed but evidence/run commands are not specified yet (risk of ad-hoc additions).",
+      "`spec/` is broadly allowed; only a subset (intent/task/requirements + mdt templates) is expected for this intent."
+    ],
+    "recommended_edits": [
+      "Narrow `paths_allowed` in `spec/intents/INT-020.json` to the minimal set required by planned deliverables and evidence tooling.",
+      "If evidence tooling is needed, explicitly list the intended script/tool paths in task deliverables and evidence clauses."
+    ]
+  },
+  "closeability": {
+    "tasks": {
+      "status": "PASS",
+      "notes": "All planned task IDs exist (`TASK-CAL-001`, `TASK-CAL-002`, `TASK-CAL-003`) and deliverables are file-level paths."
+    },
+    "work_packages": {
+      "status": "PASS",
+      "notes": "Generated work packages cover all planned tasks with clear grouping (mapping vs gating)."
+    },
+    "close_gates": {
+      "status": "PASS",
+      "notes": "Intent declares `npm run generate`, `npm run guardrails`, and `npm run audit:intent -- --intent-id INT-020`."
+    },
+    "guardrail_plan": {
+      "status": "FAIL",
+      "notes": "Guardrail outcomes are not yet concretely auditable because schemas, thresholds, and reproducible evidence commands/fixtures are underspecified; REQ-to-code provenance plan should map FUSBAL-V1-CAL-001 / FUSBAL-V1-BEV-001 / FUSBAL-V1-TRUST-001 to the planned pipeline modules."
+    }
+  },
+  "minimum_next_steps": [
+    "Define a calibration quality model and gating thresholds (fields + units + pass/fail rules) and add them to `spec/tasks/TASK-CAL-003.json` acceptance plus `spec/md/docs/data/OUTPUT_CONTRACT.mdt` semantics.",
+    "Choose and document file formats + coordinate frames for pitch templates, calibration inputs, and manual correspondences (including versioning and storage layout) in `spec/tasks/TASK-CAL-001.json`, `spec/tasks/TASK-CAL-003.json`, and `spec/md/docs/data/OUTPUT_CONTRACT.mdt`.",
+    "Specify reproducible evidence: for each task, add an explicit command and fixture paths and expected output locations (diagnostics + gating outcome) so quality audits can be evidence-first.",
+    "Clarify auto-fit inputs (what marking representation is expected) and distortion handling expectations in `spec/tasks/TASK-CAL-002.json` scope/acceptance.",
+    "Re-evaluate `runbooks.decision` for INT-020; if creating/updating a runbook, add a `spec/md/docs/runbooks/*.mdt` template for calibration artifacts + gating semantics and reference it from `spec/intents/INT-020.json`.",
+    "Narrow `spec/intents/INT-020.json` `paths_allowed` to the smallest set needed to deliver planned tasks and evidence tooling."
+  ]
+}

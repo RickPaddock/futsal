@@ -470,6 +470,8 @@
       "acceptance": [
         "Intent list and intent detail pages expose a 'Preflight' action for non-closed intents.",
         "Preflight opens a copy-ready prompt overlay that instructs the LLM to review the intent and ask clarifying questions before implementation, and to write a machine-readable preflight report JSON file before pasting the summary to chat.",
+        "Preflight blockers are ranked by `roi_0_to_10` (0–10) and include `effort` (S|M|L) and `risk` (low|medium|high). If a blocker can be resolved by relaxing scope/requirements, the prompt includes an explicit override option that is clearly marked as requiring human approval.",
+        "Preflight prompts treat PASS vs FAIL consistently: if preflight is PASS, the 'Minimum next steps to achieve preflight pass' section contains no required fixes (e.g., a single 'None' bullet) and the JSON report uses an empty `minimum_next_steps` list; if FAIL, that section lists only the minimal canonical edits required to reach PASS.",
         "Preflight prompt is sourced from `spec/prompts/*.prompt.txt` via the prompt API (not hardcoded).",
         "Prompt overlays include a `run_id` (editable) and rendered prompts reuse that run id.",
         "Prompt API rejects prompts with leftover placeholders (e.g., `<...>`).",
@@ -551,6 +553,34 @@
       "tags": ["governance", "runbooks", "documentation", "llm-navigation"]
     },
     {
+      "id": "GREENFIELD-GOV-021",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["guardrails:intent_paths_scope", "audit:intent", "intent:close"],
+      "title": "Each intent explicitly declares path scope boundaries to prevent repo creep.",
+      "acceptance": [
+        "Every non-draft intent includes non-empty `paths_allowed[]` and `paths_excluded[]` arrays in `spec/intents/<INTENT_ID>.json`.",
+        "Guardrails and intent audit validate the fields are present and exclude generated surfaces (at minimum `docs/`, `status/intents/`, `status/portal/`).",
+        "Generated intent scope surface `status/intents/<INTENT_ID>/scope.json` includes `paths_allowed[]` and `paths_excluded[]` for operator/LLM visibility."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "intents", "scope", "llm-navigation"]
+    },
+    {
+      "id": "GREENFIELD-GOV-022",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["guardrails:prompt_activity_footer", "manual:prompt_review"],
+      "title": "All workflow prompts require a final activity completion line in chat output.",
+      "acceptance": [
+        "Each workflow prompt template under `spec/prompts/*.prompt.txt` includes a FINAL sentence requirement that uses the exact `ACTIVITY: ...` format (`pass|fail`) for the relevant kind.",
+        "The final non-empty line of each workflow prompt template is the expected backticked `ACTIVITY: ...` line so prompt readers can quickly verify completion format.",
+        "Guardrails validate the activity footer format and that it appears as the last line in the prompt template."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "prompts", "workflows", "observability"]
+    },
+    {
       "id": "GREENFIELD-TEST-001",
       "status": "canonical",
       "tracking": { "implementation": "todo" },
@@ -567,7 +597,7 @@
     {
       "id": "GREENFIELD-EVIDENCE-001",
       "status": "canonical",
-      "tracking": { "implementation": "todo" },
+      "tracking": { "implementation": "done" },
       "guardrails": ["manual:code_review"],
       "title": "Evidence recorder captures stdout/stderr for debugging failed runs.",
       "acceptance": [
@@ -579,9 +609,23 @@
       "tags": ["evidence", "observability", "debugging"]
     },
     {
+      "id": "GREENFIELD-EVIDENCE-002",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["portal:refresh_evidence_schema", "manual:portal_review"],
+      "title": "Portal refresh uses the same evidence run schema as the CLI evidence recorder.",
+      "acceptance": [
+        "Portal refresh writes evidence using `tools/evidence/record_run.mjs` (or identical schema) under `status/audit/<INTENT_ID>/runs/<run_id>/portal_refresh/run.json`.",
+        "Refresh responses reference the evidence path and include stdout/stderr tails when failures occur.",
+        "Evidence records include stable timestamps, exit codes, and the invoked command."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "evidence", "observability"]
+    },
+    {
       "id": "GREENFIELD-SCHEMA-001",
       "status": "canonical",
-      "tracking": { "implementation": "todo" },
+      "tracking": { "implementation": "done" },
       "guardrails": ["generate:schema_validation"],
       "title": "Generated portal JSON outputs are validated against schemas.",
       "acceptance": [
@@ -591,6 +635,19 @@
       ],
       "owner": "platform",
       "tags": ["generation", "schemas", "validation"]
+    },
+    {
+      "id": "GREENFIELD-TOOLS-001",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["manual:code_review"],
+      "title": "Shared UTC time helpers exist for consistent run ids and timestamps.",
+      "acceptance": [
+        "A shared helper exists under `scripts/lib/time.mjs` exporting `utcNow()` and `utcRunId()`.",
+        "Evidence recorder and portal refresh reuse the helper to avoid format drift."
+      ],
+      "owner": "platform",
+      "tags": ["tools", "time", "maintainability"]
     },
     {
       "id": "GREENFIELD-PORTAL-021",
@@ -607,9 +664,36 @@
       "tags": ["portal", "ux", "performance"]
     },
     {
+      "id": "GREENFIELD-PORTAL-023",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["portal:performance"],
+      "title": "Portal read-model caches audit run discovery to reduce filesystem scans.",
+      "acceptance": [
+        "`apps/portal/lib/portal_read_model.js` caches results of audit run discovery (`listAuditRunsDeep`) for a short TTL during SSR.",
+        "Caching does not change correctness (cache invalidation is time-based and conservative)."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "performance", "read-model"]
+    },
+    {
+      "id": "GREENFIELD-PORTAL-024",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["portal:refresh_csrf", "manual:portal_review"],
+      "title": "Portal refresh endpoint is hardened with CSRF protection and host allowlisting.",
+      "acceptance": [
+        "Refresh endpoint requires a CSRF token (cookie + matching request header).",
+        "Refresh endpoint enforces a host allowlist in production (via env `PORTAL_REFRESH_ALLOW_HOSTS`).",
+        "Refresh remains disabled in production unless explicitly enabled (via env `PORTAL_ALLOW_GENERATE=1`)."
+      ],
+      "owner": "platform",
+      "tags": ["portal", "security", "workflows"]
+    },
+    {
       "id": "GREENFIELD-PORTAL-022",
       "status": "canonical",
-      "tracking": { "implementation": "todo" },
+      "tracking": { "implementation": "done" },
       "guardrails": ["portal:ui_smoke", "manual:portal_review"],
       "title": "Portal audit runs view includes 'Copy evidence command' button.",
       "acceptance": [
@@ -637,7 +721,7 @@
     {
       "id": "GREENFIELD-GEN-001",
       "status": "canonical",
-      "tracking": { "implementation": "todo" },
+      "tracking": { "implementation": "done" },
       "guardrails": ["generate:dry_run_check"],
       "title": "Generation supports dry-run mode to preview diffs without writing files.",
       "acceptance": [
@@ -647,6 +731,32 @@
       ],
       "owner": "platform",
       "tags": ["generation", "workflows"]
+    },
+    {
+      "id": "GREENFIELD-GOV-023",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["guardrails:prompt_lint"],
+      "title": "Prompt templates are linted for placeholders and required structure.",
+      "acceptance": [
+        "Guardrails validate prompt templates include a SANITY CHECK, an Output requirements section, and a strict FINAL sentence ACTIVITY footer.",
+        "Guardrails validate prompt templates do not contain unexpected/unsubstituted placeholders (e.g., `<TASK_ID>`)."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "prompts", "guardrails"]
+    },
+    {
+      "id": "GREENFIELD-GOV-024",
+      "status": "canonical",
+      "tracking": { "implementation": "done" },
+      "guardrails": ["guardrails:evidence_schema"],
+      "title": "Guardrails validate evidence run.json files against a schema.",
+      "acceptance": [
+        "A JSON schema exists at `spec/schemas/evidence_run.schema.json`.",
+        "Guardrails validate `status/audit/**/run.json` files against the schema and fail with actionable errors on violations."
+      ],
+      "owner": "platform",
+      "tags": ["governance", "evidence", "guardrails"]
     },
     {
       "id": "GREENFIELD-GOV-020",
@@ -665,7 +775,7 @@
     {
       "id": "GREENFIELD-OPS-003",
       "status": "canonical",
-      "tracking": { "implementation": "todo" },
+      "tracking": { "implementation": "done" },
       "guardrails": ["manual:ops_runbook"],
       "title": "Audit run retention policy is documented.",
       "acceptance": [

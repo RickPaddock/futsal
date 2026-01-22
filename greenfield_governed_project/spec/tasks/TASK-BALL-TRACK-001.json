@@ -3,15 +3,15 @@
   "task_id": "TASK-BALL-TRACK-001",
   "intent_id": "INT-040",
   "title": "Intermittent ball tracking + missing state",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Fuse per-frame ball detections into a time-ordered ball track with explicit missing spans.",
     "Never hallucinate ball position: prefer missing/unknown over wrong.",
     "Expose quality metrics and diagnostics to support conservative downstream event inference."
   ],
   "acceptance": [
-    "Track output represents missing spans explicitly (not implied by gaps).",
-    "Track output includes confidence/quality metrics and break/missing reasons.",
+    "Track output represents missing spans explicitly (not implied by gaps) using explicit records/spans and `pos_state ∈ {present, missing, unknown}`.",
+    "Track output includes `confidence`/quality metrics in [0,1] and explicit break/missing reasons.",
     "Output contract template documents the track schema and missing semantics."
   ],
   "deliverables": [
@@ -29,7 +29,7 @@
         "Diagnostics explain track breaks and missing segments."
       ],
       "evidence": [
-        "A minimal pipeline run produces a track with explicit missing spans and quality metrics."
+        "Deterministic unit tests cover explicit missing spans/pos_state semantics and ‘never hallucinate’ behavior (synthetic sequences acceptable)."
       ]
     },
     {
@@ -50,7 +50,7 @@
     {
       "subtask_id": "SUB-TASK-BALL-TRACK-001-001",
       "title": "Implement intermittent ball tracking with explicit missing state.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_BALL_TRACK_001.SUB_001",
       "done_when": [
@@ -61,7 +61,7 @@
     {
       "subtask_id": "SUB-TASK-BALL-TRACK-001-002",
       "title": "Update output contract template for ball tracks + missing semantics.",
-      "status": "todo",
+      "status": "done",
       "area": "spec",
       "provenance_prefix": "FUSBAL.SPEC.TASK_BALL_TRACK_001.SUB_002",
       "done_when": [
@@ -71,7 +71,7 @@
     {
       "subtask_id": "SUB-TASK-BALL-TRACK-001-003",
       "title": "Add quality metrics and break diagnostics for downstream consumers.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_BALL_TRACK_001.SUB_003",
       "done_when": [

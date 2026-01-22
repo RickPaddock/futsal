@@ -1,0 +1,31 @@
+---
+generated: true
+source: spec/md/docs/runbooks/evidence-retention.mdt
+source_sha256: sha256:3fdb0f8cd2cf0d63c6a29bd34f6e176bbb7f79a71ddd5883d6c35eaa45b6dd8e
+---
+
+# Evidence retention (audit runs)
+
+Audit runs live under:
+
+`status/audit/<INTENT_ID>/runs/<run_id>/`
+
+## Recommended retention policy
+
+- Keep the latest **10** runs per intent (by `<run_id>` ordering).
+- Older runs can be archived or deleted to keep portal scanning fast and disk usage bounded.
+
+## Pruning script (optional)
+
+Dry-run (prints what would be removed):
+
+`node scripts/prune_old_evidence.mjs --keep 10`
+
+Apply deletions:
+
+`node scripts/prune_old_evidence.mjs --keep 10 --apply`
+
+Target a specific intent:
+
+`node scripts/prune_old_evidence.mjs --intent-id INT-010 --keep 10 --apply`
+

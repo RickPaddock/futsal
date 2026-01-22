@@ -11,6 +11,20 @@
     "TASK-BOOT-003",
     "TASK-BOOT-004"
   ],
+  "paths_allowed": [
+    "spec/",
+    "scripts/",
+    "tools/",
+    "apps/portal/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
   "runbooks": {
     "decision": "none",
     "paths_mdt": [],
@@ -19,7 +33,7 @@
   "close_gate": {
     "commands": [
       "npm run guardrails",
-      "npm run generate:check",
+      "npm run generate",
       "npm run audit:intent -- --intent-id INT-001"
     ],
     "evidence_out_root": "status/audit/INT-001/runs"

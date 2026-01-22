@@ -1,0 +1,123 @@
+{
+  "type": "intent_preflight_report",
+  "schema_version": 1,
+  "intent_id": "INT-040",
+  "run_id": "20260122_100519",
+  "timestamp": "2026-01-22T10:07:27Z",
+  "blockers_ranked": [
+    {
+      "roi_0_to_10": 10,
+      "effort": "S",
+      "risk": "high",
+      "issue": "`FUSBAL-V1-SENSOR-001` is listed in `requirements_in_scope` but no tasks/success criteria describe what will be delivered for sensors (risk of scope creep or unmet requirement).",
+      "why": "Implementers may accidentally expand into sensor ingestion/fusion work, or close the intent without satisfying the requirement as written.",
+      "exact_fix": "Edit `spec/intents/INT-040.json` to either (a) remove `FUSBAL-V1-SENSOR-001` from `requirements_in_scope`, or (b) add explicit success criteria + non-goal boundary stating sensors are out of scope and the only commitment is that camera-only output remains valid and schema-stable when sensors are absent/invalid.",
+      "override_option": "Optional override: keep `FUSBAL-V1-SENSOR-001` in scope but explicitly state 'No sensor ingestion changes in V1; compliance means pipeline remains sellable without sensors and any sensor inputs are ignored unless healthy.' Impact: reduces scope, may leave true sensor integration to a later intent."
+    },
+    {
+      "roi_0_to_10": 9,
+      "effort": "S",
+      "risk": "high",
+      "issue": "`pos_state` semantics are referenced but not defined precisely (present|missing|unknown are named but boundaries/required fields are not).",
+      "why": "Without crisp semantics, implementations will diverge (e.g., using gaps instead of explicit missing spans), breaking downstream consumers and making audits unverifiable.",
+      "exact_fix": "Tighten `spec/intents/INT-040.json` and task acceptances to define: allowed enum values, when each may be used, and required companion fields (e.g., `missing_reason` for missing; `unknown_reason` for unknown; and the rule that missing spans must be explicit objects not implied by absence)."
+    },
+    {
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "high",
+      "issue": "Evidence pointer format is underspecified (`artifact_id` + time/frame range) and 'bundle artifacts' are not defined/anchored to a stable list.",
+      "why": "Event outputs may include unresolvable or inconsistent evidence references, undermining audits and breaking tooling/UX that expects deterministic navigation.",
+      "exact_fix": "Define an evidence pointer schema (fields + types + required invariants) in `spec/intents/INT-040.json` success criteria and mirror it in `spec/tasks/TASK-EVENT-001.json` acceptance; require that `artifact_id` matches a contract-documented artifact key."
+    },
+    {
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "“High precision / conservative” is not operationalized for shots/goals (no definition of what qualifies as confirmed vs candidate/unknown vs omitted).",
+      "why": "Teams may optimize recall unintentionally or disagree on what constitutes a shot/goal, causing premature closure or regressions later.",
+      "exact_fix": "Add explicit acceptance language in `spec/tasks/TASK-EVENT-001.json` defining `event_state` enum (e.g., confirmed|candidate|unknown) and a minimal rule: only `confirmed` may be counted as a true event; ambiguous scenarios must never emit `confirmed` in tests."
+    },
+    {
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "Diagnostics vocabulary is referenced (“stable keys/vocabulary”, “break/missing reasons”) but no canonical enum list is provided in specs.",
+      "why": "Drift in diagnostic keys makes contracts and tests brittle and harms the trust-first audit story.",
+      "exact_fix": "Add a short canonical enum list (initial vocabulary) to intent/task acceptance (or explicitly require it to be documented in `spec/md/docs/data/OUTPUT_CONTRACT.mdt`)."
+    }
+  ],
+  "ambiguities": [
+    {
+      "ambiguous_text": "“explicit missing/unknown state; never hallucinate position when not visible”",
+      "risk": "Implementations may encode missing as absence (gaps) or may label uncertain positions as present with low confidence.",
+      "proposed_rewrite": "Ball outputs MUST include `pos_state ∈ {present, missing, unknown}` for every frame/span. `present` requires a gated detection/track point; `missing` means the frame/span was evaluated but no acceptable ball position exists; `unknown` is reserved for frames/spans that cannot be evaluated (e.g., corrupted/dropped input). Missing/unknown MUST be explicit records/spans (not implied by gaps)."
+    },
+    {
+      "ambiguous_text": "“Infer shots/goals with high precision; mark candidates when uncertain.”",
+      "risk": "No consistent notion of what is 'uncertain' or how candidates are represented; may lead to silent omission or overconfident confirmations.",
+      "proposed_rewrite": "Events MUST include `event_state ∈ {confirmed, candidate, unknown}` and `confidence ∈ [0,1]`. The system MUST NOT emit `event_state=confirmed` unless the evidence pointer(s) reference the minimal required supporting span; otherwise omit the event or emit `candidate/unknown`."
+    },
+    {
+      "ambiguous_text": "“evidence pointers that reference bundle artifacts (at minimum: artifact_id and a time/frame range)”",
+      "risk": "`artifact_id` may be a file path, a UI label, or an internal code constant; consumers cannot resolve it reliably.",
+      "proposed_rewrite": "Evidence pointer MUST be an object `{artifact_id: string, frame_range?: {start_frame:int,end_frame:int}, time_range_ms?: {start_ms:int,end_ms:int}}` with exactly one range present. `artifact_id` MUST match a contract-documented artifact key produced in the output bundle."
+    },
+    {
+      "ambiguous_text": "“conservative false-positive gating” / “stable keys/vocabulary”",
+      "risk": "Gating/diagnostic reasons change over time; tests become non-deterministic and contracts drift.",
+      "proposed_rewrite": "Diagnostics MUST use a documented enum list of reasons (v1 vocabulary) and MUST be stable across runs for the same inputs; changes require a contract template update."
+    }
+  ],
+  "scope_alignment": {
+    "inferred_surfaces": [
+      "pipeline ball detections/tracks/events code",
+      "output contract template at spec/md/docs/data/OUTPUT_CONTRACT.mdt",
+      "audit evidence output under status/audit/INT-040/runs/<run_id>/"
+    ],
+    "paths_allowed": [
+      "spec/",
+      "spec/md/docs/",
+      "pipeline/",
+      "status/audit/"
+    ],
+    "paths_excluded": [
+      "docs/",
+      "status/intents/",
+      "status/portal/",
+      "status/wizard/"
+    ],
+    "mismatches": [
+      "Requirements include sensors (`FUSBAL-V1-SENSOR-001`) but tasks do not mention sensor behavior, ingestion, or explicit out-of-scope boundaries."
+    ],
+    "recommended_edits": [
+      "Clarify sensor scope in `spec/intents/INT-040.json` (remove from scope or define a minimal non-feature compliance statement).",
+      "Define pos_state, evidence pointer, and event_state semantics in intent + task acceptance to prevent drift."
+    ]
+  },
+  "closeability": {
+    "tasks": {
+      "status": "PASS",
+      "notes": "All planned task IDs exist and reference INT-040; each has deliverables and evidence expectations."
+    },
+    "work_packages": {
+      "status": "PASS",
+      "notes": "Generated work packages cover all planned tasks (TASK-BALL-DET-001, TASK-BALL-TRACK-001, TASK-EVENT-001)."
+    },
+    "close_gates": {
+      "status": "PASS",
+      "notes": "Close gate commands are specified and align with governance (generate, guardrails, audit:intent)."
+    },
+    "guardrail_plan": {
+      "status": "FAIL",
+      "notes": "Key semantics (pos_state, evidence pointers, conservative event confirmation) are underspecified, and sensor requirement scope is ambiguous, risking audit/guardrail ambiguity at close time."
+    }
+  },
+  "minimum_next_steps": [
+    "Edit `spec/intents/INT-040.json` to clarify/remove sensor requirement scope.",
+    "Edit `spec/intents/INT-040.json` success criteria to define `pos_state` semantics and require explicit missing spans (no implied gaps).",
+    "Edit `spec/tasks/TASK-BALL-DET-001.json` and `spec/tasks/TASK-BALL-TRACK-001.json` acceptance to include the explicit pos_state enum + required companion fields.",
+    "Edit `spec/tasks/TASK-EVENT-001.json` acceptance to define evidence pointer schema and `event_state` handling (confirmed vs candidate/unknown vs omitted).",
+    "Regenerate + re-run guardrails after spec changes (`npm run generate`, `npm run guardrails`)."
+  ]
+}

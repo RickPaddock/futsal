@@ -3,7 +3,7 @@
   "task_id": "TASK-TEAM-001",
   "intent_id": "INT-030",
   "title": "Bib-color team assignment with smoothing",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Assign each player track to Team A / Team B / Unknown based on bib colors with temporal smoothing.",
     "Expose diagnostics explaining team decisions (color evidence, smoothing, Unknown reasons).",
@@ -12,7 +12,10 @@
   "acceptance": [
     "Team assignment includes an explicit Unknown state and does not force assignment when evidence is weak.",
     "Outputs include diagnostics supporting audits and debugging.",
-    "Output contract template documents team assignment fields and diagnostics."
+    "Team assignment record includes a stable minimal field set: team (A|B|unknown), team_confidence (0..1), and smoothing parameters (e.g., window size / hysteresis) plus diagnostics.",
+    "Negative path: when bib-color evidence is ambiguous or unstable (e.g., lighting shifts), output Unknown with diagnostics rather than oscillating A/B.",
+    "All edited code units include requirement provenance tags as applicable (e.g., FUSBAL-V1-TEAM-001 and/or FUSBAL-V1-TRUST-001), consistent with repo guardrails.",
+    "Output contract template documents team assignment fields, smoothing parameters, Unknown semantics, and diagnostics with example records."
   ],
   "deliverables": [
     {
@@ -50,7 +53,7 @@
     {
       "subtask_id": "SUB-TASK-TEAM-001-001",
       "title": "Implement bib-color team assignment with smoothing and diagnostics (A/B/Unknown).",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_TEAM_001.SUB_001",
       "done_when": [
@@ -61,7 +64,7 @@
     {
       "subtask_id": "SUB-TASK-TEAM-001-002",
       "title": "Update output contract template for team assignment fields.",
-      "status": "todo",
+      "status": "done",
       "area": "spec",
       "provenance_prefix": "FUSBAL.SPEC.TASK_TEAM_001.SUB_002",
       "done_when": [
@@ -71,7 +74,7 @@
     {
       "subtask_id": "SUB-TASK-TEAM-001-003",
       "title": "Define canonical team assignment record fields and diagnostics.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_TEAM_001.SUB_003",
       "done_when": [

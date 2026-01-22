@@ -1,0 +1,91 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-030",
+  "run_id": "20260121_221028",
+  "task_id": "TASK-PLAYER-DET-001",
+  "timestamp": "2026-01-22T10:06:01Z",
+  "functional": {
+    "status": "fail",
+    "notes": "Core record-shaping logic exists and is deterministic, but the task acceptance requires evidence of a minimal pipeline run producing detection outputs; there is no pipeline integration/runner that emits these detections into an output bundle.",
+    "evidence": [
+      "pipeline/src/fusbal_pipeline/player/detections.py::emit_player_detections_v1 (stable fields + deterministic ordering)",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt (documents detection-style records + missing/unknown semantics)",
+      "pipeline/src/fusbal_pipeline/cli.py (bundle init/validate only; no detection execution path)"
+    ],
+    "findings": [
+      "Detections are emitted with stable minimal fields (frame_index-derived id, bbox_xyxy_px, confidence, diagnostics.gating_reason) and deterministic ordering.",
+      "No CLI/pipeline step writes detection records to tracks.jsonl; acceptance evidence 'minimal pipeline run produces detections' is missing."
+    ]
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "notes": "Trust-first gating suppresses low-confidence detections (missing over wrong).",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/player/detections.py::emit_player_detections_v1 (min_confidence gating + bbox normalization)"
+      ],
+      "findings": [
+        "Rejects invalid bbox/conf inputs; clamps confidence into [0,1].",
+        "Suppresses candidates below threshold rather than emitting questionable detections."
+      ]
+    },
+    "performance": {
+      "status": "pass",
+      "notes": "Per-frame work is O(N log N) due to sorting; no unbounded scans.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/player/detections.py::emit_player_detections_v1 (normalized.sort)"
+      ],
+      "findings": [
+        "Deterministic sort is the dominant cost; acceptable for typical N (players per frame)."
+      ]
+    },
+    "security": {
+      "status": "pass",
+      "notes": "Pure data transforms; no file IO or command execution.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/player/detections.py (no external side effects)"
+      ],
+      "findings": [
+        "No path handling or subprocess execution in this module."
+      ]
+    },
+    "maintainability": {
+      "status": "pass",
+      "notes": "Explicit typed records + small focused helpers; stable diagnostics keys.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/player/detections.py (TypedDicts + clear config structure)"
+      ],
+      "findings": [
+        "Record schema is explicit; diagnostic keys are stable (gating_reason, frame_index)."
+      ]
+    },
+    "overall_status": "pass"
+  },
+  "gate": {
+    "status": "fail",
+    "blockers": [
+      "No runnable pipeline path produces per-frame detection outputs; acceptance requires a minimal pipeline run evidence but the repo only provides bundle init/validate." 
+    ]
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-PLAYER-DET-001.json",
+    "deliverable_paths": [
+      "pipeline/src/fusbal_pipeline/player/detections.py",
+      "pipeline/src/fusbal_pipeline/player/detector.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/player/detections.py",
+      "pipeline/src/fusbal_pipeline/player/detector.py",
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 6,
+    "notes": "Implementation quality is good for a library component; functional gating fails due to lack of integration/evidence-producing runner."
+  }
+}
