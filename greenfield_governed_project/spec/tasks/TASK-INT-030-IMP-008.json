@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-030-IMP-008",
   "intent_id": "INT-030",
   "title": "Centralize diagnostics key constants",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Define canonical diagnostics key constants in one location and use them across detection, tracking, and team modules.",
     "Reduce drift/typos in diagnostics keys referenced by the output contract documentation.",

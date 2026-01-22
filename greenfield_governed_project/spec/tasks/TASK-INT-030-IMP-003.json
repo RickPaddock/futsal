@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-030-IMP-003",
   "intent_id": "INT-030",
   "title": "Tighten contract validation for segment/break semantics",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Strengthen `validate_track_record_v1` to enforce semantic relationships for segmentation and breaks.",
     "Ensure break fields cannot appear in structurally inconsistent records.",

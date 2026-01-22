@@ -27,7 +27,8 @@
   ],
   "summary": [
     "Given a provided local match video, ingest/iterate frames deterministically and export a valid V1 bundle (plumbing proof).",
-    "Then add a baseline local ball detector that produces non-empty detections on the UAT clip while remaining trust-first (missing/unknown over wrong)."
+    "Then add a baseline local ball detector that produces non-empty detections on the UAT clip while remaining trust-first (missing/unknown over wrong).",
+    "UAT clip (preferred): `GoPro_Futsal_part2_trimmed_100mb.mp4` (provided locally; not committed to the repo)."
   ],
   "non_goals": [
     "Full production-grade vision model training or accuracy targets beyond baseline UAT confidence.",
@@ -37,7 +38,7 @@
   "success_criteria": [
     "A new CLI path can ingest a local single-camera video and export a bundle under `output/<match_id>/` containing at minimum `manifest.json`, `tracks.jsonl`, `events.json`, `report.json`, and required diagnostics placeholders, and `validate` passes.",
     "The runner is deterministic: same inputs/config produce byte-for-byte identical `tracks.jsonl` and `events.json` (ordering + stable keys).",
-    "Baseline ball detections/tracks are demonstrated on the provided UAT clip: at least some frames emit `pos_state=present` ball records with confidence and diagnostics; missing spans are explicit; no fabricated positions/events."
+    "Baseline ball detections/tracks are demonstrated on the preferred UAT clip (`GoPro_Futsal_part2_trimmed_100mb.mp4`): at least some frames emit `pos_state=present` ball records with confidence and diagnostics; missing spans are explicit; no fabricated positions/events."
   ],
   "requirements_in_scope": [
     "REQ-V1-VIDEO-INGEST-001",

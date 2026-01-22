@@ -199,9 +199,9 @@
     {
       "intent_id": "INT-030",
       "title": "Player tracking MVP (trust-first)",
-      "status": "todo",
+      "status": "closed",
       "created_date": "2026-01-20",
-      "closed_date": "",
+      "closed_date": "2026-01-20",
       "requirements_in_scope": [
         {
           "id": "FUSBAL-V1-PLAYER-001",
@@ -226,52 +226,52 @@
         {
           "task_id": "TASK-INT-030-IMP-001",
           "title": "Executable pipeline run emits tracks.jsonl (detections → MOT → team)",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-030-IMP-002",
           "title": "Deterministic unit tests for detections, MOT breaks, and team smoothing",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-030-IMP-003",
           "title": "Tighten contract validation for segment/break semantics",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-030-IMP-004",
           "title": "Fixture-based smoke run generates a valid, non-placeholder bundle",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-030-IMP-005",
           "title": "Reduce contract template drift by injecting schema snippets during generation",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-030-IMP-006",
           "title": "Emit explicit unknown records/diagnostics for ambiguous detections",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-030-IMP-007",
           "title": "Bound MOT state and add out_of_view heuristic",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-030-IMP-008",
           "title": "Centralize diagnostics key constants",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-030-IMP-009",
           "title": "Portal surfaces emphasize per-task quality blockers",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-030-IMP-010",
           "title": "Evidence run.json includes git SHA and environment metadata",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-PLAYER-DET-001",

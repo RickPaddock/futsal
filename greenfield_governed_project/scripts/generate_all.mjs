@@ -48,6 +48,47 @@ function renderTemplate(templatePath, vars) {
   return raw.replace(/\$\{([a-zA-Z0-9_]+)\}/g, (_, k) => String(vars[k] ?? ""));
 }
 
+function extractSchemaSnippets(repoRoot) {
+  const schemaPath = path.join(repoRoot, "pipeline", "schemas", "contract.v1.schema.json");
+  if (!fs.existsSync(schemaPath)) {
+    return {
+      BREAK_REASONS: "[Schema not found]",
+      TEAM_LABELS: "[Schema not found]", 
+      POS_STATES: "[Schema not found]",
+      ENTITY_TYPES: "[Schema not found]",
+      FRAMES: "[Schema not found]",
+    };
+  }
+  
+  try {
+    const schema = readJson(schemaPath);
+    const trackRecord = schema.$defs?.TrackRecordV1?.properties;
+    
+    const extractEnum = (prop) => {
+      if (prop?.enum) {
+        return prop.enum.map(v => `\`${v}\``).join(", ");
+      }
+      return "[Not found]";
+    };
+    
+    return {
+      BREAK_REASONS: extractEnum(trackRecord?.break_reason),
+      TEAM_LABELS: extractEnum(trackRecord?.team),
+      POS_STATES: extractEnum(trackRecord?.pos_state),
+      ENTITY_TYPES: extractEnum(trackRecord?.entity_type),
+      FRAMES: extractEnum(trackRecord?.frame),
+    };
+  } catch (e) {
+    return {
+      BREAK_REASONS: "[Parse error]",
+      TEAM_LABELS: "[Parse error]",
+      POS_STATES: "[Parse error]", 
+      ENTITY_TYPES: "[Parse error]",
+      FRAMES: "[Parse error]",
+    };
+  }
+}
+
 function iterFiles(root, predicate) {
   const out = [];
   for (const p of fs.readdirSync(root, { withFileTypes: true })) {
@@ -333,12 +374,14 @@ function main() {
   const check = process.argv.includes("--check");
   const dryRun = process.argv.includes("--dry-run");
   const project = readJson(path.join(repoRoot, "spec", "project.json"));
+  const schemaSnippets = extractSchemaSnippets(repoRoot);
   const vars = {
     project_name: project.project_name,
     project_id: project.project_id,
     intent_prefix: project.intent_prefix,
     requirements_source: project.requirements_source,
     md_templates_root: project.md_templates_root,
+    ...schemaSnippets,
   };
 
   if (dryRun) {

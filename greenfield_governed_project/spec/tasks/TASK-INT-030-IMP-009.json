@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-030-IMP-009",
   "intent_id": "INT-030",
   "title": "Portal surfaces emphasize per-task quality blockers",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Improve the internal portal intent detail view to surface per-task quality audit blockers prominently.",
     "Add links to per-task audit JSON files for faster triage.",

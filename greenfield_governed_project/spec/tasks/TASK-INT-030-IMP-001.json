@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-030-IMP-001",
   "intent_id": "INT-030",
   "title": "Executable pipeline run emits tracks.jsonl (detections → MOT → team)",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Add a deterministic executable path that produces a non-placeholder bundle including tracks.jsonl using the INT-030 player detection, swap-avoidant MOT, and team assignment components.",
     "Keep the implementation trust-first: prefer missing/unknown/breaks over wrong continuity.",

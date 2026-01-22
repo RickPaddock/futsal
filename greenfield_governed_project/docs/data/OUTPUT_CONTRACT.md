@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/md/docs/data/OUTPUT_CONTRACT.mdt
-source_sha256: sha256:b1c2fbac1a64663227eb520a20a7c74adc83e3ab9cd2b6afee623c46077e2803
+source_sha256: sha256:ff96c8b5c39917cb1b68cdbbbeec605c947b90d227c47fd6f329ac74afb9a1e2
 ---
 
 # Output contract (V1)
@@ -209,12 +209,7 @@ When tracking is enabled, player records SHOULD use stable `track_id` and emit `
 Trust-first rule:
 - If association is ambiguous, end the current segment and emit `break_reason` rather than swapping the identity of an existing `track_id`.
 
-`break_reason` vocabulary (finite, minimum set):
-- `occlusion`
-- `ambiguous_association`
-- `out_of_view`
-- `detector_missing`
-- `manual_reset`
+`break_reason` vocabulary (schema-derived): `occlusion`, `ambiguous_association`, `out_of_view`, `detector_missing`, `manual_reset`
 
 Example segment end (explicit break instead of swap):
 
@@ -224,10 +219,7 @@ Example segment end (explicit break instead of swap):
 
 ### Team assignment (A/B/Unknown)
 
-Team assignment is expressed via `team`:
-- Team A: `team="A"`
-- Team B: `team="B"`
-- Unknown: `team="unknown"`
+Team assignment is expressed via `team` (schema-derived values: `A`, `B`, `unknown`):
 
 When `team` is present, emit `team_confidence` and include smoothing parameters in diagnostics.
 

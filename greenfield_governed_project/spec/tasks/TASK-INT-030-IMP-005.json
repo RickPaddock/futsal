@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-030-IMP-005",
   "intent_id": "INT-030",
   "title": "Reduce contract template drift by injecting schema snippets during generation",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Update generation so the output contract template can include schema-derived snippets (e.g., enums and field lists) from `pipeline/schemas/contract.v1.schema.json`.",
     "Keep generation deterministic and avoid hand-editing generated markdown outputs.",

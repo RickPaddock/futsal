@@ -7,6 +7,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..contract import TrackRecordV1
+from ..diagnostics_keys import (
+    FRAME_INDEX,
+    MISSING_REASON,
+    JUMP_PX,
+    MISSING_DETECTOR,
+    MISSING_LOW_CONF,
+    MISSING_JUMP_REJECTED,
+    BREAK_DETECTOR_MISSING,
+)
 from .track_types import BallTrackConfig, MissingReason
 
 
@@ -84,14 +93,14 @@ class BallTracker:
         self._last_confidence = conf
 
         diagnostics: dict[str, object] = {
-            "frame_index": int(frame_index),
-            "missing_reason": None,
-            "jump_px": 0.0,
+            FRAME_INDEX: int(frame_index),
+            MISSING_REASON: None,
+            JUMP_PX: 0.0,
         }
         if isinstance(best.get("diagnostics"), dict):
             # Merge but keep our stable keys present.
             diagnostics.update(dict(best["diagnostics"]))
-            diagnostics.setdefault("frame_index", int(frame_index))
+            diagnostics.setdefault(FRAME_INDEX, int(frame_index))
 
         return {
             "schema_version": 1,
@@ -118,9 +127,9 @@ class BallTracker:
         jump_px: float | None = None,
     ) -> TrackRecordV1:
         diagnostics: dict[str, object] = {
-            "frame_index": int(frame_index),
-            "missing_reason": str(reason),
-            "jump_px": float(jump_px) if jump_px is not None else 0.0,
+            FRAME_INDEX: int(frame_index),
+            MISSING_REASON: str(reason),
+            JUMP_PX: float(jump_px) if jump_px is not None else 0.0,
         }
         return {
             "schema_version": 1,
@@ -134,7 +143,7 @@ class BallTracker:
             "pos_state": "missing",
             "confidence": float(self._last_confidence),
             "quality": 0.0,
-            "break_reason": "detector_missing",
+            "break_reason": BREAK_DETECTOR_MISSING,
             "diagnostics": diagnostics,
         }
 

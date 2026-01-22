@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-030-IMP-004",
   "intent_id": "INT-030",
   "title": "Fixture-based smoke run generates a valid, non-placeholder bundle",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Add a fixture-backed smoke run that exercises the INT-030 detection/MOT/team pipeline path.",
     "Ensure the generated bundle validates via the existing CLI validate command.",

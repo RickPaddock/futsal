@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/intents/INT-050.json
-source_sha256: sha256:7a16b1b63ef6fdd0f77ab1424092007fbe3f22b16c0dce9e2ab203e12d9957a9
+source_sha256: sha256:8985db3b2dcd122be149fa969bd2485ff4769556d0533a1a22cacdab52743ac3
 intent_id: INT-050
 title: Video ingest → plumbing proof → baseline real detections (UAT)
 status: todo
@@ -16,6 +16,7 @@ close_gate:
 
 - Given a provided local match video, ingest/iterate frames deterministically and export a valid V1 bundle (plumbing proof).
 - Then add a baseline local ball detector that produces non-empty detections on the UAT clip while remaining trust-first (missing/unknown over wrong).
+- UAT clip (preferred): `GoPro_Futsal_part2_trimmed_100mb.mp4` (provided locally; not committed to the repo).
 
 ## Work packages
 

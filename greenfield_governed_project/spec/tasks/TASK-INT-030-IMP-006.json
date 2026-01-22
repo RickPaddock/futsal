@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-030-IMP-006",
   "intent_id": "INT-030",
   "title": "Emit explicit unknown records/diagnostics for ambiguous detections",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Improve auditability by emitting explicit TrackRecordV1 records for ambiguous detections rather than silently dropping them.",
     "Use trust-first semantics: ambiguous detections become pos_state=unknown with diagnostics.unknown_reason=ambiguous_association.",

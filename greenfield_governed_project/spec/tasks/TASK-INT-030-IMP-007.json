@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-030-IMP-007",
   "intent_id": "INT-030",
   "title": "Bound MOT state and add out_of_view heuristic",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Add bounded tracking state and a simple heuristic to distinguish out_of_view from occlusion.",
     "Keep the tracker deterministic and trust-first.",

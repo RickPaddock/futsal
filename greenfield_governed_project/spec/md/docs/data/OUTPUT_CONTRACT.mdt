@@ -203,12 +203,7 @@ When tracking is enabled, player records SHOULD use stable `track_id` and emit `
 Trust-first rule:
 - If association is ambiguous, end the current segment and emit `break_reason` rather than swapping the identity of an existing `track_id`.
 
-`break_reason` vocabulary (finite, minimum set):
-- `occlusion`
-- `ambiguous_association`
-- `out_of_view`
-- `detector_missing`
-- `manual_reset`
+`break_reason` vocabulary (schema-derived): ${BREAK_REASONS}
 
 Example segment end (explicit break instead of swap):
 
@@ -218,10 +213,7 @@ Example segment end (explicit break instead of swap):
 
 ### Team assignment (A/B/Unknown)
 
-Team assignment is expressed via `team`:
-- Team A: `team="A"`
-- Team B: `team="B"`
-- Unknown: `team="unknown"`
+Team assignment is expressed via `team` (schema-derived values: ${TEAM_LABELS}):
 
 When `team` is present, emit `team_confidence` and include smoothing parameters in diagnostics.
 

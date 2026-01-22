@@ -8,6 +8,17 @@ from collections import deque
 from dataclasses import dataclass, field
 
 from ..contract import TeamLabel, TrackRecordV1
+from ..diagnostics_keys import (
+    SMOOTHING,
+    WINDOW_FRAMES,
+    HYSTERESIS,
+    COLOR_EVIDENCE,
+    P_A,
+    P_B,
+    UNKNOWN_REASON,
+    UNKNOWN_REASON_NO_COLOR,
+    UNKNOWN_REASON_LOW_CONFIDENCE,
+)
 
 
 @dataclass(frozen=True)
@@ -53,8 +64,8 @@ class TeamAssigner:
             team: TeamLabel = "unknown"
             conf = 0.0
             diag = {
-                "unknown_reason": "no_color_evidence",
-                "smoothing": {"window_frames": int(self.cfg.window_frames), "hysteresis": float(self.cfg.hysteresis)},
+                UNKNOWN_REASON: UNKNOWN_REASON_NO_COLOR,
+                SMOOTHING: {WINDOW_FRAMES: int(self.cfg.window_frames), HYSTERESIS: float(self.cfg.hysteresis)},
             }
             self._last_team[track_id] = team
             return team, conf, diag
@@ -71,15 +82,15 @@ class TeamAssigner:
         if conf < float(self.cfg.min_confidence):
             team = "unknown"
             diag = {
-                "unknown_reason": "low_confidence",
-                "smoothing": {"window_frames": int(self.cfg.window_frames), "hysteresis": float(self.cfg.hysteresis)},
-                "color_evidence": {"p_a": float(p_a), "p_b": float(p_b)},
+                UNKNOWN_REASON: UNKNOWN_REASON_LOW_CONFIDENCE,
+                SMOOTHING: {WINDOW_FRAMES: int(self.cfg.window_frames), HYSTERESIS: float(self.cfg.hysteresis)},
+                COLOR_EVIDENCE: {P_A: float(p_a), P_B: float(p_b)},
             }
         else:
             team = preferred
             diag = {
-                "smoothing": {"window_frames": int(self.cfg.window_frames), "hysteresis": float(self.cfg.hysteresis)},
-                "color_evidence": {"p_a": float(p_a), "p_b": float(p_b)},
+                SMOOTHING: {WINDOW_FRAMES: int(self.cfg.window_frames), HYSTERESIS: float(self.cfg.hysteresis)},
+                COLOR_EVIDENCE: {P_A: float(p_a), P_B: float(p_b)},
             }
 
         self._last_team[track_id] = team

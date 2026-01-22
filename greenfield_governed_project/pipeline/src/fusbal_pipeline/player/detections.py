@@ -8,6 +8,14 @@ from dataclasses import dataclass
 from typing import NotRequired, TypedDict
 
 from ..contract import TrackRecordV1
+from ..diagnostics_keys import (
+    FRAME_INDEX,
+    GATING_REASON,
+    GATING_NONE,
+    GATING_LOW_CONFIDENCE,
+    NUM_CANDIDATES,
+    NUM_EMITTED,
+)
 
 
 class RawPlayerDetection(TypedDict):
@@ -78,7 +86,7 @@ def emit_player_detections_v1(
         if conf < cfg.min_confidence:
             continue
         det_id = f"det_{frame_index:06d}_{i:02d}"
-        diagnostics = {"frame_index": frame_index, "gating_reason": "none"}
+        diagnostics = {FRAME_INDEX: frame_index, GATING_REASON: GATING_NONE}
         diagnostics.update(diag)
         emitted.append(
             {
@@ -97,11 +105,11 @@ def emit_player_detections_v1(
         )
 
     frame_diag: FrameDetectionsDiagnostics = {
-        "frame_index": int(frame_index),
-        "num_candidates": int(len(normalized)),
-        "num_emitted": int(len(emitted)),
+        FRAME_INDEX: int(frame_index),
+        NUM_CANDIDATES: int(len(normalized)),
+        NUM_EMITTED: int(len(emitted)),
         "min_confidence": float(cfg.min_confidence),
-        "gating_reason": "low_confidence_suppressed" if len(normalized) and not emitted else "none",
+        GATING_REASON: GATING_LOW_CONFIDENCE if len(normalized) and not emitted else GATING_NONE,
     }
     return emitted, frame_diag
 

@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-030-IMP-002",
   "intent_id": "INT-030",
   "title": "Deterministic unit tests for detections, MOT breaks, and team smoothing",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Add unit tests that lock in determinism and trust-first semantics for the INT-030 modules.",
     "Cover detection gating and stable ordering, swap-avoidant MOT break behavior, and team Unknown/hysteresis smoothing.",

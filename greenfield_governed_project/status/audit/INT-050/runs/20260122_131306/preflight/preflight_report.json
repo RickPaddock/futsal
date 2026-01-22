@@ -1,0 +1,136 @@
+{
+  "type": "intent_preflight_report",
+  "schema_version": 1,
+  "intent_id": "INT-050",
+  "run_id": "20260122_131306",
+  "timestamp": "2026-01-22T13:16:29Z",
+  "blockers_ranked": [
+    {
+      "roi_0_to_10": 10,
+      "effort": "S",
+      "risk": "high",
+      "issue": "`FUSBAL-V1-OUT-001` is in `requirements_in_scope`, but the intent/task acceptance only guarantees `manifest.json`, `tracks.jsonl`, `events.json`, `report.json`, and diagnostics placeholders; `FUSBAL-V1-OUT-001` explicitly expects at minimum an overlay video.",
+      "why": "This makes the intent uncloseable without guessing whether an overlay is required (real encoded overlay vs empty placeholder file). It also risks implementing the wrong thing (file presence vs usable overlay).",
+      "exact_fix": "Edit `spec/intents/INT-050.json` to either (a) remove `FUSBAL-V1-OUT-001` from `requirements_in_scope`, OR (b) add an explicit success criterion and task acceptance requiring a minimally-usable `overlay.mp4` (even if simple) and define whether placeholders are acceptable for closure.",
+      "override_option": "Optional override: treat overlay as \"placeholder acceptable\" for plumbing proof and remove/relax the overlay expectation in scope for INT-050 only by dropping `FUSBAL-V1-OUT-001` from scope. Impact: bundle has required files but not a usable overlay until a later intent."
+    },
+    {
+      "roi_0_to_10": 9,
+      "effort": "S",
+      "risk": "high",
+      "issue": "“Deterministic” is not defined for video ingest timebase (`t_ms`) and frame ordering, especially for variable frame rate, B-frames, and decoder differences.",
+      "why": "Without a precise timebase rule, two runs can differ (breaking determinism acceptance) and downstream evidence pointers become unreliable.",
+      "exact_fix": "In `spec/tasks/TASK-VIDEO-INGEST-001.json` and `spec/tasks/TASK-RUN-VIDEO-001.json`, define a deterministic `t_ms` rule (e.g., `t_ms = round(frame_index * 1000 / fps)` from container metadata with explicit rounding) and specify how fps is obtained and validated; require stable ordering by `(t_ms, frame_index)`."
+    },
+    {
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "The UAT clip is referenced by filename (`GoPro_Futsal_part2_trimmed_100mb.mp4`) which can be interpreted as a repo-relative path assumption.",
+      "why": "Repo governance expects movability; implementers may accidentally hardcode local paths or assume a specific folder layout, causing non-portable code and fragile runs.",
+      "exact_fix": "In `spec/intents/INT-050.json`, clarify the clip is an external/local input and the CLI must accept an arbitrary path; optionally store only a clip \"label\" plus a human-provided absolute path at run time (never committed)."
+    },
+    {
+      "roi_0_to_10": 8,
+      "effort": "M",
+      "risk": "high",
+      "issue": "Decode strategy/dependencies are unspecified (ffmpeg binary vs OpenCV vs PyAV). The environment may not have `ffprobe/ffmpeg` or Python video libs.",
+      "why": "Implementation could stall or become non-reproducible. A baseline plan must commit to a supported backend and clear install/compatibility expectations for HEVC 4K sources.",
+      "exact_fix": "Add a constraints section to `spec/tasks/TASK-VIDEO-INGEST-001.json` (or acceptance) choosing the decoding backend(s), with a fallback behavior (fail explicitly with actionable message) and a documented prerequisite (e.g., `ffmpeg` installed)."
+    },
+    {
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "“Baseline real detections” success is not measurable (no minimum number of frames, no definition of what counts as a detection, no negative-path expectations for false positives).",
+      "why": "Teams can claim success with trivial or accidental detections, or spend too long chasing accuracy without a closure bar.",
+      "exact_fix": "In `spec/intents/INT-050.json` and `spec/tasks/TASK-BALL-DET-BASELINE-001.json`, specify a minimal measurable bar (e.g., at least N frames with `pos_state=present` across the clip, with confidence ≥ threshold) and explicit negative paths (e.g., must not emit `present` when detector disabled; must not emit any `event_state=confirmed`)."
+    },
+    {
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "Run-video contract for events is underspecified: intent doesn’t explicitly state the runner must produce contract-valid `EventRecordV1` with `event_state` and non-empty `evidence[]` (recently strengthened in INT-040 implementation).",
+      "why": "Runner could write empty events or omit required fields, causing validation failures or silent drift.",
+      "exact_fix": "In `spec/tasks/TASK-RUN-VIDEO-001.json`, add acceptance that `events.json` entries (when present) must include `event_state` and evidence pointers, and that the runner calls the conservative events inference module (or intentionally writes an empty array with a documented reason)."
+    }
+  ],
+  "ambiguities": [
+    {
+      "ambiguous_text": "“decode frames deterministically and emit … `frame_index` and `t_ms`”",
+      "risk": "Different decoders and VFR sources yield different timestamps; rounding/ordering not defined.",
+      "proposed_rewrite": "Define `t_ms` as `round(frame_index * 1000 / fps)` where `fps` is read from container metadata (fail if missing/invalid), and require stable ordering by `(frame_index)` with monotonically non-decreasing `t_ms`."
+    },
+    {
+      "ambiguous_text": "“export a valid V1 bundle … and `validate` passes”",
+      "risk": "Unclear whether “valid” means file presence only, or usable overlay/report contents (esp. `FUSBAL-V1-OUT-001`).",
+      "proposed_rewrite": "State exactly which artifacts must be non-placeholder vs placeholder-allowed for INT-050 closure (e.g., `tracks.jsonl`/`events.json` must be contract-valid; `overlay.mp4` may be placeholder unless OUT-001 remains in scope)."
+    },
+    {
+      "ambiguous_text": "“baseline local ball detector … produces non-empty detections”",
+      "risk": "Could be satisfied by a single false-positive frame; no closure bar or precision expectations.",
+      "proposed_rewrite": "Require at least N frames with `pos_state=present` and confidence ≥ threshold on the UAT clip, and require a negative test that disabling the detector yields zero `present` ball records."
+    },
+    {
+      "ambiguous_text": "“provided locally; not committed to the repo”",
+      "risk": "Implementations may hardcode an assumed location or add machine-specific paths to manifests/logs.",
+      "proposed_rewrite": "Treat the clip as an external input provided via CLI `--video` and never referenced by absolute path in committed artefacts; manifests store a normalized, portable path string only as provenance."
+    }
+  ],
+  "scope_alignment": {
+    "inferred_surfaces": [
+      "pipeline video ingest module (new)",
+      "pipeline CLI (`run-video`/`ingest-video`) wiring",
+      "bundle writer for `tracks.jsonl` and `events.json`",
+      "baseline ball detector implementation and configuration",
+      "audit evidence output under `status/audit/INT-050/runs/<run_id>/`"
+    ],
+    "paths_allowed": [
+      "spec/",
+      "spec/md/docs/",
+      "pipeline/",
+      "status/audit/"
+    ],
+    "paths_excluded": [
+      "docs/",
+      "status/intents/",
+      "status/portal/",
+      "status/wizard/"
+    ],
+    "mismatches": [
+      "Intent includes `FUSBAL-V1-OUT-001` but does not commit to producing a usable overlay video (only mentions placeholders).",
+      "UAT clip referenced by filename can be misread as a repo path assumption."
+    ],
+    "recommended_edits": [
+      "Clarify/resolve `FUSBAL-V1-OUT-001` vs placeholder policy in `spec/intents/INT-050.json`.",
+      "Define deterministic timebase/timestamp semantics and decoder dependency expectations in task acceptance.",
+      "Clarify that the clip is supplied via CLI `--video` and never assumed repo-relative."
+    ]
+  },
+  "closeability": {
+    "tasks": {
+      "status": "PASS",
+      "notes": "All planned task IDs exist as specs under `spec/tasks/` and reference INT-050."
+    },
+    "work_packages": {
+      "status": "PASS",
+      "notes": "Generated work packages cover all planned tasks with clear titles."
+    },
+    "close_gates": {
+      "status": "PASS",
+      "notes": "Close gate commands are specified and governance-aligned (generate, guardrails, audit:intent)."
+    },
+    "guardrail_plan": {
+      "status": "FAIL",
+      "notes": "Scope mismatch around `FUSBAL-V1-OUT-001` and missing definitions for determinism/decoder strategy create audit ambiguity at closure."
+    }
+  },
+  "minimum_next_steps": [
+    "Decide whether INT-050 must produce a usable `overlay.mp4` (keep `FUSBAL-V1-OUT-001` in scope) or drop `FUSBAL-V1-OUT-001` from `requirements_in_scope` for INT-050.",
+    "Define deterministic ingest timebase rules (`t_ms`) and ordering guarantees in `spec/tasks/TASK-VIDEO-INGEST-001.json` and `spec/tasks/TASK-RUN-VIDEO-001.json`.",
+    "Clarify UAT clip handling: external input via CLI `--video`, no repo-relative assumption, and no absolute paths in committed artefacts.",
+    "Tighten baseline detection success metric (minimum present frames/conf threshold) and negative-path expectations in `spec/tasks/TASK-BALL-DET-BASELINE-001.json`.",
+    "Regenerate and re-run guardrails after spec edits (`npm run generate`, `npm run guardrails`)."
+  ]
+}
+

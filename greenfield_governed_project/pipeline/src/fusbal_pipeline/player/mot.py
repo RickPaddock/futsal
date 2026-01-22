@@ -7,6 +7,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..contract import TrackRecordV1
+from ..diagnostics_keys import (
+    ASSOCIATION_SCORE,
+    REASON,
+    BREAK_AMBIGUOUS,
+    BREAK_DETECTOR_MISSING,
+    BREAK_OCCLUSION,
+    BREAK_OUT_OF_VIEW,
+    UNKNOWN_REASON,
+    UNKNOWN_REASON_AMBIGUOUS,
+)
 from .track_types import BreakReason, MotConfig
 
 
@@ -39,6 +49,7 @@ class _ActiveTrack:
     last_center_xy: tuple[float, float]
     last_t_ms: int
     confidence: float
+    frames_missing: int = 0
 
 
 @dataclass
@@ -70,6 +81,31 @@ class SwapAvoidantMOT:
 
         Ambiguous associations trigger breaks; detections start new tracks.
         """
+        
+        # Enforce bounded state - evict oldest tracks if over limit
+        if len(self._active) > self.cfg.max_active_tracks:
+            # Sort by last update time and evict oldest
+            sorted_tracks = sorted(self._active.items(), key=lambda x: x[1].last_t_ms)
+            tracks_to_evict = len(self._active) - self.cfg.max_active_tracks
+            for track_id, _ in sorted_tracks[:tracks_to_evict]:
+                # Create a temporary end_track function for bounded state cleanup
+                trk = self._active.get(track_id)
+                if trk:
+                    out.append({
+                        "schema_version": 1,
+                        "t_ms": int(t_ms),
+                        "entity_type": "player", 
+                        "entity_id": track_id,
+                        "track_id": track_id,
+                        "segment_id": trk.segment_id,
+                        "source": str(self.source),
+                        "frame": "image_px",
+                        "pos_state": "missing",
+                        "confidence": float(trk.confidence),
+                        "break_reason": "out_of_view",
+                        "diagnostics": {ASSOCIATION_SCORE: 0.0, REASON: "bounded_state_eviction"},
+                    })
+                    del self._active[track_id]
 
         dets = [
             d
@@ -140,7 +176,7 @@ class SwapAvoidantMOT:
                     "pos_state": "missing",
                     "confidence": float(trk.confidence),
                     "break_reason": break_reason,
-                    "diagnostics": {"association_score": 0.0, "reason": str(break_reason)},
+                    "diagnostics": {ASSOCIATION_SCORE: 0.0, REASON: str(break_reason)},
                 }
             )
             del self._active[track_id]
@@ -149,15 +185,33 @@ class SwapAvoidantMOT:
         for track_id in sorted(ambiguous_tracks):
             end_track(track_id, break_reason="ambiguous_association")
 
-        # End tracks that were not matched (occlusion vs detector missing).
+        # End tracks that were not matched (with out_of_view heuristic).
         if not det_centers:
             for track_id in sorted(self._active.keys()):
                 end_track(track_id, break_reason="detector_missing")
         else:
             for track_id in sorted(list(self._active.keys())):
                 if track_id in assigned_tracks:
+                    # Reset missing counter for matched tracks
+                    self._active[track_id].frames_missing = 0
                     continue
-                end_track(track_id, break_reason="occlusion")
+                
+                # Increment missing counter
+                self._active[track_id].frames_missing += 1
+                
+                # Determine break reason using heuristic
+                track = self._active[track_id]
+                min_dist_to_detection = float('inf')
+                for _, det_center in det_centers:
+                    dist = _dist(track.last_center_xy, det_center)
+                    min_dist_to_detection = min(min_dist_to_detection, dist)
+                
+                # Out of view if far from all detections or timed out
+                if (min_dist_to_detection > self.cfg.out_of_view_distance_px or 
+                    track.frames_missing >= self.cfg.track_timeout_frames):
+                    end_track(track_id, break_reason="out_of_view")
+                else:
+                    end_track(track_id, break_reason="occlusion")
 
         # Emit matched updates.
         for track_id in sorted(assigned_tracks.keys()):
@@ -177,6 +231,7 @@ class SwapAvoidantMOT:
                 last_center_xy=center,
                 last_t_ms=int(t_ms),
                 confidence=conf,
+                frames_missing=0,
             )
             out.append(
                 {
@@ -191,13 +246,40 @@ class SwapAvoidantMOT:
                     "pos_state": "present",
                     "bbox_xyxy_px": [int(x) for x in bbox],
                     "confidence": conf,
-                    "diagnostics": {"association_score": float(score)},
+                    "diagnostics": {ASSOCIATION_SCORE: float(score)},
                 }
             )
 
         # Start new tracks for unmatched, non-ambiguous detections.
         used_det_indices = set(assigned_dets.keys()) | set(ambiguous_dets)
         new_det_indices = [i for i in range(len(dets)) if i not in used_det_indices]
+        
+        # Emit explicit unknown records for ambiguous detections
+        for det_idx in sorted(ambiguous_dets):
+            if det_idx >= len(dets):
+                continue
+            det = dets[det_idx]
+            bbox = det.get("bbox_xyxy_px")
+            if not isinstance(bbox, list) or len(bbox) != 4:
+                continue
+            # Create a unique entity_id for the ambiguous detection
+            entity_id = f"amb_{t_ms:08d}_{det_idx:02d}"
+            conf = float(det.get("confidence") or 0.0)
+            out.append(
+                {
+                    "schema_version": 1,
+                    "t_ms": int(t_ms),
+                    "entity_type": "player",
+                    "entity_id": entity_id,
+                    "track_id": entity_id,
+                    "source": str(self.source),
+                    "frame": "image_px",
+                    "pos_state": "unknown",
+                    "bbox_xyxy_px": [int(x) for x in bbox],
+                    "confidence": conf,
+                    "diagnostics": {UNKNOWN_REASON: UNKNOWN_REASON_AMBIGUOUS, ASSOCIATION_SCORE: 0.0},
+                }
+            )
         for det_idx in new_det_indices:
             det = dets[det_idx]
             bbox = det.get("bbox_xyxy_px")
@@ -213,6 +295,7 @@ class SwapAvoidantMOT:
                 last_center_xy=center,
                 last_t_ms=int(t_ms),
                 confidence=conf,
+                frames_missing=0,
             )
             out.append(
                 {
@@ -227,7 +310,7 @@ class SwapAvoidantMOT:
                     "pos_state": "present",
                     "bbox_xyxy_px": [int(x) for x in bbox],
                     "confidence": conf,
-                    "diagnostics": {"association_score": 1.0, "reason": "new_track"},
+                    "diagnostics": {ASSOCIATION_SCORE: 1.0, REASON: "new_track"},
                 }
             )
 

@@ -60,6 +60,31 @@ function collectArtefacts(repoRoot, artefacts) {
   return out;
 }
 
+function collectGitMetadata(repoRoot) {
+  try {
+    const sha = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, stdio: "pipe" });
+    const status = spawnSync("git", ["status", "--porcelain"], { cwd: repoRoot, stdio: "pipe" });
+    const branch = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: repoRoot, stdio: "pipe" });
+    
+    return {
+      sha: sha.status === 0 ? sha.stdout.toString().trim() : "unknown",
+      dirty: status.status === 0 ? status.stdout.toString().trim().length > 0 : false,
+      branch: branch.status === 0 ? branch.stdout.toString().trim() : "unknown",
+    };
+  } catch {
+    return { sha: "unknown", dirty: false, branch: "unknown" };
+  }
+}
+
+function collectEnvironmentMetadata() {
+  return {
+    node_version: process.version,
+    platform: process.platform,
+    arch: process.arch,
+    timestamp_collected: utcNow(),
+  };
+}
+
 const repoRoot = repoRootFromHere(import.meta.url);
 const args = parseArgs(process.argv.slice(2));
 if (!args.out || !args.out.endsWith("run.json")) {
@@ -101,6 +126,8 @@ const payload = {
   artefacts: collectArtefacts(repoRoot, args.artefacts),
   stage: meta.stage,
   run_json_path: meta.runJsonPath,
+  git: collectGitMetadata(repoRoot),
+  environment: collectEnvironmentMetadata(),
 };
 if (stdout) payload.stdout = stdout;
 if (stderr) payload.stderr = stderr;

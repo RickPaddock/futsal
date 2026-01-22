@@ -1,11 +1,12 @@
 ---
 generated: true
 source: spec/intents/INT-030.json
-source_sha256: sha256:c07cb983393b50b4052036a3fc7c5a1c37f2d6e708ba74870a04d6793f41e76f
+source_sha256: sha256:e44a4700b596852e9adb4aae2782903fddf899e73e9a915d4d90904d0698a8d4
 intent_id: INT-030
 title: Player tracking MVP (trust-first)
-status: todo
+status: closed
 created_date: 2026-01-20
+closed_date: 2026-01-20
 close_gate:
   - "npm run generate"
   - "npm run guardrails"

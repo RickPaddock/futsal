@@ -28,4 +28,7 @@ BREAK_REASON_VOCAB: tuple[BreakReason, ...] = (
 class MotConfig:
     max_center_distance_px: float = 80.0
     min_association_score: float = 0.5
+    max_active_tracks: int = 22  # Futsal has max 10 players per team + some buffer
+    out_of_view_distance_px: float = 200.0  # Heuristic threshold for out_of_view vs occlusion
+    track_timeout_frames: int = 30  # Max frames a track can be missing before forced cleanup
 

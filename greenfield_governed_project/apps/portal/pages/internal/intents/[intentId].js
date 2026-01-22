@@ -467,6 +467,39 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
         ) : <div className="muted">No quality_audit.json found in status/audit.</div>}
 
         <h3 style={{ marginTop: 16 }}>Per-task quality audits</h3>
+        
+        {/* Failing Tasks Summary */}
+        {(perTask?.audits || []).some(a => a?.report?.gate?.status !== "pass") ? (
+          <section className="panel" style={{ backgroundColor: "#fef2f2", borderColor: "#b91c1c", marginBottom: 16 }}>
+            <h4 style={{ color: "#b91c1c", marginTop: 0 }}>🚨 Failing Tasks & Blockers</h4>
+            {(perTask?.audits || []).filter(a => a?.report?.gate?.status !== "pass").map((a) => {
+              const blockers = Array.isArray(a?.report?.gate?.blockers) ? a.report.gate.blockers : [];
+              return (
+                <div key={`blocker-${a.task_id}`} style={{ marginBottom: 12 }}>
+                  <div>
+                    <strong><code>{a.task_id}</code></strong>
+                    <span className="badge" style={{ backgroundColor: "#b91c1c", color: "white", marginLeft: 8 }}>
+                      {a?.report?.gate?.status || "fail"}
+                    </span>
+                  </div>
+                  {blockers.length > 0 && (
+                    <div style={{ marginTop: 4, paddingLeft: 12 }}>
+                      <strong>Blockers:</strong>
+                      <ul className="bullets" style={{ marginTop: 4 }}>
+                        {blockers.map((blocker, idx) => (
+                          <li key={`${a.task_id}-${idx}`} style={{ color: "#991b1b" }}>{blocker}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <div style={{ marginTop: 4, fontSize: "12px", color: "#666" }}>
+                    Audit: <a href={`/api/internal/file?rel=${encodeURIComponent(a.path)}`} target="_blank" rel="noreferrer">{a.path}</a>
+                  </div>
+                </div>
+              );
+            })}
+          </section>
+        ) : null}
         <div className="table">
           <div className="thead">
             <div>Task</div>
@@ -485,9 +518,14 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
             const blockers = Array.isArray(a?.report?.gate?.blockers) ? a.report.gate.blockers : [];
             const ts = formatUkDateTime(a?.report?.timestamp || "");
             const runLinkRel = qualityRunId ? `status/audit/${intentId}/runs/${qualityRunId}/quality_audit.json` : "";
+            const isFailing = gate !== "pass";
+            const rowStyle = isFailing ? { backgroundColor: "#fef2f2", borderLeft: "4px solid #b91c1c" } : {};
             return (
-              <div key={`ok:${a.task_id}`} className="trow">
-                <div><code>{a.task_id}</code></div>
+              <div key={`ok:${a.task_id}`} className="trow" style={rowStyle}>
+                <div>
+                  <code>{a.task_id}</code>
+                  {isFailing && <span style={{ marginLeft: 8, color: "#b91c1c" }}>⚠️</span>}
+                </div>
                 <div>
                   {qualityRunId ? (
                     <a href={`/api/internal/file?rel=${encodeURIComponent(runLinkRel)}`} target="_blank" rel="noreferrer"><code>{qualityRunId}</code></a>
@@ -496,10 +534,18 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
                   )}
                 </div>
                 <div>{ts}</div>
-                <div>{gate}</div>
+                <div style={gate !== "pass" ? { color: "#b91c1c", fontWeight: "bold" } : {}}>{gate}</div>
                 <div>{functional}</div>
                 <div>{nfr}</div>
-                <div>{blockers.length ? blockers.join("; ") : ""}</div>
+                <div style={{ fontSize: "11px", lineHeight: "1.3" }}>
+                  {blockers.length ? (
+                    <div style={{ color: "#b91c1c" }}>
+                      {blockers.map((b, idx) => (
+                        <div key={idx}>• {b}</div>
+                      ))}
+                    </div>
+                  ) : ""}
+                </div>
                 <div><a href={`/api/internal/file?rel=${encodeURIComponent(a.path)}`} target="_blank" rel="noreferrer">raw</a></div>
               </div>
             );
