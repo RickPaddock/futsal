@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-BALL-DET-REGRESSION-001",
+  "intent_id": "INT-050",
+  "title": "Regression test: synthetic baseline detector emits >=N present frames under configured thresholds",
+  "status": "done",
+  "scope": [
+    "Add a deterministic regression test that exercises the baseline ball detector + gating/tracker pipeline on a small synthetic frame sequence.",
+    "The test serves as a guard against accidental breakage of the baseline detector and trust-first gating."
+  ],
+  "acceptance": [
+    "A test generates a synthetic sequence that results in >=N (at least 10) `pos_state=present` ball records with confidence >= 0.6 under explicit config.",
+    "Test remains deterministic and does not require external video files."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-BALL-DET-REGRESSION-001-001",
+      "title": "Synthetic regression test for baseline detector",
+      "paths": [
+        "pipeline/tests/test_ball_detector_regression_v1.py",
+        "pipeline/src/fusbal_pipeline/ball/detector.py",
+        "pipeline/src/fusbal_pipeline/ball/detections.py",
+        "pipeline/src/fusbal_pipeline/ball/tracker.py"
+      ],
+      "acceptance": [
+        "Test exercises baseline detector + gating + tracker with explicit config.",
+        "Test asserts both trust-first behavior and a minimum present count."
+      ],
+      "evidence": [
+        "pytest green under guardrails."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-BALL-DET-REGRESSION-001-001",
+      "title": "Implement synthetic frames regression test.",
+      "status": "done",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_BALL_DET_REGRESSION_001.SUB_001",
+      "done_when": [
+        "New test exists and passes deterministically.",
+        "Test asserts >=10 present frames with confidence >=0.6 under the chosen config."
+      ]
+    }
+  ]
+}

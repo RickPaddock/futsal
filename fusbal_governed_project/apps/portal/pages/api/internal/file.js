@@ -7,6 +7,7 @@ WHY: Serve selected repo artefacts (status/spec) to the portal UI without exposi
 import fs from "node:fs";
 import path from "node:path";
 import { repoRootFromPortalCwd } from "../../../lib/portal_read_model.js";
+import { rejectIfNotInternal } from "../../../lib/portal_request_guards.js";
 
 function isSafeRelPath(rel) {
   const p = String(rel || "").replace(/\\/g, "/");
@@ -22,6 +23,8 @@ export default async function handler(req, res) {
     res.status(405).json({ ok: false, error: "method_not_allowed" });
     return;
   }
+
+  if (rejectIfNotInternal(req, res)) return;
 
   const rel = String(req.query?.rel || "").trim();
   if (!isSafeRelPath(rel)) {

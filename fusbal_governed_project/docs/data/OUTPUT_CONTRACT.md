@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/md/docs/data/OUTPUT_CONTRACT.mdt
-source_sha256: sha256:ff96c8b5c39917cb1b68cdbbbeec605c947b90d227c47fd6f329ac74afb9a1e2
+source_sha256: sha256:6e3d20b9e4b47dd17e04326710a7bdb7db5bf033ffb18f004fdaa3e0d7191c52
 ---
 
 # Output contract (V1)
@@ -223,6 +223,68 @@ Team assignment is expressed via `team` (schema-derived values: `A`, `B`, `unkno
 
 When `team` is present, emit `team_confidence` and include smoothing parameters in diagnostics.
 
+### Ball detections (trust-first, explicit missing/unknown)
+
+Ball detections MAY be emitted as `entity_type="ball"` records in `frame="image_px"` with `track_id==entity_id` (no identity continuity).
+
+INT-040 trust-first rules:
+- Frames MUST NOT imply missing/unknown via gaps. If no acceptable ball position is emitted for a frame, emit an explicit `pos_state="missing"` (evaluable-but-no-acceptable-position) or `pos_state="unknown"` (unevaluable) state record.
+- `pos_state="present"` MUST NOT be emitted without direct gated evidence.
+
+Recommended conventions for detection-style records:
+- When the ball is detected: emit one or more `pos_state="present"` records with `bbox_xyxy_px`, `confidence`, and `diagnostics.gating_reason="none"`.
+- When the ball is missing (evaluable): emit exactly one `pos_state="missing"` state record for that frame with:
+  - `break_reason="detector_missing"` (coarse category for V1)
+  - `diagnostics.missing_reason ∈ {"detector_missing","low_confidence","jump_rejected"}`
+  - `diagnostics.gating_reason` (e.g. `"detector_missing"` or `"low_confidence_suppressed"`)
+- When the frame is unevaluable: emit exactly one `pos_state="unknown"` state record with:
+  - `diagnostics.unknown_reason ∈ {"frame_unavailable","detector_error"}`
+
+Examples (state records):
+
+```json
+{"schema_version":1,"t_ms":100,"entity_type":"ball","entity_id":"ball_det_state_000001","track_id":"ball_det_state_000001","segment_id":"ball_det_seg_0001","source":"vision_cam_A","frame":"image_px","pos_state":"missing","confidence":0.0,"quality":0.0,"break_reason":"detector_missing","diagnostics":{"frame_index":1,"num_candidates":2,"num_emitted":0,"min_confidence":0.6,"gating_reason":"low_confidence_suppressed","missing_reason":"low_confidence"}}
+```
+
+```json
+{"schema_version":1,"t_ms":100,"entity_type":"ball","entity_id":"ball_det_state_000001","track_id":"ball_det_state_000001","source":"vision_cam_A","frame":"image_px","pos_state":"unknown","confidence":0.0,"diagnostics":{"frame_index":1,"num_candidates":0,"num_emitted":0,"min_confidence":0.6,"gating_reason":"none","unknown_reason":"frame_unavailable"}}
+```
+
+### Ball tracking (explicit missing/unknown + conservative segmentation)
+
+Ball tracking emits a single, stable `track_id` (e.g. `ball_trk_0001`) and SHOULD emit `segment_id` for contiguous present spans.
+
+V1 conventions:
+- Missing records MUST be explicit per frame and MUST include:
+  - `break_reason="detector_missing"` (coarse break category for V1)
+  - `diagnostics.missing_reason ∈ {"detector_missing","low_confidence","jump_rejected"}`
+- Unknown records MUST be explicit per frame and MUST include:
+  - `diagnostics.unknown_reason ∈ {"frame_unavailable","detector_error"}`
+- When the ball returns from a missing/unknown span, start a new segment (`segment_id` increments deterministically).
+
+Example (jump rejected => missing):
+
+```json
+{"schema_version":1,"t_ms":66,"entity_type":"ball","entity_id":"ball_trk_0001","track_id":"ball_trk_0001","segment_id":"ball_seg_0001","source":"vision_cam_A","frame":"image_px","pos_state":"missing","confidence":0.91,"quality":0.0,"break_reason":"detector_missing","diagnostics":{"frame_index":2,"missing_reason":"jump_rejected","jump_px":430.2}}
+```
+
+### Quality summary (`diagnostics/quality_summary.json`)
+
+`diagnostics/quality_summary.json` is a deterministic, aggregated summary of key run-quality signals.
+
+Minimum fields:
+- `schema_version`: `1`
+- `ball` (object): ball tracking quality metrics
+
+`ball` metrics (V1) include:
+- `schema_version`: `1`
+- `total_records`: integer
+- `pos_state_counts.present|missing|unknown`: integer counts
+- `missing_reason_counts.detector_missing|low_confidence|jump_rejected`: integer counts
+- `missing_runs`, `unknown_runs`: number of contiguous runs per `pos_state`
+- `present_confidence.{min,max,mean}`: confidence stats over present records
+- `thresholds.min_detection_confidence`, `thresholds.max_center_jump_px`: thresholds used to compute/accept tracks
+
 ### Diagnostics keys (stable)
 
 Diagnostics MUST be an object and SHOULD use stable keys so audits do not depend on ad-hoc strings.
@@ -233,6 +295,7 @@ Recommended stable keys (extendable):
 - `color_evidence`: object (summary stats; not raw images)
 - `smoothing`: object (e.g., `{ "window_frames": 15, "hysteresis": 0.1 }`)
 - `unknown_reason`: string (why `pos_state` or `team` is unknown)
+- `missing_reason`: string (why `pos_state="missing"`; V1 vocab is entity-specific)
 
 ```json
 {"schema_version":1,"t_ms":1234567,"entity_type":"player","entity_id":"camA_entity_12","track_id":"camA_track_12","segment_id":"seg_03","source":"vision_cam_A","frame":"pitch","pos_state":"present","x_m":8.3,"y_m":12.1,"sigma_m":0.25,"confidence":0.91,"quality":0.86,"team":"unknown","team_confidence":0.42,"diagnostics":{"smoothing":{"window_frames":15,"hysteresis":0.1}}}

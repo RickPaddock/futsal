@@ -15,7 +15,10 @@ function safeReadJson(p) {
   return JSON.parse(fs.readFileSync(p, "utf8"));
 }
 
-export async function getServerSideProps() {
+export async function getServerSideProps(ctx) {
+  const { ensurePortalCsrfCookieFromCtx } = await import("../../../lib/portal_csrf.js");
+  const csrfToken = await ensurePortalCsrfCookieFromCtx(ctx);
+
   const repoRoot = path.resolve(process.cwd(), "..", "..");
   const tasksDir = path.join(repoRoot, "spec", "tasks");
   const taskFiles = fs.existsSync(tasksDir)
@@ -39,24 +42,29 @@ export async function getServerSideProps() {
   }
 
   tasks.sort((a, b) => a.task_id.localeCompare(b.task_id));
-  return { props: { tasks } };
+  return { props: { tasks, csrfToken } };
 }
 
-export default function TasksIndex({ tasks }) {
+export default function TasksIndex({ tasks, csrfToken }) {
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState(1);
+  const [onlyInt040, setOnlyInt040] = useState(false);
   const itemsPerPage = 20;
   
-  const totalPages = Math.ceil(tasks.length / itemsPerPage);
+  const visibleTasks = onlyInt040 ? tasks.filter((t) => t.intent_id === "INT-040") : tasks;
+  const totalPages = Math.ceil(visibleTasks.length / itemsPerPage) || 1;
   const startIdx = (page - 1) * itemsPerPage;
   const endIdx = startIdx + itemsPerPage;
-  const paginatedTasks = tasks.slice(startIdx, endIdx);
+  const paginatedTasks = visibleTasks.slice(startIdx, endIdx);
 
   async function refreshAndReload() {
     setRefreshing(true);
     try {
-      const res = await fetch("/api/internal/refresh", { method: "POST" });
+      const res = await fetch("/api/internal/refresh", {
+        method: "POST",
+        headers: { "x-portal-csrf": String(csrfToken || "") },
+      });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
         const msg = payload?.error ? String(payload.error) : `http_${res.status}`;
@@ -81,6 +89,20 @@ export default function TasksIndex({ tasks }) {
             <Link className="btn btnSmall btnActive" href="/internal/tasks">Tasks</Link>
           </div>
           <h1 style={{ margin: "6px 0 0 0" }}>Tasks</h1>
+          <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
+            <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+              <input
+                type="checkbox"
+                checked={onlyInt040}
+                onChange={(e) => {
+                  setOnlyInt040(e.target.checked);
+                  setPage(1);
+                }}
+              />
+              Focus: INT-040
+            </label>
+            {onlyInt040 ? <span className="badge">INT-040</span> : null}
+          </div>
         </div>
         <div className="toolbarActions">
           <Link className="btn" href="/internal/intents?create=1">Create intent</Link>
@@ -94,6 +116,7 @@ export default function TasksIndex({ tasks }) {
           <Link key={t.task_id} className="card" href={`/internal/tasks/${encodeURIComponent(t.task_id)}`}>
             <div className="row">
               <strong>{t.task_id}</strong>
+              {t.intent_id === "INT-040" ? <span className="badge">INT-040</span> : null}
               <span className="badge">{t.status || "todo"}</span>
             </div>
             <div className="muted">{t.title}</div>
@@ -116,7 +139,7 @@ export default function TasksIndex({ tasks }) {
             Previous
           </button>
           <span style={{ padding: "0 12px" }}>
-            Page {page} of {totalPages} ({tasks.length} total)
+            Page {page} of {totalPages} ({visibleTasks.length} total)
           </span>
           <button 
             className="btn btnSmall" 

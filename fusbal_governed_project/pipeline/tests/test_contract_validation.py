@@ -126,3 +126,62 @@ def test_track_break_reason_only_allowed_when_missing() -> None:
     }
     errs = validate_track_record_v1(obj)
     assert any("only allowed when track.pos_state=missing" in e for e in errs)
+
+
+def test_ball_missing_requires_missing_reason_and_detector_missing_break_reason() -> None:
+    obj = {
+        "schema_version": 1,
+        "t_ms": 0,
+        "entity_type": "ball",
+        "entity_id": "ball_trk_0001",
+        "track_id": "ball_trk_0001",
+        "segment_id": "ball_seg_0001",
+        "source": "demo",
+        "frame": "image_px",
+        "pos_state": "missing",
+        "break_reason": "detector_missing",
+        "confidence": 0.0,
+        "quality": 0.0,
+        "diagnostics": {"frame_index": 0, "jump_px": 0.0},
+    }
+    errs = validate_track_record_v1(obj)
+    assert any("diagnostics.missing_reason" in e for e in errs)
+
+
+def test_ball_unknown_requires_allowed_unknown_reason() -> None:
+    obj = {
+        "schema_version": 1,
+        "t_ms": 0,
+        "entity_type": "ball",
+        "entity_id": "ball_trk_0001",
+        "track_id": "ball_trk_0001",
+        "segment_id": "ball_seg_0001",
+        "source": "demo",
+        "frame": "image_px",
+        "pos_state": "unknown",
+        "confidence": 0.0,
+        "quality": 0.0,
+        "diagnostics": {"frame_index": 0, "unknown_reason": "not_allowed"},
+    }
+    errs = validate_track_record_v1(obj)
+    assert any("diagnostics.unknown_reason" in e for e in errs)
+
+
+def test_ball_present_requires_frame_index_in_diagnostics() -> None:
+    obj = {
+        "schema_version": 1,
+        "t_ms": 0,
+        "entity_type": "ball",
+        "entity_id": "ball_trk_0001",
+        "track_id": "ball_trk_0001",
+        "segment_id": "ball_seg_0001",
+        "source": "demo",
+        "frame": "image_px",
+        "pos_state": "present",
+        "bbox_xyxy_px": [0, 0, 10, 10],
+        "confidence": 0.9,
+        "quality": 0.9,
+        "diagnostics": {},
+    }
+    errs = validate_track_record_v1(obj)
+    assert any("track.diagnostics.frame_index" in e for e in errs)

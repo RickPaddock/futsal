@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-CONTRACT-BALL-FRAMEIDX-001",
+  "intent_id": "INT-050",
+  "title": "Contract hardening: require diagnostics.frame_index for all ball track records",
+  "status": "done",
+  "scope": [
+    "Strengthen contract validation to require `diagnostics.frame_index` for all `entity_type=ball` track records (present/missing/unknown) to aid audits and traceability."
+  ],
+  "acceptance": [
+    "`validate_track_record_v1` rejects ball track records missing `diagnostics.frame_index` (int >= 0).",
+    "Pipeline code ensures ball records include this field to remain contract-valid.",
+    "Tests cover at least one negative-path contract validation case."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-CONTRACT-BALL-FRAMEIDX-001-001",
+      "title": "Contract validator update + tests",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/contract.py",
+        "pipeline/tests/test_contract_validation.py",
+        "pipeline/src/fusbal_pipeline/ball/detections.py",
+        "pipeline/src/fusbal_pipeline/ball/tracker.py"
+      ],
+      "acceptance": [
+        "All emitted ball track records remain valid under the strengthened validator.",
+        "Tests cover the new validation rule."
+      ],
+      "evidence": [
+        "pytest green and `fusbal_pipeline validate` passes on existing bundles."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-CONTRACT-BALL-FRAMEIDX-001-001",
+      "title": "Enforce diagnostics.frame_index in validator and ensure emitters comply.",
+      "status": "done",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_CONTRACT_BALL_FRAMEIDX_001.SUB_001",
+      "done_when": [
+        "Validator requires diagnostics.frame_index for ball records.",
+        "All ball emit paths provide the field."
+      ]
+    }
+  ]
+}

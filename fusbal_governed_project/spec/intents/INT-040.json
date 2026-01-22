@@ -1,7 +1,7 @@
 {
   "intent_id": "INT-040",
   "title": "Ball tracking + conservative shots/goals (V1)",
-  "status": "todo",
+  "status": "closed",
   "created_date": "2026-01-20",
   "runbooks": {
     "decision": "none",
@@ -133,5 +133,6 @@
         "TASK-INT-040-IMP-010 Portal visualizations for ball missing/unknown and evidence pointers."
       ]
     }
-  ]
+  ],
+  "closed_date": "2026-01-22"
 }

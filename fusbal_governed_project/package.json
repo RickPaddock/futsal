@@ -13,11 +13,14 @@
     "intent:close": "node scripts/audit/close_intent.mjs",
     "test": "node --test scripts/**/*.test.mjs",
     "test:watch": "node --test --watch scripts/**/*.test.mjs",
+    "hoppscotch:dev": "node scripts/dev/hoppscotch_dev.mjs",
     "portal:dev": "npm --workspace apps/portal run dev",
     "portal:build": "npm --workspace apps/portal run build",
     "portal:start": "npm --workspace apps/portal run start"
   },
   "devDependencies": {
-    "ajv": "^8.17.1"
+    "ajv": "^8.17.1",
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0"
   }
 }

@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-040-IMP-003",
   "intent_id": "INT-040",
   "title": "Ball detections: use centralized diagnostics key constants",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Replace hardcoded diagnostics key strings in ball detection emission with centralized constants.",
     "Ensure diagnostics key usage aligns with contract guidance and reduces drift risk.",
@@ -36,7 +36,7 @@
     {
       "subtask_id": "SUB-TASK-INT-040-IMP-003-001",
       "title": "Refactor ball detection diagnostics to use diagnostics_keys constants.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_003.SUB_001",
       "done_when": [

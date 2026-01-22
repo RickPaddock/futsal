@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-VIDEO-TOOLS-NODE-DECOUPLE-001",
+  "intent_id": "INT-050",
+  "title": "Decouple Python video ingest from Node-based ffmpeg resolver fallback",
+  "status": "done",
+  "scope": [
+    "Remove the Python ingest path dependency on calling Node tooling to resolve ffmpeg/ffprobe paths.",
+    "Support explicit configuration for ffmpeg/ffprobe paths via environment variables."
+  ],
+  "acceptance": [
+    "Video ingest resolves ffmpeg/ffprobe from PATH or explicit env vars and fails with actionable guidance if missing.",
+    "No Node subprocess is invoked from the Python ingest code path."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-VIDEO-TOOLS-NODE-DECOUPLE-001-001",
+      "title": "Python-only ffmpeg/ffprobe resolution",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/video/ingest.py",
+        "pipeline/tests/test_video_ingest_v1.py"
+      ],
+      "acceptance": [
+        "Code path uses PATH/env vars only (no node call).",
+        "Error messaging remains actionable."
+      ],
+      "evidence": [
+        "Unit tests cover missing-file and missing-tool messaging invariants."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-VIDEO-TOOLS-NODE-DECOUPLE-001-001",
+      "title": "Add env overrides and remove node fallback resolver call.",
+      "status": "done",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_VIDEO_TOOLS_NODE_DECOUPLE_001.SUB_001",
+      "done_when": [
+        "No node tooling is invoked from ingest._require_tool.",
+        "Env override behavior is implemented and documented via error messages."
+      ]
+    }
+  ]
+}

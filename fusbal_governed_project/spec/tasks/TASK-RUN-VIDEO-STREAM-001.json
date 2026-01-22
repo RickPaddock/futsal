@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-RUN-VIDEO-STREAM-001",
+  "intent_id": "INT-050",
+  "title": "Stream run-video (avoid buffering decoded frames)",
+  "status": "done",
+  "scope": [
+    "Refactor the run-video CLI path to process frames as they are decoded, avoiding buffering all decoded RGB frames in memory.",
+    "Preserve contract output semantics and determinism guarantees."
+  ],
+  "acceptance": [
+    "`run-video` no longer accumulates all decoded frames prior to processing (streaming processing of decoded frames).",
+    "Determinism is preserved: identical inputs/config produce byte-for-byte identical `tracks.jsonl` and `events.json`.",
+    "Behavioral semantics are unchanged: trust-first missing/unknown behavior is explicit and contract-valid."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-RUN-VIDEO-STREAM-001-001",
+      "title": "Streaming run-video implementation",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/cli.py",
+        "pipeline/tests/test_run_video_v1.py"
+      ],
+      "acceptance": [
+        "No decoded frame bytes list is retained for the full run in the run-video path.",
+        "Existing determinism tests remain green."
+      ],
+      "evidence": [
+        "Unit test(s) + CI/guardrails confirm determinism and contract validity."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-RUN-VIDEO-STREAM-001-001",
+      "title": "Process frames incrementally in run-video.",
+      "status": "done",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_RUN_VIDEO_STREAM_001.SUB_001",
+      "done_when": [
+        "run-video does not retain all decoded frame buffers.",
+        "Tracks/events outputs remain deterministic and contract-valid."
+      ]
+    }
+  ]
+}

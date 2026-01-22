@@ -33,6 +33,10 @@ UNKNOWN_REASON = "unknown_reason"
 MISSING_REASON = "missing_reason"
 JUMP_PX = "jump_px"
 
+# Ball unknown/unevaluable reasons (values for UNKNOWN_REASON when entity_type="ball")
+BALL_UNKNOWN_FRAME_UNAVAILABLE = "frame_unavailable"
+BALL_UNKNOWN_DETECTOR_ERROR = "detector_error"
+
 # Unknown/ambiguity reasons
 UNKNOWN_REASON_NO_COLOR = "no_color_evidence"
 UNKNOWN_REASON_LOW_CONFIDENCE = "low_confidence"

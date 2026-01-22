@@ -53,7 +53,17 @@
   "task_ids_planned": [
     "TASK-VIDEO-INGEST-001",
     "TASK-RUN-VIDEO-001",
-    "TASK-BALL-DET-BASELINE-001"
+    "TASK-BALL-DET-BASELINE-001",
+    "TASK-RUN-VIDEO-STREAM-001",
+    "TASK-VIDEO-TOOLS-TIMEOUT-001",
+    "TASK-RUN-VIDEO-NULL-ASSERT-001",
+    "TASK-DIAGNOSTICS-BALL-DETECTIONS-001",
+    "TASK-SHOTS-GOALS-CONFIG-001",
+    "TASK-CONTRACT-BALL-FRAMEIDX-001",
+    "TASK-VIDEO-TOOLS-NODE-DECOUPLE-001",
+    "TASK-BALL-DET-REGRESSION-001",
+    "TASK-CLI-EXIT-CODES-001",
+    "TASK-PORTAL-AUDIT-RUNS-001"
   ],
   "quality_areas": [
     {
@@ -61,12 +71,16 @@
       "title": "Functional objectives",
       "task_ids": [
         "TASK-VIDEO-INGEST-001",
-        "TASK-BALL-DET-BASELINE-001"
+        "TASK-RUN-VIDEO-001",
+        "TASK-BALL-DET-BASELINE-001",
+        "TASK-SHOTS-GOALS-CONFIG-001",
+        "TASK-PORTAL-AUDIT-RUNS-001"
       ],
       "objectives": [
         "Video ingest produces deterministic frame_index+t_ms stream.",
         "End-to-end runner exports a valid bundle that passes `validate`.",
-        "Baseline detector yields non-empty ball detections on the provided UAT clip."
+        "Baseline detector yields non-empty ball detections on the provided UAT clip.",
+        "Portal surfaces latest audit artefacts for the intent."
       ]
     },
     {
@@ -79,11 +93,20 @@
         "maintainability"
       ],
       "task_ids": [
-        "TASK-RUN-VIDEO-001"
+        "TASK-RUN-VIDEO-STREAM-001",
+        "TASK-VIDEO-TOOLS-TIMEOUT-001",
+        "TASK-RUN-VIDEO-NULL-ASSERT-001",
+        "TASK-DIAGNOSTICS-BALL-DETECTIONS-001",
+        "TASK-CONTRACT-BALL-FRAMEIDX-001",
+        "TASK-VIDEO-TOOLS-NODE-DECOUPLE-001",
+        "TASK-BALL-DET-REGRESSION-001",
+        "TASK-CLI-EXIT-CODES-001"
       ],
       "objectives": [
         "Trust-first: do not hallucinate ball/event outputs; explicit missing/unknown behavior is enforced (correctness/safety).",
-        "Deterministic outputs suitable for audits (maintainability)."
+        "Deterministic outputs suitable for audits (maintainability).",
+        "Avoid unbounded resource growth (performance).",
+        "Reduce hang risk and improve error diagnostics (correctness/safety)."
       ]
     }
   ],
@@ -101,6 +124,22 @@
       "title": "Baseline real detections (UAT)",
       "items": [
         "TASK-BALL-DET-BASELINE-001 Baseline local ball detector producing non-empty detections on the provided clip with confidence/diagnostics."
+      ]
+    },
+    {
+      "work_package_id": "INT-050-003",
+      "title": "Hardening + portal UX",
+      "items": [
+        "TASK-RUN-VIDEO-STREAM-001 Stream run-video to reduce memory usage.",
+        "TASK-VIDEO-TOOLS-TIMEOUT-001 Add video tooling timeouts and better stderr surfacing.",
+        "TASK-RUN-VIDEO-NULL-ASSERT-001 Strengthen tests: detector disabled → zero present.",
+        "TASK-DIAGNOSTICS-BALL-DETECTIONS-001 Persist per-frame ball detection diagnostics artifact.",
+        "TASK-SHOTS-GOALS-CONFIG-001 Expose shots/goals inference thresholds via CLI flags.",
+        "TASK-CONTRACT-BALL-FRAMEIDX-001 Require diagnostics.frame_index for all ball track records.",
+        "TASK-VIDEO-TOOLS-NODE-DECOUPLE-001 Remove Node coupling from Python ingest tool resolution.",
+        "TASK-BALL-DET-REGRESSION-001 Add a synthetic regression test for baseline detector present frames.",
+        "TASK-CLI-EXIT-CODES-001 Add explicit exit codes for common CLI failures.",
+        "TASK-PORTAL-AUDIT-RUNS-001 Show latest audit run summaries on the portal intent page."
       ]
     }
   ]

@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-040-IMP-002",
   "intent_id": "INT-040",
   "title": "Output contract: explicit ball detection/track schemas and examples",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Make ball-specific detection and tracking semantics explicit in the output contract template.",
     "Include required fields, enums, reasons, and minimal examples aligned with code validation rules.",
@@ -35,7 +35,7 @@
     {
       "subtask_id": "SUB-TASK-INT-040-IMP-002-001",
       "title": "Add contract template sections for ball detection and ball tracking.",
-      "status": "todo",
+      "status": "done",
       "area": "spec",
       "provenance_prefix": "FUSBAL.SPEC.INT_040.IMP_002.SUB_001",
       "done_when": [

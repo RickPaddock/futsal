@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-CLI-EXIT-CODES-001",
+  "intent_id": "INT-050",
+  "title": "CLI ergonomics: explicit exit codes for common ingest/decode failures",
+  "status": "done",
+  "scope": [
+    "Introduce explicit CLI exit codes for common failure categories in ingest-video and run-video.",
+    "Keep errors trust-first and actionable."
+  ],
+  "acceptance": [
+    "ingest-video and run-video return distinct, documented non-zero exit codes for: missing input file, missing ffmpeg/ffprobe, and decode/validation failures.",
+    "Exit code mapping is deterministic and covered by unit tests where feasible."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-CLI-EXIT-CODES-001-001",
+      "title": "Exit code mapping for video ingest/run-video CLI",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/video/ingest.py",
+        "pipeline/src/fusbal_pipeline/cli.py",
+        "pipeline/tests/test_video_ingest_v1.py"
+      ],
+      "acceptance": [
+        "VideoIngestError (or subclasses) carries a stable error category/exit code.",
+        "CLI commands use the exit codes consistently."
+      ],
+      "evidence": [
+        "pytest green; failures produce stable exit codes in local runs."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-CLI-EXIT-CODES-001-001",
+      "title": "Add error categories/exit codes and wire into CLI.",
+      "status": "done",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_CLI_EXIT_CODES_001.SUB_001",
+      "done_when": [
+        "Exit codes are implemented and used by ingest-video and run-video.",
+        "At least one unit test covers the mapping."
+      ]
+    }
+  ]
+}

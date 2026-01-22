@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-040-IMP-001",
   "intent_id": "INT-040",
   "title": "Ball detections: explicit per-frame missing/unknown records",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Represent ball detection output with explicit per-frame pos_state semantics: present, missing, unknown.",
     "Eliminate implicit missing (absence-only) for ball detection surfaces consumed by tracks/events.",
@@ -49,7 +49,7 @@
     {
       "subtask_id": "SUB-TASK-INT-040-IMP-001-001",
       "title": "Define explicit-record representation for ball detections.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_001.SUB_001",
       "done_when": [
@@ -60,7 +60,7 @@
     {
       "subtask_id": "SUB-TASK-INT-040-IMP-001-002",
       "title": "Add deterministic tests for explicit missing/unknown ball detections.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_001.SUB_002",
       "done_when": [

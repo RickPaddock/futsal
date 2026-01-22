@@ -1,0 +1,62 @@
+{
+  "type": "intent_preflight_report",
+  "schema_version": 1,
+  "intent_id": "INT-060",
+  "run_id": "20260122_160938",
+  "timestamp": "2026-01-22T16:27:22Z",
+  "blockers_ranked": [],
+  "ambiguities": [
+    {
+      "ambiguous_text": "\"human-useful\"",
+      "risk": "Even with minimum overlay semantics defined, \"useful\" can still be interpreted as subjective expectations (styling/colors/labels).",
+      "proposed_rewrite": "Optionally define a single canonical style baseline (colors, font size) if UAT stakeholders expect consistency across runs."
+    }
+  ],
+  "scope_alignment": {
+    "inferred_surfaces": [
+      "pipeline/src/fusbal_pipeline/overlay/* (overlay renderer)",
+      "pipeline/src/fusbal_pipeline/cli.py (CLI wiring)",
+      "pipeline/tests/test_overlay_render.py (unit tests)",
+      "spec/intents/INT-060.json (intent)",
+      "spec/tasks/TASK-OVERLAY-001.json, spec/tasks/TASK-OVERLAY-002.json (tasks)",
+      "status/audit/INT-060/runs/... (generated evidence outputs)"
+    ],
+    "paths_allowed": [
+      "spec/",
+      "spec/md/docs/",
+      "pipeline/",
+      "status/audit/"
+    ],
+    "paths_excluded": [
+      "docs/",
+      "status/intents/",
+      "status/portal/",
+      "status/wizard/"
+    ],
+    "mismatches": [
+      "status/audit/ is a derived surface; it is allowed for generated evidence only."
+    ],
+    "recommended_edits": []
+  },
+  "closeability": {
+    "tasks": {
+      "status": "PASS",
+      "notes": "All planned task IDs exist and are linked to INT-060 (TASK-OVERLAY-001, TASK-OVERLAY-002)."
+    },
+    "work_packages": {
+      "status": "PASS",
+      "notes": "Generated work_packages.json includes INT-060-001 with both planned tasks; no unassigned planned tasks detected."
+    },
+    "close_gates": {
+      "status": "PASS",
+      "notes": "Close gate commands are specified (generate, guardrails, audit:intent)."
+    },
+    "guardrail_plan": {
+      "status": "PASS",
+      "notes": "Intent success_criteria explicitly states provenance expectations for overlay code/tests (FUSBAL-V1-OUT-001, FUSBAL-V1-TRUST-001; SYS-ARCH-15 only for shared/plumbing with WHY)."
+    }
+  },
+  "minimum_next_steps": [
+    "None (preflight passed; no spec fixes required)."
+  ]
+}

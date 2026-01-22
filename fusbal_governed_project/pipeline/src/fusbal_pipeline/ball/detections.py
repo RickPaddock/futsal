@@ -8,6 +8,20 @@ from dataclasses import dataclass
 from typing import NotRequired, TypedDict
 
 from ..contract import TrackRecordV1
+from ..diagnostics_keys import (
+    FRAME_INDEX,
+    GATING_REASON,
+    NUM_CANDIDATES,
+    NUM_EMITTED,
+    UNKNOWN_REASON,
+    GATING_NONE,
+    GATING_LOW_CONFIDENCE,
+    MISSING_REASON,
+    MISSING_DETECTOR,
+    MISSING_LOW_CONF,
+    BALL_UNKNOWN_DETECTOR_ERROR,
+    BALL_UNKNOWN_FRAME_UNAVAILABLE,
+)
 
 
 class RawBallDetection(TypedDict):
@@ -55,6 +69,7 @@ def emit_ball_detections_v1(
     source: str,
     candidates: list[RawBallDetection],
     gating: DetectionGatingConfig | None = None,
+    unevaluable_reason: str | None = None,
 ) -> tuple[list[TrackRecordV1], FrameDetectionsDiagnostics]:
     """Convert raw detector candidates into V1 track records (image_px) deterministically.
 
@@ -62,6 +77,12 @@ def emit_ball_detections_v1(
     """
 
     cfg = gating or DetectionGatingConfig()
+    if unevaluable_reason is not None and not str(unevaluable_reason).strip():
+        unevaluable_reason = BALL_UNKNOWN_DETECTOR_ERROR
+    if unevaluable_reason is not None:
+        u = str(unevaluable_reason).strip()
+        if u not in (BALL_UNKNOWN_FRAME_UNAVAILABLE, BALL_UNKNOWN_DETECTOR_ERROR):
+            unevaluable_reason = BALL_UNKNOWN_DETECTOR_ERROR
     normalized: list[tuple[list[int], float, dict[str, object]]] = []
     for cand in candidates:
         bbox = _normalize_bbox_xyxy_px(cand.get("bbox_xyxy_px"))
@@ -78,7 +99,7 @@ def emit_ball_detections_v1(
         if conf < cfg.min_confidence:
             continue
         det_id = f"ball_det_{frame_index:06d}_{i:02d}"
-        diagnostics = {"frame_index": int(frame_index), "gating_reason": "none"}
+        diagnostics = {FRAME_INDEX: int(frame_index), GATING_REASON: GATING_NONE}
         diagnostics.update(diag)
         emitted.append(
             {
@@ -96,12 +117,70 @@ def emit_ball_detections_v1(
             }
         )
 
-    frame_diag: FrameDetectionsDiagnostics = {
-        "frame_index": int(frame_index),
-        "num_candidates": int(len(normalized)),
-        "num_emitted": int(len(emitted)),
-        "min_confidence": float(cfg.min_confidence),
-        "gating_reason": "low_confidence_suppressed" if len(normalized) and not emitted else "none",
-    }
-    return emitted, frame_diag
+    gating_reason: str = GATING_NONE
+    missing_reason = MISSING_DETECTOR
+    if not normalized:
+        gating_reason = "detector_missing"
+        missing_reason = MISSING_DETECTOR
+    elif normalized and not emitted:
+        gating_reason = GATING_LOW_CONFIDENCE
+        missing_reason = MISSING_LOW_CONF
 
+    frame_diag: FrameDetectionsDiagnostics = {
+        FRAME_INDEX: int(frame_index),
+        NUM_CANDIDATES: int(len(normalized)),
+        NUM_EMITTED: int(len(emitted)),
+        "min_confidence": float(cfg.min_confidence),
+        GATING_REASON: str(gating_reason),
+    }
+
+    # Trust-first (INT-040): do not represent missing/unknown implicitly by gaps.
+    # When nothing is emitted for this frame, emit exactly one explicit state record.
+    if emitted:
+        return emitted, frame_diag
+
+    state_id = f"ball_det_state_{frame_index:06d}"
+    base_diagnostics: dict[str, object] = dict(frame_diag)
+    base_diagnostics[MISSING_REASON] = str(missing_reason)
+    base_diagnostics.setdefault(GATING_REASON, str(gating_reason))
+    if unevaluable_reason is not None:
+        base_diagnostics.pop(MISSING_REASON, None)
+        base_diagnostics[UNKNOWN_REASON] = str(unevaluable_reason)
+        return (
+            [
+                {
+                    "schema_version": 1,
+                    "t_ms": int(t_ms),
+                    "entity_type": "ball",
+                    "entity_id": state_id,
+                    "track_id": state_id,
+                    "source": str(source),
+                    "frame": "image_px",
+                    "pos_state": "unknown",
+                    "confidence": 0.0,
+                    "diagnostics": base_diagnostics,
+                }
+            ],
+            frame_diag,
+        )
+
+    return (
+        [
+            {
+                "schema_version": 1,
+                "t_ms": int(t_ms),
+                "entity_type": "ball",
+                "entity_id": state_id,
+                "track_id": state_id,
+                "segment_id": "ball_det_seg_0001",
+                "source": str(source),
+                "frame": "image_px",
+                "pos_state": "missing",
+                "confidence": 0.0,
+                "quality": 0.0,
+                "break_reason": "detector_missing",
+                "diagnostics": base_diagnostics,
+            }
+        ],
+        frame_diag,
+    )

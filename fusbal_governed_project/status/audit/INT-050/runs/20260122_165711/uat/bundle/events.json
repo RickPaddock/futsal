@@ -1,0 +1,204 @@
+[
+  {
+    "confidence": 0.6,
+    "diagnostics": {
+      "speed_px_per_s": 1107.700018822655
+    },
+    "event_state": "candidate",
+    "event_type": "shot",
+    "evidence": [
+      {
+        "artifact_id": "tracks_jsonl",
+        "time_range_ms": {
+          "end_ms": 4671,
+          "start_ms": 4071
+        }
+      }
+    ],
+    "schema_version": 1,
+    "source": "shots_goals_v1",
+    "t_ms": 4371
+  },
+  {
+    "confidence": 0.6,
+    "diagnostics": {
+      "speed_px_per_s": 1090.9090909090908
+    },
+    "event_state": "candidate",
+    "event_type": "shot",
+    "evidence": [
+      {
+        "artifact_id": "tracks_jsonl",
+        "time_range_ms": {
+          "end_ms": 5138,
+          "start_ms": 4538
+        }
+      }
+    ],
+    "schema_version": 1,
+    "source": "shots_goals_v1",
+    "t_ms": 4838
+  },
+  {
+    "confidence": 0.6,
+    "diagnostics": {
+      "speed_px_per_s": 1090.9090909090908
+    },
+    "event_state": "candidate",
+    "event_type": "shot",
+    "evidence": [
+      {
+        "artifact_id": "tracks_jsonl",
+        "time_range_ms": {
+          "end_ms": 5405,
+          "start_ms": 4805
+        }
+      }
+    ],
+    "schema_version": 1,
+    "source": "shots_goals_v1",
+    "t_ms": 5105
+  },
+  {
+    "confidence": 0.4,
+    "diagnostics": {
+      "goal_missing_ms": 1500,
+      "missing_run_ms": 1502
+    },
+    "event_state": "unknown",
+    "event_type": "goal",
+    "evidence": [
+      {
+        "artifact_id": "tracks_jsonl",
+        "time_range_ms": {
+          "end_ms": 6638,
+          "start_ms": 4638
+        }
+      }
+    ],
+    "schema_version": 1,
+    "source": "shots_goals_v1",
+    "t_ms": 5138
+  },
+  {
+    "confidence": 0.6,
+    "diagnostics": {
+      "speed_px_per_s": 1183.800693970477
+    },
+    "event_state": "candidate",
+    "event_type": "shot",
+    "evidence": [
+      {
+        "artifact_id": "tracks_jsonl",
+        "time_range_ms": {
+          "end_ms": 10277,
+          "start_ms": 9677
+        }
+      }
+    ],
+    "schema_version": 1,
+    "source": "shots_goals_v1",
+    "t_ms": 9977
+  },
+  {
+    "confidence": 0.6,
+    "diagnostics": {
+      "speed_px_per_s": 1090.9090909090908
+    },
+    "event_state": "candidate",
+    "event_type": "shot",
+    "evidence": [
+      {
+        "artifact_id": "tracks_jsonl",
+        "time_range_ms": {
+          "end_ms": 10310,
+          "start_ms": 9710
+        }
+      }
+    ],
+    "schema_version": 1,
+    "source": "shots_goals_v1",
+    "t_ms": 10010
+  },
+  {
+    "confidence": 0.6,
+    "diagnostics": {
+      "speed_px_per_s": 1058.8235294117646
+    },
+    "event_state": "candidate",
+    "event_type": "shot",
+    "evidence": [
+      {
+        "artifact_id": "tracks_jsonl",
+        "time_range_ms": {
+          "end_ms": 10544,
+          "start_ms": 9944
+        }
+      }
+    ],
+    "schema_version": 1,
+    "source": "shots_goals_v1",
+    "t_ms": 10244
+  },
+  {
+    "confidence": 0.6,
+    "diagnostics": {
+      "speed_px_per_s": 1090.9090909090908
+    },
+    "event_state": "candidate",
+    "event_type": "shot",
+    "evidence": [
+      {
+        "artifact_id": "tracks_jsonl",
+        "time_range_ms": {
+          "end_ms": 10810,
+          "start_ms": 10210
+        }
+      }
+    ],
+    "schema_version": 1,
+    "source": "shots_goals_v1",
+    "t_ms": 10510
+  },
+  {
+    "confidence": 0.6,
+    "diagnostics": {
+      "speed_px_per_s": 1090.9090909090908
+    },
+    "event_state": "candidate",
+    "event_type": "shot",
+    "evidence": [
+      {
+        "artifact_id": "tracks_jsonl",
+        "time_range_ms": {
+          "end_ms": 10944,
+          "start_ms": 10344
+        }
+      }
+    ],
+    "schema_version": 1,
+    "source": "shots_goals_v1",
+    "t_ms": 10644
+  },
+  {
+    "confidence": 0.4,
+    "diagnostics": {
+      "goal_missing_ms": 1500,
+      "missing_run_ms": 1501
+    },
+    "event_state": "unknown",
+    "event_type": "goal",
+    "evidence": [
+      {
+        "artifact_id": "tracks_jsonl",
+        "time_range_ms": {
+          "end_ms": 12311,
+          "start_ms": 10311
+        }
+      }
+    ],
+    "schema_version": 1,
+    "source": "shots_goals_v1",
+    "t_ms": 10811
+  }
+]

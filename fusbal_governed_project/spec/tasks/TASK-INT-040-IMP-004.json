@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-040-IMP-004",
   "intent_id": "INT-040",
   "title": "Ball tracker: align break_reason/segment semantics with missing reasons",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Improve ball tracker interpretability by aligning missing_reason conditions with break_reason and segment_id semantics.",
     "Avoid collapsing all missing cases into a single break_reason value when diagnostics indicate distinct causes.",
@@ -37,7 +37,7 @@
     {
       "subtask_id": "SUB-TASK-INT-040-IMP-004-001",
       "title": "Define mapping from missing_reason to break_reason for ball tracks.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_004.SUB_001",
       "done_when": [
@@ -48,7 +48,7 @@
     {
       "subtask_id": "SUB-TASK-INT-040-IMP-004-002",
       "title": "Add tests for each missing condition mapping.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_004.SUB_002",
       "done_when": [

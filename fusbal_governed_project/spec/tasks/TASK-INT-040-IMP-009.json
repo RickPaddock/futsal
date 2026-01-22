@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-040-IMP-009",
   "intent_id": "INT-040",
   "title": "Diagnostics quality_summary: add ball tracking quality metrics for conservative gating",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Add deterministic, aggregated ball tracking quality metrics into diagnostics/quality_summary.json.",
     "Support conservative downstream event gating by summarizing missing/unknown runs, jump rejections, and confidence/quality distributions.",
@@ -38,7 +38,7 @@
     {
       "subtask_id": "SUB-TASK-INT-040-IMP-009-001",
       "title": "Define ball quality metrics schema within quality_summary.json.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_009.SUB_001",
       "done_when": [
@@ -48,7 +48,7 @@
     {
       "subtask_id": "SUB-TASK-INT-040-IMP-009-002",
       "title": "Implement deterministic metric computation and write-out.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_009.SUB_002",
       "done_when": [

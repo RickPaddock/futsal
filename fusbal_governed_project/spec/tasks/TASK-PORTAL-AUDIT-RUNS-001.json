@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-PORTAL-AUDIT-RUNS-001",
+  "intent_id": "INT-050",
+  "title": "Portal UX: surface latest audit run summaries on intent page",
+  "status": "done",
+  "scope": [
+    "Add intent-page UI to surface the latest audit run(s) for an intent (audit:intent, guardrails, quality audit) with links to JSON artefacts under status/audit.",
+    "Keep server-side listing deterministic and resilient when audit folders are missing."
+  ],
+  "acceptance": [
+    "Intent page shows a small section with the most recent run id (if any) and links to known artefacts when present.",
+    "Missing folders/files are handled gracefully (no crash).",
+    "Implementation avoids machine-specific paths and uses repo-relative access patterns."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-PORTAL-AUDIT-RUNS-001-001",
+      "title": "Portal intent page audit run surfacing",
+      "paths": [
+        "apps/portal/pages/internal/intents/[intentId].js",
+        "apps/portal/lib/portal_read_model.js"
+      ],
+      "acceptance": [
+        "Audit run listing is deterministic (sorted by run id) and uses explicit known file names.",
+        "UI renders even when no audit runs exist."
+      ],
+      "evidence": [
+        "Local portal renders intent page with the audit section visible; guardrails green."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-PORTAL-AUDIT-RUNS-001-001",
+      "title": "Implement server-side audit run discovery and render links.",
+      "status": "done",
+      "area": "portal",
+      "provenance_prefix": "FUSBAL.PORTAL.TASK_AUDIT_RUNS_001.SUB_001",
+      "done_when": [
+        "Intent page shows latest audit run summary and links when artefacts exist.",
+        "No runtime crash when folders are missing."
+      ]
+    }
+  ]
+}

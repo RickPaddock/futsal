@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-040-IMP-005",
   "intent_id": "INT-040",
   "title": "Shots/goals inference: add deterministic negative-scenario tests",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Add deterministic test coverage proving infer_shots_goals_v1 does not emit events on negative scenarios.",
     "Cover stationary ball, insufficient dt, insufficient speed, and missing-only sequences.",
@@ -35,7 +35,7 @@
     {
       "subtask_id": "SUB-TASK-INT-040-IMP-005-001",
       "title": "Add negative-scenario tests for infer_shots_goals_v1.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_005.SUB_001",
       "done_when": [

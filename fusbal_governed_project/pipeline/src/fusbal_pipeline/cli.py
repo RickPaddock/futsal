@@ -8,7 +8,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, Iterable, Iterator, Literal, NotRequired, TypedDict
 
 from .bundle import (
     BUNDLE_ARTIFACT_SPECS_V1,
@@ -26,6 +26,11 @@ from .player.detections import DetectionGatingConfig, emit_player_detections_v1
 from .player.mot import SwapAvoidantMOT
 from .team.assignment import TeamAssigner, TeamSmoothingConfig, annotate_track_with_team
 from .team.colors import TeamColorConfig, color_label_to_team_evidence
+from .ball.detections import DetectionGatingConfig as BallDetectionGatingConfig, emit_ball_detections_v1
+from .ball.detector import BaselineBallDetector, BaselineBallDetectorConfig, NullBallDetector
+from .ball.tracker import BallTracker, compute_ball_quality_metrics_v1
+from .events.shots_goals import ShotsGoalsConfig, infer_shots_goals_v1
+from .video.ingest import VideoIngestError, VideoMetadata, VideoFrame, iter_video_frames_rgb24, probe_video_metadata
 
 MANIFEST_SCHEMA_VERSION = 1
 
@@ -88,8 +93,8 @@ def cmd_run_fixture(args: argparse.Namespace) -> int:
     """Run a deterministic fixture and write a non-placeholder bundle.
 
     PROV: FUSBAL.PIPELINE.CLI.RUN_FIXTURE.01
-    REQ: FUSBAL-V1-PLAYER-001, FUSBAL-V1-TEAM-001, FUSBAL-V1-TRUST-001, FUSBAL-V1-OUT-001, SYS-ARCH-15
-    WHY: Provide a repeatable, audit-friendly execution path for the INT-030 tracking MVP.
+    REQ: FUSBAL-V1-PLAYER-001, FUSBAL-V1-TEAM-001, FUSBAL-V1-BALL-001, FUSBAL-V1-EVENT-001, FUSBAL-V1-TRUST-001, FUSBAL-V1-OUT-001, SYS-ARCH-15
+    WHY: Provide a repeatable, audit-friendly execution path for INT-030/INT-040 pipeline components.
     """
 
     out_dir = Path(args.out).expanduser().resolve()
@@ -115,7 +120,9 @@ def cmd_run_fixture(args: argparse.Namespace) -> int:
     ensure_placeholder_outputs_v1(out_dir, sensors_present=False)
 
     gating = DetectionGatingConfig(min_confidence=float(args.min_confidence))
+    ball_gating = BallDetectionGatingConfig(min_confidence=float(args.min_confidence))
     mot = SwapAvoidantMOT(source=source)
+    ball_tracker = BallTracker(source=source)
     team_cfg = TeamSmoothingConfig(
         window_frames=int(args.team_window_frames),
         min_confidence=float(args.team_min_confidence),
@@ -143,6 +150,32 @@ def cmd_run_fixture(args: argparse.Namespace) -> int:
         )
 
         tracked = mot.update(t_ms=t_ms, detections=detections)
+        # Optional INT-040 fixture fields:
+        # - ball_detections: list of {bbox_xyxy_px:[x1,y1,x2,y2], confidence:0..1, diagnostics?:{}}
+        # - ball_unevaluable_reason: "frame_unavailable" | "detector_error"
+        raw_ball = frame.get("ball_detections")
+        if not isinstance(raw_ball, list):
+            raw_ball = []
+        ball_unevaluable_reason = frame.get("ball_unevaluable_reason")
+        if not isinstance(ball_unevaluable_reason, str) or not ball_unevaluable_reason.strip():
+            ball_unevaluable_reason = None
+        if ball_unevaluable_reason is None:
+            ball_dets, _ball_diag = emit_ball_detections_v1(
+                frame_index=frame_index,
+                t_ms=t_ms,
+                source=source,
+                candidates=raw_ball,
+                gating=ball_gating,
+            )
+            ball_rec = ball_tracker.update(t_ms=t_ms, frame_index=frame_index, detections=ball_dets)
+        else:
+            ball_rec = ball_tracker.update(
+                t_ms=t_ms,
+                frame_index=frame_index,
+                detections=[],
+                unevaluable_reason=ball_unevaluable_reason,
+            )
+        all_records.append(dict(ball_rec))
 
         for rec in tracked:
             if rec.get("entity_type") != "player" or rec.get("pos_state") != "present":
@@ -183,7 +216,15 @@ def cmd_run_fixture(args: argparse.Namespace) -> int:
         )
     )
     _write_jsonl(paths.tracks_jsonl, all_records)
-    _write_json(paths.events_json, [])
+    events = infer_shots_goals_v1(tracks=all_records, source="shots_goals_v1")
+    _write_json(paths.events_json, events)
+    _write_json(
+        paths.diagnostics_quality_summary_json,
+        {
+            "schema_version": 1,
+            "ball": compute_ball_quality_metrics_v1(tracks=all_records, cfg=ball_tracker.cfg),
+        },
+    )
 
     # Validate what we wrote.
     validate_args = argparse.Namespace(bundle=str(out_dir), format="text")
@@ -207,9 +248,11 @@ def _normalize_paths(values: list[str], *, base_dir: Path) -> list[str]:
             else:
                 normalized.append(p.as_posix())
         except Exception:
-            # If not relative to the base, still store as a deterministic relative string.
+            # If not relative to the base (external absolute path), store only a portable basename.
+            # This prevents machine-specific absolute paths from leaking into manifests/outputs.
             if p.is_absolute():
-                normalized.append(Path(*p.parts).as_posix())
+                base = p.name.strip()
+                normalized.append(base if base else "external_video")
             else:
                 normalized.append(p.as_posix())
     normalized = [s.replace("\\", "/") for s in normalized]
@@ -254,6 +297,228 @@ def _build_manifest_v1(
     if notes:
         manifest["notes"] = notes
     return manifest
+
+
+def cmd_ingest_video(args: argparse.Namespace) -> int:
+    """Probe a local video and print deterministic metadata.
+
+    PROV: FUSBAL.PIPELINE.CLI.INGEST_VIDEO.01
+    REQ: REQ-V1-VIDEO-INGEST-001, SYS-ARCH-15
+    WHY: Provide a smoke-able ingest entrypoint for UAT and diagnostics without producing a bundle.
+    """
+
+    try:
+        video_path = Path(args.video).expanduser()
+        out_dir = Path(args.out).expanduser().resolve() if args.out else Path(".").resolve()
+        meta = probe_video_metadata(video_path=video_path, source_rel_path=_normalize_paths([str(video_path)], base_dir=out_dir)[0])
+    except VideoIngestError as e:
+        sys.stderr.write(f"[ingest-video:error] {e}\n")
+        return int(getattr(e, "exit_code", 2))
+    payload = {
+        "fps": meta.fps,
+        "width_px": meta.width_px,
+        "height_px": meta.height_px,
+        "nb_frames": meta.nb_frames,
+        "duration_s": meta.duration_s,
+        "source_rel_path": meta.source_rel_path,
+        "diagnostics": meta.diagnostics,
+    }
+    sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    return 0
+
+
+def _write_quality_summary_v1(paths: MatchBundlePaths, *, tracks: list[dict[str, Any]], ball_tracker: BallTracker) -> None:
+    _write_json(
+        paths.diagnostics_quality_summary_json,
+        {
+            "schema_version": 1,
+            "ball": compute_ball_quality_metrics_v1(tracks=tracks, cfg=ball_tracker.cfg),
+        },
+    )
+
+
+def _run_video_write_bundle(
+    *,
+    out_dir: Path,
+    match_id: str,
+    meta: VideoMetadata,
+    frames: Iterable[VideoFrame],
+    ball_detector_enabled: bool,
+    ball_detector_cfg: BaselineBallDetectorConfig,
+    min_confidence: float,
+    shots_cfg: ShotsGoalsConfig | None = None,
+) -> None:
+    paths: MatchBundlePaths = ensure_bundle_layout(out_dir)
+
+    manifest: MatchManifestV1 = _build_manifest_v1(
+        match_id=str(match_id),
+        video_paths=[str(meta.source_rel_path)],
+        sensor_paths=[],
+        notes="run-video (INT-050)",
+    )
+    _write_json(paths.manifest_json, manifest)
+
+    ensure_placeholder_outputs_v1(out_dir, sensors_present=False)
+
+    ball_gating = BallDetectionGatingConfig(min_confidence=float(min_confidence))
+    ball_tracker = BallTracker(source="video")
+
+    it = iter(frames)
+    try:
+        first = next(it)
+    except StopIteration as e:
+        raise VideoIngestError("no frames decoded (empty frames iterator)", exit_code=5) from e
+
+    detector = (
+        BaselineBallDetector(
+            decode_width_px=int(first.width_px),
+            decode_height_px=int(first.height_px),
+            src_width_px=int(meta.width_px),
+            src_height_px=int(meta.height_px),
+            cfg=ball_detector_cfg,
+        )
+        if bool(ball_detector_enabled)
+        else NullBallDetector()
+    )
+
+    records: list[dict[str, Any]] = []
+    det_diag_rows: list[dict[str, Any]] = []
+    frames_decoded = 0
+
+    def iter_all() -> Iterator[VideoFrame]:
+        yield first
+        yield from it
+
+    for f in iter_all():
+        frames_decoded += 1
+        raw_candidates = detector.detect(frame_index=int(f.frame_index), t_ms=int(f.t_ms), image_bytes=f.rgb24)
+        det_records, _det_diag = emit_ball_detections_v1(
+            frame_index=int(f.frame_index),
+            t_ms=int(f.t_ms),
+            source="video",
+            candidates=raw_candidates,
+            gating=ball_gating,
+        )
+        det_diag_rows.append(
+            {
+                "schema_version": 1,
+                "frame_index": int(f.frame_index),
+                "t_ms": int(f.t_ms),
+                "detector_enabled": bool(ball_detector_enabled),
+                "num_raw_candidates": int(len(raw_candidates)),
+                "diagnostics": dict(_det_diag),
+            }
+        )
+        ball_rec = ball_tracker.update(t_ms=int(f.t_ms), frame_index=int(f.frame_index), detections=det_records)
+        records.append(dict(ball_rec))
+
+    records.sort(
+        key=lambda r: (
+            int(r.get("t_ms", 0)),
+            str(r.get("entity_type", "")),
+            str(r.get("track_id", "")),
+            str(r.get("segment_id", "")),
+            str(r.get("pos_state", "")),
+        )
+    )
+    _write_jsonl(paths.tracks_jsonl, records)
+    events = infer_shots_goals_v1(tracks=records, source="shots_goals_v1", cfg=shots_cfg)
+    _write_json(paths.events_json, events)
+    _write_jsonl(paths.diagnostics_dir / "ball_detections.jsonl", det_diag_rows)
+    _write_quality_summary_v1(paths, tracks=records, ball_tracker=ball_tracker)
+
+    report = {
+        "schema_version": 1,
+        "placeholder": False,
+        "notes": "run-video plumbing proof",
+        "video": {
+            "fps": meta.fps,
+            "width_px": meta.width_px,
+            "height_px": meta.height_px,
+            "nb_frames": meta.nb_frames,
+            "duration_s": meta.duration_s,
+            "source_rel_path": meta.source_rel_path,
+        },
+        "counts": {
+            "frames_decoded": int(frames_decoded),
+            "ball_present": sum(1 for r in records if r.get("pos_state") == "present"),
+            "ball_missing": sum(1 for r in records if r.get("pos_state") == "missing"),
+            "ball_unknown": sum(1 for r in records if r.get("pos_state") == "unknown"),
+            "events": len(events),
+        },
+    }
+    _write_json(paths.report_json, report)
+
+    # Validate what we wrote.
+    validate_args = argparse.Namespace(bundle=str(out_dir), format="text")
+    rc = cmd_validate(validate_args)
+    if rc != 0:
+        raise VideoIngestError(
+            "bundle validation failed (run `fusbal-pipeline validate` for details)",
+            exit_code=6,
+        )
+
+
+def cmd_run_video(args: argparse.Namespace) -> int:
+    """Ingest a local video and export a valid V1 bundle (INT-050 plumbing proof).
+
+    PROV: FUSBAL.PIPELINE.CLI.RUN_VIDEO.01
+    REQ: REQ-V1-VIDEO-RUNNER-001, REQ-V1-VIDEO-INGEST-001, REQ-V1-BALL-DETECT-BASELINE-001, FUSBAL-V1-BALL-001, FUSBAL-V1-EVENT-001, FUSBAL-V1-TRUST-001, SYS-ARCH-15
+    WHY: Provide an end-to-end local runner for UAT that remains deterministic and trust-first.
+    """
+
+    try:
+        video_path = Path(args.video).expanduser()
+        match_id = str(args.match_id)
+        out_dir = Path(args.out).expanduser().resolve() if args.out else (Path("output") / match_id).resolve()
+
+        source_rel = _normalize_paths([str(video_path)], base_dir=out_dir)[0]
+        it = iter_video_frames_rgb24(
+            video_path=video_path,
+            source_rel_path=source_rel,
+            max_decode_width_px=int(args.max_decode_width_px),
+            max_frames=int(args.max_frames) if args.max_frames is not None else None,
+        )
+        try:
+            meta, first_frame = next(it)
+        except StopIteration:
+            raise VideoIngestError(f"no frames decoded from video: {video_path}", exit_code=5)
+
+        det_cfg = BaselineBallDetectorConfig(
+            sample_step_px=int(args.det_sample_step_px),
+            min_luma_0_to_255=int(args.det_min_luma),
+            max_saturation_0_to_255=int(args.det_max_saturation),
+            bbox_radius_px=int(args.det_bbox_radius_px),
+            edge_margin_ratio_0_to_1=float(args.det_edge_margin_ratio),
+            min_abs_delta_luma_0_to_255=int(args.det_min_abs_delta_luma),
+        )
+        shots_cfg = ShotsGoalsConfig(
+            min_shot_speed_px_per_s=float(args.shot_min_speed_px_per_s),
+            min_dt_ms=int(args.shot_min_dt_ms),
+            goal_missing_ms=int(args.goal_missing_ms),
+        )
+
+        def frames_iter() -> Iterator[VideoFrame]:
+            yield first_frame
+            for _m, frame in it:
+                yield frame
+
+        _run_video_write_bundle(
+            out_dir=out_dir,
+            match_id=match_id,
+            meta=meta,
+            frames=frames_iter(),
+            ball_detector_enabled=not bool(args.disable_ball_detector),
+            ball_detector_cfg=det_cfg,
+            min_confidence=float(args.min_confidence),
+            shots_cfg=shots_cfg,
+        )
+    except VideoIngestError as e:
+        sys.stderr.write(f"[run-video:error] {e}\n")
+        return int(getattr(e, "exit_code", 2))
+
+    sys.stdout.write("[run-video] ok\n")
+    return 0
 
 
 def _validate_manifest_v1(obj: object) -> tuple[MatchManifestV1 | None, list[str]]:
@@ -454,6 +719,55 @@ def cmd_render_overlay(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="fusbal-pipeline")
     sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_ingest = sub.add_parser("ingest-video", help="Probe a local video and print deterministic metadata")
+    p_ingest.add_argument("--video", required=True, help="Input video path (local)")
+    p_ingest.add_argument(
+        "--out",
+        help="Optional bundle dir used to normalize paths (absolute paths outside this are reduced to basenames)",
+    )
+    p_ingest.set_defaults(func=cmd_ingest_video)
+
+    p_run_video = sub.add_parser("run-video", help="Ingest a local video and export a valid V1 bundle (INT-050)")
+    p_run_video.add_argument("--video", required=True, help="Input video path (local)")
+    p_run_video.add_argument("--match-id", required=True, help="Match id (used for manifest + default output dir)")
+    p_run_video.add_argument(
+        "--out",
+        help="Bundle root directory (default: output/<match_id>)",
+    )
+    p_run_video.add_argument("--max-frames", type=int, help="Optional cap for decoded frames (debug/UAT)")
+    p_run_video.add_argument("--max-decode-width-px", type=int, default=640, help="Decode width cap (performance)")
+    p_run_video.add_argument("--min-confidence", type=float, default=0.6, help="Min confidence for present ball points")
+    p_run_video.add_argument(
+        "--disable-ball-detector",
+        action="store_true",
+        help="Disable baseline ball detector (trust-first: expect only missing/unknown).",
+    )
+    p_run_video.add_argument("--det-sample-step-px", type=int, default=3)
+    p_run_video.add_argument("--det-min-luma", type=int, default=220)
+    p_run_video.add_argument("--det-max-saturation", type=int, default=40)
+    p_run_video.add_argument("--det-bbox-radius-px", type=int, default=6)
+    p_run_video.add_argument("--det-edge-margin-ratio", type=float, default=0.08)
+    p_run_video.add_argument("--det-min-abs-delta-luma", type=int, default=3)
+    p_run_video.add_argument(
+        "--shot-min-speed-px-per-s",
+        type=float,
+        default=ShotsGoalsConfig.min_shot_speed_px_per_s,
+        help="Min inferred shot speed in px/s (conservative default).",
+    )
+    p_run_video.add_argument(
+        "--shot-min-dt-ms",
+        type=int,
+        default=ShotsGoalsConfig.min_dt_ms,
+        help="Min dt between ball presents to infer a shot (ms).",
+    )
+    p_run_video.add_argument(
+        "--goal-missing-ms",
+        type=int,
+        default=ShotsGoalsConfig.goal_missing_ms,
+        help="Conservative goal candidate: missing duration after a shot (ms).",
+    )
+    p_run_video.set_defaults(func=cmd_run_video)
 
     p_init = sub.add_parser("init", help="Initialize a match bundle directory + manifest")
     p_init.add_argument("--match-id", required=True)

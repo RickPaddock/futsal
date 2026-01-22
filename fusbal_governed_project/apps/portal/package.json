@@ -3,9 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "clean": "rm -rf .next",
     "dev": "next dev -p 3015",
     "build": "next build",
-    "start": "next start -p 3015"
+    "start": "next start -p 3015",
+    "check:csrf": "node scripts/check_csrf.mjs"
   },
   "dependencies": {
     "next": "^14.2.5",

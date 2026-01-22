@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-SHOTS-GOALS-CONFIG-001",
+  "intent_id": "INT-050",
+  "title": "Expose conservative shots/goals inference thresholds via run-video CLI flags",
+  "status": "done",
+  "scope": [
+    "Expose key shots/goals inference thresholds as run-video CLI flags while keeping conservative defaults.",
+    "Wire flags into the shots/goals inference module without changing default behavior."
+  ],
+  "acceptance": [
+    "run-video exposes flags for at least: shot minimum speed, minimum dt, and goal missing duration.",
+    "Default behavior remains unchanged when flags are not supplied.",
+    "Events remain conservative: no `event_state=confirmed` is emitted by this intent."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-SHOTS-GOALS-CONFIG-001-001",
+      "title": "CLI flags + wiring into inference config",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/cli.py",
+        "pipeline/src/fusbal_pipeline/events/shots_goals.py",
+        "pipeline/tests/test_events_v1.py"
+      ],
+      "acceptance": [
+        "Flags are parsed and passed into ShotsGoalsConfig for inference.",
+        "Tests continue to enforce candidate/unknown-only policy."
+      ],
+      "evidence": [
+        "Unit tests cover conservative event state behavior under modified config."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-SHOTS-GOALS-CONFIG-001-001",
+      "title": "Add run-video CLI flags for inference thresholds.",
+      "status": "done",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_SHOTS_GOALS_CONFIG_001.SUB_001",
+      "done_when": [
+        "Flags exist and are documented in CLI help output.",
+        "Inference receives the values via config."
+      ]
+    }
+  ]
+}

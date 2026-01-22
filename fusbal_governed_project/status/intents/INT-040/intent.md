@@ -1,11 +1,12 @@
 ---
 generated: true
 source: spec/intents/INT-040.json
-source_sha256: sha256:0cad08ad47eb982b3150b57ac1dcc70c9a37f61f156323b9b2745e2be95bf8c2
+source_sha256: sha256:2c356038594a514503e30a1cabed473cc5e963c1baa94e8a38310e12a939b549
 intent_id: INT-040
 title: Ball tracking + conservative shots/goals (V1)
-status: todo
+status: closed
 created_date: 2026-01-20
+closed_date: 2026-01-22
 close_gate:
   - "npm run generate"
   - "npm run guardrails"

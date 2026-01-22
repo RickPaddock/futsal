@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/intents/INT-050.json
-source_sha256: sha256:1bf48d280700484edddf01648105e79ea066dbf48baf45eeeb36143ce9643c5f
+source_sha256: sha256:11f8cc3a807071d20bfc93a0fb5add44f837ab2c316ecb4dfb8a27ba43fd5986
 intent_id: INT-050
 title: Video ingest → plumbing proof → baseline real detections (UAT)
 status: todo
@@ -28,6 +28,19 @@ close_gate:
 ### INT-050-002 — Baseline real detections (UAT)
 
 - TASK-BALL-DET-BASELINE-001 Baseline local ball detector producing non-empty detections on the provided clip with confidence/diagnostics.
+
+### INT-050-003 — Hardening + portal UX
+
+- TASK-RUN-VIDEO-STREAM-001 Stream run-video to reduce memory usage.
+- TASK-VIDEO-TOOLS-TIMEOUT-001 Add video tooling timeouts and better stderr surfacing.
+- TASK-RUN-VIDEO-NULL-ASSERT-001 Strengthen tests: detector disabled → zero present.
+- TASK-DIAGNOSTICS-BALL-DETECTIONS-001 Persist per-frame ball detection diagnostics artifact.
+- TASK-SHOTS-GOALS-CONFIG-001 Expose shots/goals inference thresholds via CLI flags.
+- TASK-CONTRACT-BALL-FRAMEIDX-001 Require diagnostics.frame_index for all ball track records.
+- TASK-VIDEO-TOOLS-NODE-DECOUPLE-001 Remove Node coupling from Python ingest tool resolution.
+- TASK-BALL-DET-REGRESSION-001 Add a synthetic regression test for baseline detector present frames.
+- TASK-CLI-EXIT-CODES-001 Add explicit exit codes for common CLI failures.
+- TASK-PORTAL-AUDIT-RUNS-001 Show latest audit run summaries on the portal intent page.
 
 ## Runbooks (LLM navigation)
 

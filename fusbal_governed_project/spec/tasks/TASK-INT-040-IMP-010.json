@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-040-IMP-010",
   "intent_id": "INT-040",
   "title": "Portal: visualize ball missing/unknown + event evidence pointers",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Improve internal portal visibility into ball missing/unknown states and event evidence pointers to reduce audit time.",
     "Provide consistent rendering for evidence pointers (artifact_id + time_range_ms/frame_range) where they appear in task/audit surfaces.",
@@ -36,7 +36,7 @@
     {
       "subtask_id": "SUB-TASK-INT-040-IMP-010-001",
       "title": "Add UI component for evidence pointer rendering.",
-      "status": "todo",
+      "status": "done",
       "area": "portal",
       "provenance_prefix": "FUSBAL.PORTAL.INT_040.IMP_010.SUB_001",
       "done_when": [
@@ -46,7 +46,7 @@
     {
       "subtask_id": "SUB-TASK-INT-040-IMP-010-002",
       "title": "Highlight ball missing/unknown audit signals on intent/task pages.",
-      "status": "todo",
+      "status": "done",
       "area": "portal",
       "provenance_prefix": "FUSBAL.PORTAL.INT_040.IMP_010.SUB_002",
       "done_when": [

@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-RUN-VIDEO-NULL-ASSERT-001",
+  "intent_id": "INT-050",
+  "title": "Test hardening: assert zero present ball records when detector disabled",
+  "status": "done",
+  "scope": [
+    "Strengthen existing run-video determinism test to also assert the contract-level trust-first requirement that disabling the detector yields zero `pos_state=present` ball records."
+  ],
+  "acceptance": [
+    "When ball detector is disabled, run-video output contains zero `pos_state=present` ball records.",
+    "The assertion is covered by a unit/integration test."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-RUN-VIDEO-NULL-ASSERT-001-001",
+      "title": "Updated determinism test with disabled-detector assertions",
+      "paths": [
+        "pipeline/tests/test_run_video_v1.py"
+      ],
+      "acceptance": [
+        "Test asserts zero present records with detector disabled while preserving determinism assertions."
+      ],
+      "evidence": [
+        "pytest green under guardrails."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-RUN-VIDEO-NULL-ASSERT-001-001",
+      "title": "Add zero-present assertion to existing test.",
+      "status": "done",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_RUN_VIDEO_NULL_ASSERT_001.SUB_001",
+      "done_when": [
+        "Test verifies disabled detector yields zero present ball records."
+      ]
+    }
+  ]
+}

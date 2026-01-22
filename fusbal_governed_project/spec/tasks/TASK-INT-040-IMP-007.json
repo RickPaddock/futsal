@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-040-IMP-007",
   "intent_id": "INT-040",
   "title": "Ball tracker: implement explicit unknown emission path for unevaluable frames",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Extend BallTracker to emit pos_state=unknown for defined unevaluable conditions, with explicit reasons.",
     "Preserve strict trust-first behavior: never emit present without direct evidence.",
@@ -38,7 +38,7 @@
     {
       "subtask_id": "SUB-TASK-INT-040-IMP-007-001",
       "title": "Define unknown reason vocabulary for ball tracker.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_007.SUB_001",
       "done_when": [
@@ -48,7 +48,7 @@
     {
       "subtask_id": "SUB-TASK-INT-040-IMP-007-002",
       "title": "Implement unknown emission and add tests.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_007.SUB_002",
       "done_when": [

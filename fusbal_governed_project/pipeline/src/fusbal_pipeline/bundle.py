@@ -227,7 +227,7 @@ def ensure_placeholder_outputs_v1(bundle_root: Path, *, sensors_present: bool) -
     )
     write_text_if_missing(
         paths.diagnostics_quality_summary_json,
-        '{"placeholder": true, "note": "placeholder quality summary"}\n',
+        '{"schema_version": 1, "placeholder": true, "note": "placeholder quality summary", "ball": null}\n',
     )
     if sensors_present:
         write_text_if_missing(

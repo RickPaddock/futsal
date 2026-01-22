@@ -3,7 +3,7 @@
   "task_id": "TASK-INT-040-IMP-006",
   "intent_id": "INT-040",
   "title": "Ball pos_state=unknown: define semantics + add tests for unevaluable frames",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Define and test ‘unknown’ semantics for ball detections/tracks for unevaluable frames/spans.",
     "Ensure unknown is used only when evaluation is not possible, distinct from missing (evaluated but no acceptable position).",
@@ -36,7 +36,7 @@
     {
       "subtask_id": "SUB-TASK-INT-040-IMP-006-001",
       "title": "Define unevaluable scenario representation and test it.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_006.SUB_001",
       "done_when": [

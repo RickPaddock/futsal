@@ -1,0 +1,20 @@
+{
+  "counts": {
+    "ball_missing": 1156,
+    "ball_present": 43,
+    "ball_unknown": 0,
+    "events": 10,
+    "frames_decoded": 1199
+  },
+  "notes": "run-video plumbing proof",
+  "placeholder": false,
+  "schema_version": 1,
+  "video": {
+    "duration_s": 40.007,
+    "fps": 29.97002997002997,
+    "height_px": 2160,
+    "nb_frames": 1199,
+    "source_rel_path": "GoPro_Futsal_part2_trimmed_100mb.mp4",
+    "width_px": 3840
+  }
+}

@@ -9,7 +9,15 @@ import math
 from pathlib import Path
 from typing import Literal, NotRequired, TypedDict
 
+from .ball.track_types import MISSING_REASON_VOCAB
 from .bundle import BUNDLE_ARTIFACT_SPECS_V1
+from .diagnostics_keys import (
+    BALL_UNKNOWN_DETECTOR_ERROR,
+    BALL_UNKNOWN_FRAME_UNAVAILABLE,
+    FRAME_INDEX,
+    MISSING_REASON,
+    UNKNOWN_REASON,
+)
 
 Frame = Literal["pitch", "enu", "wgs84", "image_px"]
 EntityType = Literal["player", "ball"]
@@ -301,6 +309,37 @@ def validate_track_record_v1(obj: object) -> list[str]:
 
     if "diagnostics" in obj and not isinstance(obj.get("diagnostics"), dict):
         errors.append("track.diagnostics must be an object when present")
+
+    # Ball-specific semantic checks (INT-040 trust-first).
+    if entity_type == "ball":
+        diag = obj.get("diagnostics")
+        if not isinstance(diag, dict):
+            errors.append("track.diagnostics is required when entity_type=ball")
+            diag = {}
+        fi = diag.get(FRAME_INDEX)
+        if not isinstance(fi, int) or isinstance(fi, bool) or fi < 0:
+            errors.append(f"track.diagnostics.{FRAME_INDEX} must be an integer >= 0 when entity_type=ball")
+
+        if pos_state == "missing":
+            mr = diag.get(MISSING_REASON)
+            if mr not in MISSING_REASON_VOCAB:
+                allowed = ", ".join(MISSING_REASON_VOCAB)
+                errors.append(
+                    f"track.diagnostics.{MISSING_REASON} must be one of: {allowed} when entity_type=ball and pos_state=missing"
+                )
+            # For V1, ball missing is always a detector-derived break (coarse category).
+            if obj.get("break_reason") != "detector_missing":
+                errors.append(
+                    "track.break_reason must be detector_missing when entity_type=ball and pos_state=missing"
+                )
+
+        if pos_state == "unknown":
+            ur = diag.get(UNKNOWN_REASON)
+            allowed = (BALL_UNKNOWN_FRAME_UNAVAILABLE, BALL_UNKNOWN_DETECTOR_ERROR)
+            if ur not in allowed:
+                errors.append(
+                    f"track.diagnostics.{UNKNOWN_REASON} must be one of: {allowed[0]}, {allowed[1]} when entity_type=ball and pos_state=unknown"
+                )
 
     return errors
 

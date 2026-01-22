@@ -15,18 +15,41 @@ function safeReadJson(p) {
   return JSON.parse(fs.readFileSync(p, "utf8"));
 }
 
+function EvidencePointerView({ ptr }) {
+  if (!ptr || typeof ptr !== "object") return <span className="muted">—</span>;
+  const artifactId = typeof ptr.artifact_id === "string" ? ptr.artifact_id : "";
+  const tr = ptr.time_range_ms && typeof ptr.time_range_ms === "object" ? ptr.time_range_ms : null;
+  const fr = ptr.frame_range && typeof ptr.frame_range === "object" ? ptr.frame_range : null;
+
+  let range = "";
+  if (tr && typeof tr.start_ms === "number" && typeof tr.end_ms === "number") {
+    range = `${tr.start_ms}..${tr.end_ms} ms`;
+  } else if (fr && typeof fr.start_frame === "number" && typeof fr.end_frame === "number") {
+    range = `${fr.start_frame}..${fr.end_frame} frames`;
+  }
+  return (
+    <span>
+      <code>{artifactId || "artifact_id=?"}</code>
+      {range ? <span className="muted"> ({range})</span> : null}
+    </span>
+  );
+}
+
 export async function getServerSideProps(ctx) {
   const { isValidTaskId, repoRootFromPortalCwd } = await import("../../../lib/portal_read_model.js");
+
+  const { ensurePortalCsrfCookie } = await import("../../../lib/portal_csrf.js");
 
   const taskId = String(ctx.params?.taskId || "");
   if (!isValidTaskId(taskId)) return { notFound: true };
   const repoRoot = repoRootFromPortalCwd();
+  const csrfToken = await ensurePortalCsrfCookie(ctx.req, ctx.res);
   const taskSpecPath = path.join(repoRoot, "spec", "tasks", `${taskId}.json`);
   const task = safeReadJson(taskSpecPath);
-  return { props: { taskId, task } };
+  return { props: { taskId, task, csrfToken } };
 }
 
-export default function TaskDetail({ taskId, task }) {
+export default function TaskDetail({ taskId, task, csrfToken }) {
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -35,7 +58,7 @@ export default function TaskDetail({ taskId, task }) {
     try {
       const res = await fetch("/api/internal/refresh", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-portal-csrf": String(csrfToken || "") },
         body: JSON.stringify({ intentId: intentId || "" }),
       });
       const payload = await res.json().catch(() => ({}));
@@ -59,6 +82,7 @@ export default function TaskDetail({ taskId, task }) {
   const deliverables = Array.isArray(task?.deliverables) ? task.deliverables : [];
   const subtasks = Array.isArray(task?.subtasks) ? task.subtasks : [];
   const subtasksDone = subtasks.filter((s) => String(s?.status || "").trim() === "done").length;
+  const showInt040Callout = intentId === "INT-040";
 
   return (
     <main className="page">
@@ -92,6 +116,17 @@ export default function TaskDetail({ taskId, task }) {
           <div className="kv"><span>Deliverables</span><span>{deliverables.length}</span></div>
           <div className="kv"><span>Subtasks</span><span>{subtasksDone}/{subtasks.length} done</span></div>
         </section>
+
+        {showInt040Callout ? (
+          <section className="panel">
+            <h2>INT-040 audit signals</h2>
+            <ul className="bullets">
+              <li>Ball tracking should emit explicit <code>pos_state</code>: <code>present</code>, <code>missing</code>, or <code>unknown</code> (no implicit gaps).</li>
+              <li>Missing vs unknown: <code>missing</code> means evaluated-but-no-acceptable position; <code>unknown</code> is reserved for unevaluable frames/spans.</li>
+              <li>Events should carry evidence pointers like <EvidencePointerView ptr={{ artifact_id: "tracks_jsonl", time_range_ms: { start_ms: 0, end_ms: 600 } }} />.</li>
+            </ul>
+          </section>
+        ) : null}
 
         <section className="panel">
           <h2>Links</h2>

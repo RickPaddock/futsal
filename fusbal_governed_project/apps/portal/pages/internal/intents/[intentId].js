@@ -36,6 +36,26 @@ function utcDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function EvidencePointerView({ ptr }) {
+  if (!ptr || typeof ptr !== "object") return <span className="muted">—</span>;
+  const artifactId = typeof ptr.artifact_id === "string" ? ptr.artifact_id : "";
+  const tr = ptr.time_range_ms && typeof ptr.time_range_ms === "object" ? ptr.time_range_ms : null;
+  const fr = ptr.frame_range && typeof ptr.frame_range === "object" ? ptr.frame_range : null;
+
+  let range = "";
+  if (tr && typeof tr.start_ms === "number" && typeof tr.end_ms === "number") {
+    range = `${tr.start_ms}..${tr.end_ms} ms`;
+  } else if (fr && typeof fr.start_frame === "number" && typeof fr.end_frame === "number") {
+    range = `${fr.start_frame}..${fr.end_frame} frames`;
+  }
+  return (
+    <span>
+      <code>{artifactId || "artifact_id=?"}</code>
+      {range ? <span className="muted"> ({range})</span> : null}
+    </span>
+  );
+}
+
 export async function getServerSideProps(ctx) {
   const {
     repoRootFromPortalCwd,
@@ -48,38 +68,12 @@ export async function getServerSideProps(ctx) {
     findLatestPreflightReportInfo,
   } = await import("../../../lib/portal_read_model.js");
 
-  function parseCookies(header) {
-    const raw = String(header || "");
-    const out = {};
-    for (const part of raw.split(";")) {
-      const [k, ...rest] = part.trim().split("=");
-      if (!k) continue;
-      out[k] = decodeURIComponent(rest.join("="));
-    }
-    return out;
-  }
-
-  async function ensureCsrfCookie(req, res) {
-    const cookies = parseCookies(req?.headers?.cookie || "");
-    const existing = String(cookies.portal_csrf || "").trim();
-    if (existing) return existing;
-    const { randomBytes } = await import("node:crypto");
-    const token = randomBytes(16).toString("hex");
-    const parts = [
-      `portal_csrf=${token}`,
-      "Path=/",
-      "SameSite=Lax",
-      "HttpOnly",
-      `Max-Age=${60 * 60 * 24}`,
-    ];
-    res?.setHeader?.("Set-Cookie", parts.join("; "));
-    return token;
-  }
+  const { ensurePortalCsrfCookie } = await import("../../../lib/portal_csrf.js");
 
   const intentId = String(ctx.params?.intentId || "");
   if (!isValidIntentId(intentId)) return { notFound: true };
   const repoRoot = repoRootFromPortalCwd();
-  const csrfToken = await ensureCsrfCookie(ctx.req, ctx.res);
+  const csrfToken = await ensurePortalCsrfCookie(ctx.req, ctx.res);
 
   const feedPath = path.join(repoRoot, "status", "portal", "internal_intents.json");
   const feed = safeReadJson(feedPath) || { intents: [] };
@@ -226,6 +220,7 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
   const tasksDone = tasks.filter((t) => String(t?.status || "").trim() === "done").length;
   const requirementsImplemented = requirements.filter((r) => String(r?.tracking_implementation || "").trim() === "done").length;
   const status = String(feedIntent?.status || intentSpec?.status || "unknown").toLowerCase();
+  const showInt040Callout = intentId === "INT-040";
   const [refreshing, setRefreshing] = useState(false);
   const [overlay, setOverlay] = useState(null);
   const [copiedCommand, setCopiedCommand] = useState("");
@@ -338,6 +333,17 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
             </>
           ) : <div className="muted">No close gates declared.</div>}
         </section>
+
+        {showInt040Callout ? (
+          <section className="panel">
+            <h2>INT-040 audit signals</h2>
+            <ul className="bullets">
+              <li>Ball trust-first: prefer explicit <code>missing</code>/<code>unknown</code> over fabricated <code>present</code>.</li>
+              <li><code>unknown</code> is reserved for unevaluable frames/spans (requires <code>diagnostics.unknown_reason</code>).</li>
+              <li>Events should reference bundle artifacts via evidence pointers like <EvidencePointerView ptr={{ artifact_id: "tracks_jsonl", time_range_ms: { start_ms: 0, end_ms: 600 } }} />.</li>
+            </ul>
+          </section>
+        ) : null}
       </div>
 
       {missingFromFeed?.length ? (

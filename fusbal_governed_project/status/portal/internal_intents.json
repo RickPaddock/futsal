@@ -293,9 +293,9 @@
     {
       "intent_id": "INT-040",
       "title": "Ball tracking + conservative shots/goals (V1)",
-      "status": "todo",
+      "status": "closed",
       "created_date": "2026-01-20",
-      "closed_date": "",
+      "closed_date": "2026-01-22",
       "requirements_in_scope": [
         {
           "id": "FUSBAL-V1-BALL-001",
@@ -335,52 +335,52 @@
         {
           "task_id": "TASK-INT-040-IMP-001",
           "title": "Ball detections: explicit per-frame missing/unknown records",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-040-IMP-002",
           "title": "Output contract: explicit ball detection/track schemas and examples",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-040-IMP-003",
           "title": "Ball detections: use centralized diagnostics key constants",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-040-IMP-004",
           "title": "Ball tracker: align break_reason/segment semantics with missing reasons",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-040-IMP-005",
           "title": "Shots/goals inference: add deterministic negative-scenario tests",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-040-IMP-006",
           "title": "Ball pos_state=unknown: define semantics + add tests for unevaluable frames",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-040-IMP-007",
           "title": "Ball tracker: implement explicit unknown emission path for unevaluable frames",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-040-IMP-008",
           "title": "Contract validation: strengthen ball-specific semantic checks and errors",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-040-IMP-009",
           "title": "Diagnostics quality_summary: add ball tracking quality metrics for conservative gating",
-          "status": "todo"
+          "status": "done"
         },
         {
           "task_id": "TASK-INT-040-IMP-010",
           "title": "Portal: visualize ball missing/unknown + event evidence pointers",
-          "status": "todo"
+          "status": "done"
         }
       ]
     },
@@ -444,16 +444,66 @@
         {
           "task_id": "TASK-BALL-DET-BASELINE-001",
           "title": "Baseline local ball detector (real detections for UAT clip)",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-BALL-DET-REGRESSION-001",
+          "title": "Regression test: synthetic baseline detector emits >=N present frames under configured thresholds",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-CLI-EXIT-CODES-001",
+          "title": "CLI ergonomics: explicit exit codes for common ingest/decode failures",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-CONTRACT-BALL-FRAMEIDX-001",
+          "title": "Contract hardening: require diagnostics.frame_index for all ball track records",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-DIAGNOSTICS-BALL-DETECTIONS-001",
+          "title": "Diagnostics: persist per-frame ball detection diagnostics artifact",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-PORTAL-AUDIT-RUNS-001",
+          "title": "Portal UX: surface latest audit run summaries on intent page",
           "status": "todo"
         },
         {
           "task_id": "TASK-RUN-VIDEO-001",
           "title": "End-to-end run-video: ingest film → export bundle (plumbing proof)",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-RUN-VIDEO-NULL-ASSERT-001",
+          "title": "Test hardening: assert zero present ball records when detector disabled",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-RUN-VIDEO-STREAM-001",
+          "title": "Stream run-video (avoid buffering decoded frames)",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-SHOTS-GOALS-CONFIG-001",
+          "title": "Expose conservative shots/goals inference thresholds via run-video CLI flags",
           "status": "todo"
         },
         {
           "task_id": "TASK-VIDEO-INGEST-001",
           "title": "Deterministic video ingest + frame timebase",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-VIDEO-TOOLS-NODE-DECOUPLE-001",
+          "title": "Decouple Python video ingest from Node-based ffmpeg resolver fallback",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-VIDEO-TOOLS-TIMEOUT-001",
+          "title": "Video tooling safety: timeouts + better stderr surfacing (ffprobe/ffmpeg)",
           "status": "todo"
         }
       ]

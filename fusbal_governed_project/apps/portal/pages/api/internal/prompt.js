@@ -16,6 +16,7 @@ import {
   isValidRunId,
   isIsoDate,
 } from "../../../lib/portal_read_model.js";
+import { rejectIfNotInternal } from "../../../lib/portal_request_guards.js";
 
 function utcRunId() {
   const d = new Date();
@@ -74,6 +75,8 @@ export default async function handler(req, res) {
     res.status(405).json({ ok: false, error: "method_not_allowed" });
     return;
   }
+
+  if (rejectIfNotInternal(req, res)) return;
 
   const kind = String(req.query?.kind || "").trim();
   const intentIdRaw = String(req.query?.intentId || "").trim();

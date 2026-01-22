@@ -39,37 +39,8 @@ export async function getServerSideProps(ctx) {
     findLatestPreflightReportInfo,
   } = await import("../../../lib/portal_read_model.js");
 
-  function parseCookies(header) {
-    const raw = String(header || "");
-    const out = {};
-    for (const part of raw.split(";")) {
-      const [k, ...rest] = part.trim().split("=");
-      if (!k) continue;
-      out[k] = decodeURIComponent(rest.join("="));
-    }
-    return out;
-  }
-
-  async function ensureCsrfCookie(ctx) {
-    const req = ctx?.req;
-    const res = ctx?.res;
-    const cookies = parseCookies(req?.headers?.cookie || "");
-    const existing = String(cookies.portal_csrf || "").trim();
-    if (existing) return existing;
-    const { randomBytes } = await import("node:crypto");
-    const token = randomBytes(16).toString("hex");
-    const parts = [
-      `portal_csrf=${token}`,
-      "Path=/",
-      "SameSite=Lax",
-      "HttpOnly",
-      `Max-Age=${60 * 60 * 24}`,
-    ];
-    res?.setHeader?.("Set-Cookie", parts.join("; "));
-    return token;
-  }
-
-  const csrfToken = await ensureCsrfCookie(ctx);
+  const { ensurePortalCsrfCookieFromCtx } = await import("../../../lib/portal_csrf.js");
+  const csrfToken = await ensurePortalCsrfCookieFromCtx(ctx);
 
   const repoRoot = repoRootFromPortalCwd();
   const feedPath = path.join(repoRoot, "status", "portal", "internal_intents.json");

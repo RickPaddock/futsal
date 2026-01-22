@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-DIAGNOSTICS-BALL-DETECTIONS-001",
+  "intent_id": "INT-050",
+  "title": "Diagnostics: persist per-frame ball detection diagnostics artifact",
+  "status": "done",
+  "scope": [
+    "Persist an additional diagnostics artifact containing per-frame ball detection counts/gating metadata to aid audits and debugging.",
+    "Keep bundle layout validation requirements unchanged (artifact is optional)."
+  ],
+  "acceptance": [
+    "Bundle includes an optional diagnostics file (JSONL) containing per-frame ball detection diagnostics (frame_index, t_ms, candidate/emitted counts, gating reason).",
+    "The diagnostics file is not required for `validate` to pass and does not affect required bundle layout."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-DIAGNOSTICS-BALL-DETECTIONS-001-001",
+      "title": "Ball detections diagnostics artifact wiring",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/cli.py"
+      ],
+      "acceptance": [
+        "Diagnostics file is written deterministically (stable key ordering) and placed under `diagnostics/`.",
+        "Artifact is optional and does not affect required bundle layout."
+      ],
+      "evidence": [
+        "A run-video output bundle contains the diagnostics file and validate still passes."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-DIAGNOSTICS-BALL-DETECTIONS-001-001",
+      "title": "Add optional artifact id + write diagnostics JSONL.",
+      "status": "done",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_DIAGNOSTICS_BALL_DETECTIONS_001.SUB_001",
+      "done_when": [
+        "run-video writes `diagnostics/ball_detections.jsonl` deterministically.",
+        "Bundle validation remains unchanged (diagnostics file remains optional)."
+      ]
+    }
+  ]
+}

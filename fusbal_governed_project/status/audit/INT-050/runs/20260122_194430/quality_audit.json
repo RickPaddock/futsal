@@ -1,0 +1,205 @@
+{
+  "type": "intent_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-050",
+  "run_id": "20260122_194430",
+  "timestamp": "2026-01-22T19:51:57.195Z",
+  "scope": {
+    "areas_in_scope": [
+      "pipeline",
+      "portal",
+      "scripts",
+      "tools"
+    ]
+  },
+  "audit_inputs": {
+    "intent_spec_path": "spec/intents/INT-050.json",
+    "task_spec_paths": [
+      "spec/tasks/TASK-VIDEO-INGEST-001.json",
+      "spec/tasks/TASK-RUN-VIDEO-001.json",
+      "spec/tasks/TASK-BALL-DET-BASELINE-001.json"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/video/ingest.py",
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/src/fusbal_pipeline/bundle.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/src/fusbal_pipeline/ball/detector.py",
+      "pipeline/src/fusbal_pipeline/ball/detections.py",
+      "pipeline/src/fusbal_pipeline/events/shots_goals.py",
+      "pipeline/tests/test_video_ingest_v1.py",
+      "pipeline/tests/test_run_video_v1.py",
+      "pipeline/tests/test_ball_v1.py",
+      "pipeline/tests/test_events_v1.py",
+      "tools/evidence/record_run.mjs",
+      "scripts/generate_all.mjs"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 8,
+    "top_risks": [
+      "run-video buffers all decoded frames in memory (scalability risk).",
+      "Python ingest path depends on Node-based ffmpeg resolver fallback (extra coupling).",
+      "Baseline detector thresholds may need tuning per camera; limited CLI exposure for event config."
+    ],
+    "top_quick_wins": [
+      "Add timeouts and better stderr surfacing for ffprobe/ffmpeg.",
+      "Assert disabled-detector mode yields zero present ball records in tests.",
+      "Write per-frame diagnostics artefact for easier offline debugging."
+    ]
+  },
+  "verification": {
+    "functional": {
+      "status": "pass",
+      "notes": "All planned tasks meet functional acceptance based on code + existing UAT evidence."
+    },
+    "nonfunctional": {
+      "correctness_safety": {
+        "status": "pass",
+        "notes": "Determinism + trust-first semantics are explicit; remaining risks are documented as improvements."
+      },
+      "performance": {
+        "status": "pass",
+        "notes": "Within V1 constraints, but streaming is recommended for longer videos."
+      },
+      "security": {
+        "status": "pass",
+        "notes": "No shell execution; inputs validated; tool invocation uses argv lists."
+      },
+      "maintainability": {
+        "status": "pass",
+        "notes": "Clear module boundaries and tests; some coupling improvements recommended."
+      },
+      "overall_status": "pass"
+    }
+  },
+  "improvements": [
+    {
+      "id": "IMP-001",
+      "title": "Stream run-video processing (avoid buffering all frames)",
+      "area": "pipeline",
+      "roi_0_to_10": 10,
+      "effort": "M",
+      "risk": "medium",
+      "why": "cmd_run_video currently buffers all decoded frames into memory before processing, which is unnecessary and can blow up RAM on longer clips. Streaming improves performance and reliability without changing contract semantics.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/cli.py:cmd_run_video (process frames as they decode)",
+        "pipeline/src/fusbal_pipeline/cli.py:_run_video_write_bundle (accept iterator/generator instead of list)"
+      ]
+    },
+    {
+      "id": "IMP-002",
+      "title": "Add ffmpeg/ffprobe timeout + clearer stderr surfacing",
+      "area": "pipeline",
+      "roi_0_to_10": 9,
+      "effort": "S",
+      "risk": "low",
+      "why": "Video tooling can hang on corrupted files; today we rely on ffprobe/ffmpeg to return. Timeouts and stderr tailing improve safety and debuggability.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/video/ingest.py:_run_checked (support timeout + include stderr excerpt)",
+        "pipeline/src/fusbal_pipeline/video/ingest.py:iter_video_frames_rgb24 (terminate on timeout with actionable error)"
+      ]
+    },
+    {
+      "id": "IMP-003",
+      "title": "Determinism test should also assert zero present when detector disabled",
+      "area": "pipeline",
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "low",
+      "why": "We test determinism with the detector disabled, but not the acceptance requirement that disabled mode yields zero present ball records.",
+      "proposed_changes": [
+        "pipeline/tests/test_run_video_v1.py:test_run_video_is_deterministic_with_null_detector (assert no present records in tracks.jsonl)"
+      ]
+    },
+    {
+      "id": "IMP-004",
+      "title": "Persist per-frame detection diagnostics to diagnostics/ (not only in-track)",
+      "area": "pipeline",
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "low",
+      "why": "Keeping diagnostics only inside track records makes offline debugging and aggregation harder. A separate per-frame diagnostics artifact improves observability.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/cli.py:_run_video_write_bundle (write diagnostics/ball_detections.jsonl)",
+        "pipeline/src/fusbal_pipeline/bundle.py:BUNDLE_ARTIFACT_SPECS_V1 (add optional diagnostics artifact id)"
+      ]
+    },
+    {
+      "id": "IMP-005",
+      "title": "Make shots/goals thresholds configurable from CLI",
+      "area": "pipeline",
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "low",
+      "why": "UAT tuning will require different shot speed/missing thresholds across camera setups. Exposing config reduces code churn while keeping conservative defaults.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/cli.py:build_parser (add --shot-min-speed / --goal-missing-ms)",
+        "pipeline/src/fusbal_pipeline/events/shots_goals.py:ShotsGoalsConfig (wire through)"
+      ]
+    },
+    {
+      "id": "IMP-006",
+      "title": "Strengthen contract validation around ball missing/unknown diagnostics invariants",
+      "area": "pipeline",
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "low",
+      "why": "Contract already enforces some ball-specific semantics; tightening invariants (e.g., require frame_index in diagnostics for all ball records) reduces ambiguity and eases audits.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/contract.py:validate_track_record_v1 (require diagnostics.frame_index for entity_type=ball)"
+      ]
+    },
+    {
+      "id": "IMP-007",
+      "title": "Replace python→node ffmpeg resolver fallback with pure-Python detection or explicit config",
+      "area": "tools",
+      "roi_0_to_10": 6,
+      "effort": "M",
+      "risk": "medium",
+      "why": "Calling Node from the Python ingest path adds coupling and extra failure modes. A pure-Python resolver (or explicit --ffmpeg/--ffprobe flags) would be simpler and more reliable.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/video/ingest.py:_require_tool (remove node subprocess fallback)",
+        "tools/video/resolve_ffmpeg.mjs (keep for JS tooling if still needed)"
+      ]
+    },
+    {
+      "id": "IMP-008",
+      "title": "Add a small golden-file UAT regression test (optional clip or synthetic) for >=N present frames",
+      "area": "pipeline",
+      "roi_0_to_10": 5,
+      "effort": "M",
+      "risk": "medium",
+      "why": "The key baseline acceptance is measured on a real clip. A reproducible fixture or a small, distributable synthetic clip would prevent silent regressions.",
+      "proposed_changes": [
+        "pipeline/tests (add regression asserting present_ge_06 >= N on a fixture input)",
+        "spec/tasks/TASK-BALL-DET-BASELINE-001.json (optionally define fixture policy and location)"
+      ]
+    },
+    {
+      "id": "IMP-009",
+      "title": "Add explicit CLI exit codes for common ingest failures",
+      "area": "pipeline",
+      "roi_0_to_10": 4,
+      "effort": "S",
+      "risk": "low",
+      "why": "Today most failures return code 2. More granular exit codes help automation and portal UX categorize failures.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/cli.py:cmd_ingest_video/cmd_run_video (map error types to exit codes)"
+      ]
+    },
+    {
+      "id": "IMP-010",
+      "title": "Add portal surfacing for audit run summaries (link + status)",
+      "area": "portal",
+      "roi_0_to_10": 3,
+      "effort": "M",
+      "risk": "low",
+      "why": "Audit artefacts exist under status/audit but may be hard to discover. A small portal enhancement would show latest audit runs per intent.",
+      "proposed_changes": [
+        "apps/portal (intent page: list status/audit/<intent>/runs latest with links)",
+        "status/portal feeds (extend generator if needed)"
+      ]
+    }
+  ]
+}

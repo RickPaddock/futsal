@@ -15,6 +15,22 @@
       "primary_task_ids": [
         "TASK-BALL-DET-BASELINE-001"
       ]
+    },
+    {
+      "work_package_id": "INT-050-003",
+      "title": "Hardening + portal UX",
+      "primary_task_ids": [
+        "TASK-RUN-VIDEO-STREAM-001",
+        "TASK-VIDEO-TOOLS-TIMEOUT-001",
+        "TASK-RUN-VIDEO-NULL-ASSERT-001",
+        "TASK-DIAGNOSTICS-BALL-DETECTIONS-001",
+        "TASK-SHOTS-GOALS-CONFIG-001",
+        "TASK-CONTRACT-BALL-FRAMEIDX-001",
+        "TASK-VIDEO-TOOLS-NODE-DECOUPLE-001",
+        "TASK-BALL-DET-REGRESSION-001",
+        "TASK-CLI-EXIT-CODES-001",
+        "TASK-PORTAL-AUDIT-RUNS-001"
+      ]
     }
   ]
 }

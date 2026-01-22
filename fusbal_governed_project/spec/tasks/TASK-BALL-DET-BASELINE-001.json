@@ -3,7 +3,7 @@
   "task_id": "TASK-BALL-DET-BASELINE-001",
   "intent_id": "INT-050",
   "title": "Baseline local ball detector (real detections for UAT clip)",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Implement a baseline local ball detector that operates on decoded video frames and produces non-empty ball detections on the provided UAT clip.",
     "Detector must be conservative: allow missing spans and prefer no detection over wrong detection.",
@@ -39,7 +39,7 @@
     {
       "subtask_id": "SUB-TASK-BALL-DET-BASELINE-001-001",
       "title": "Implement baseline detector and conservative gating.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_BALL_DET_BASELINE_001.SUB_001",
       "done_when": [
@@ -50,7 +50,7 @@
     {
       "subtask_id": "SUB-TASK-BALL-DET-BASELINE-001-002",
       "title": "Integrate detector into run-video and export contract-valid tracks/events.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_BALL_DET_BASELINE_001.SUB_002",
       "done_when": [
@@ -61,7 +61,7 @@
     {
       "subtask_id": "SUB-TASK-BALL-DET-BASELINE-001-003",
       "title": "Add tests for trust-first behavior (no hallucination) with synthetic frames.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_BALL_DET_BASELINE_001.SUB_003",
       "done_when": [
