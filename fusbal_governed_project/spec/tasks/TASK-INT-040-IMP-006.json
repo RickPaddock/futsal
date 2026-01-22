@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-040-IMP-006",
+  "intent_id": "INT-040",
+  "title": "Ball pos_state=unknown: define semantics + add tests for unevaluable frames",
+  "status": "todo",
+  "scope": [
+    "Define and test ‘unknown’ semantics for ball detections/tracks for unevaluable frames/spans.",
+    "Ensure unknown is used only when evaluation is not possible, distinct from missing (evaluated but no acceptable position).",
+    "Make reasons explicit and stable for auditability."
+  ],
+  "acceptance": [
+    "At least one deterministic unit test demonstrates an unevaluable scenario resulting in pos_state=unknown with an explicit reason.",
+    "Contract validation allows unknown records without requiring present-only geometry fields.",
+    "Docs describe missing vs unknown semantics for ball records and require reasons for both."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-040-IMP-006-001",
+      "title": "Tests for ball unknown semantics",
+      "paths": [
+        "pipeline/tests/test_ball_v1.py",
+        "pipeline/src/fusbal_pipeline/contract.py",
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Unknown is covered by tests and documented with explicit reasons.",
+        "Contract validation passes on unknown records."
+      ],
+      "evidence": [
+        "`pytest` passes and includes a test exercising pos_state=unknown."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-040-IMP-006-001",
+      "title": "Define unevaluable scenario representation and test it.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_006.SUB_001",
+      "done_when": [
+        "A deterministic test creates an unevaluable condition and asserts pos_state=unknown + explicit reason.",
+        "Documentation reflects the distinction between missing and unknown."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-040-IMP-003",
+  "intent_id": "INT-040",
+  "title": "Ball detections: use centralized diagnostics key constants",
+  "status": "todo",
+  "scope": [
+    "Replace hardcoded diagnostics key strings in ball detection emission with centralized constants.",
+    "Ensure diagnostics key usage aligns with contract guidance and reduces drift risk.",
+    "Keep external JSON shape unchanged (constants still resolve to the same string values)."
+  ],
+  "acceptance": [
+    "Ball detections import diagnostics keys from `pipeline/src/fusbal_pipeline/diagnostics_keys.py` instead of hardcoded strings.",
+    "All existing tests for ball detections continue to pass, and emitted JSON keys are unchanged.",
+    "Contract template references stable diagnostics keys that match implementation."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-040-IMP-003-001",
+      "title": "Ball detection code uses centralized diagnostics keys",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/ball/detections.py",
+        "pipeline/src/fusbal_pipeline/diagnostics_keys.py",
+        "pipeline/tests/test_ball_v1.py"
+      ],
+      "acceptance": [
+        "No diagnostics key drift: keys match centralized constants.",
+        "Emitted diagnostics keys remain stable."
+      ],
+      "evidence": [
+        "Unit tests demonstrate unchanged emitted keys and deterministic behavior."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-040-IMP-003-001",
+      "title": "Refactor ball detection diagnostics to use diagnostics_keys constants.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_003.SUB_001",
+      "done_when": [
+        "Ball detections import and use constants for frame_index/gating_reason counts.",
+        "Emitted JSON keys remain unchanged."
+      ]
+    }
+  ]
+}

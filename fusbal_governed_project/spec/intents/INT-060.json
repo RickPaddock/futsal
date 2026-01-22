@@ -1,0 +1,93 @@
+{
+  "intent_id": "INT-060",
+  "title": "Useful overlay.mp4 rendering for UAT (ball + confidence)",
+  "status": "todo",
+  "created_date": "2026-01-22",
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
+  "paths_allowed": [
+    "spec/",
+    "spec/md/docs/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
+  "close_gate": [
+    "npm run generate",
+    "npm run guardrails",
+    "npm run audit:intent -- --intent-id INT-060"
+  ],
+  "summary": [
+    "Render a playable, human-useful `overlay.mp4` from a local input video plus contract-valid `tracks.jsonl` (starting with ball in image_px).",
+    "Keep behavior deterministic and trust-first: no overlays are drawn without corresponding track evidence."
+  ],
+  "non_goals": [
+    "Production-quality UI/graphics; V1 overlay is utilitarian.",
+    "Multi-camera compositing or BEV video generation (separate intents).",
+    "Guaranteeing overlays on every frame (missing is acceptable and must be explicit in tracks)."
+  ],
+  "success_criteria": [
+    "A CLI command can render `overlay.mp4` from a local `--video` input and `--tracks` (tracks.jsonl) and write a playable mp4 at the bundle path.",
+    "Overlay includes at minimum a ball bbox/marker when `entity_type=ball`, `frame=image_px`, `pos_state=present` records exist, and includes confidence text.",
+    "Deterministic: for a fixed tracks input, the generated overlay filter/command is deterministic and is stable across runs (byte-for-byte overlay output may still vary by ffmpeg build; this intent enforces deterministic inputs and command construction).",
+    "Trust-first: if tracks contain no present ball records, the overlay contains no fabricated ball markers."
+  ],
+  "requirements_in_scope": [
+    "FUSBAL-V1-OUT-001",
+    "FUSBAL-V1-DATA-001",
+    "FUSBAL-V1-BALL-001",
+    "FUSBAL-V1-TRUST-001",
+    "SYS-ARCH-15"
+  ],
+  "task_ids_planned": [
+    "TASK-OVERLAY-001",
+    "TASK-OVERLAY-002"
+  ],
+  "quality_areas": [
+    {
+      "area_id": "functional",
+      "title": "Functional objectives",
+      "task_ids": [
+        "TASK-OVERLAY-001"
+      ],
+      "objectives": [
+        "Overlay mp4 is rendered from video + tracks and is human-useful (ball + confidence)."
+      ]
+    },
+    {
+      "area_id": "nonfunctional",
+      "title": "Non-functional objectives",
+      "categories_required": [
+        "correctness_safety",
+        "performance",
+        "security",
+        "maintainability"
+      ],
+      "task_ids": [
+        "TASK-OVERLAY-002"
+      ],
+      "objectives": [
+        "Overlay command construction is deterministic and trust-first (correctness/safety).",
+        "Backend prerequisites and failure behavior are explicit (maintainability)."
+      ]
+    }
+  ],
+  "work_packages": [
+    {
+      "work_package_id": "INT-060-001",
+      "title": "Overlay rendering",
+      "items": [
+        "TASK-OVERLAY-001 Implement `render-overlay` CLI to produce a useful overlay.mp4 from video + tracks.jsonl.",
+        "TASK-OVERLAY-002 Determinism tests + actionable backend checks for overlay rendering."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,209 @@
+{
+  "type": "intent_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-040",
+  "run_id": "20260122_132757",
+  "timestamp": "2026-01-22T13:32:09Z",
+  "scope": {
+    "areas_in_scope": ["pipeline", "portal", "scripts", "tools"]
+  },
+  "audit_inputs": {
+    "intent_spec_path": "spec/intents/INT-040.json",
+    "task_spec_paths": [
+      "spec/tasks/TASK-BALL-DET-001.json",
+      "spec/tasks/TASK-BALL-TRACK-001.json",
+      "spec/tasks/TASK-EVENT-001.json"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/ball/detections.py",
+      "pipeline/src/fusbal_pipeline/ball/detector.py",
+      "pipeline/src/fusbal_pipeline/ball/tracker.py",
+      "pipeline/src/fusbal_pipeline/ball/track_types.py",
+      "pipeline/src/fusbal_pipeline/events/shots_goals.py",
+      "pipeline/src/fusbal_pipeline/events/types.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/src/fusbal_pipeline/bundle.py",
+      "pipeline/src/fusbal_pipeline/diagnostics_keys.py",
+      "pipeline/tests/test_ball_v1.py",
+      "pipeline/tests/test_events_v1.py",
+      "pipeline/tests/test_contract_validation.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt",
+      "status/intents/INT-040/scope.json",
+      "status/intents/INT-040/work_packages.json",
+      "status/intents/INT-040/intent.md",
+      "spec/requirements/areas/v1.json"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 5,
+    "top_risks": [
+      "INT-040 success_criteria requires explicit missing/unknown records/spans for ball detections and tracks; current detection deliverable represents missing via absence + side-channel diagnostics rather than explicit records.",
+      "Task evidence for TASK-EVENT-001 requires deterministic negative-scenario tests; current tests do not demonstrate ‘no events on negative scenarios’.",
+      "Diagnostics key drift risk: ball detections use hardcoded strings instead of centralized diagnostics key constants."
+    ],
+    "top_quick_wins": [
+      "Add deterministic negative-scenario tests for infer_shots_goals_v1.",
+      "Use diagnostics_keys constants in ball detections diagnostics.",
+      "Document ball-specific detection/tracking semantics explicitly in the output contract template."
+    ]
+  },
+  "verification": {
+    "functional": {
+      "status": "fail",
+      "notes": "Per-task quality audits failed for TASK-BALL-DET-001 and TASK-EVENT-001 (see per-task reports under status/audit/INT-040/runs/20260122_132757/tasks/)."
+    },
+    "nonfunctional": {
+      "correctness_safety": {
+        "status": "pass",
+        "notes": "Tracking/events are conservative and contract-validated; primary correctness issue is missing explicit detection-level missing/unknown semantics per INT-040 success_criteria."
+      },
+      "performance": {
+        "status": "pass",
+        "notes": "No unbounded state; per-frame/per-run work is bounded by input size with deterministic sorting where needed."
+      },
+      "security": {
+        "status": "pass",
+        "notes": "Reviewed code paths do not execute shell commands or handle filesystem paths from untrusted input in these components."
+      },
+      "maintainability": {
+        "status": "fail",
+        "notes": "Diagnostics key centralization is not applied consistently (ball detections), increasing drift risk versus contract/docs."
+      },
+      "overall_status": "fail"
+    }
+  },
+  "improvements": [
+    {
+      "id": "IMP-001",
+      "title": "Make ball detections emit explicit per-frame pos_state (missing/unknown), not implicit gaps",
+      "area": "pipeline",
+      "roi_0_to_10": 10,
+      "effort": "M",
+      "risk": "medium",
+      "why": "INT-040 success_criteria requires explicit missing/unknown records/spans for ball detections and tracks. Current detections represent missing by an empty list plus a side-channel diagnostics dict, which is not contract-visible in tracks.jsonl.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/ball/detections.py: add an explicit per-frame TrackRecordV1 emission path for entity_type=ball with pos_state in {present, missing, unknown}.",
+        "pipeline/src/fusbal_pipeline/contract.py: ensure validation expectations match the chosen representation (one record per frame vs sparse detections).",
+        "pipeline/tests/test_ball_v1.py: add tests asserting explicit missing/unknown detection records appear when no candidates / unevaluable frames."
+      ]
+    },
+    {
+      "id": "IMP-002",
+      "title": "Document ball detection + tracking schema explicitly in the output contract template",
+      "area": "generation",
+      "roi_0_to_10": 9,
+      "effort": "S",
+      "risk": "low",
+      "why": "The contract template currently documents generic TrackRecordV1 and player-specific guidance; ball-specific detection/tracking semantics required by INT-040 are not clearly spelled out, increasing implementation/documentation ambiguity.",
+      "proposed_changes": [
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt: add dedicated sections for ball detections and ball tracks (pos_state semantics, required fields, examples).",
+        "pipeline/src/fusbal_pipeline/contract.py: ensure examples align with validate_track_record_v1 rules (missing requires break_reason + segment_id)."
+      ]
+    },
+    {
+      "id": "IMP-003",
+      "title": "Use centralized diagnostics key constants in ball detections",
+      "area": "pipeline",
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "low",
+      "why": "A centralized diagnostics key module exists to prevent drift. Ball detections still hardcode key strings, increasing long-term maintenance burden.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/ball/detections.py: replace literal keys (frame_index, gating_reason, num_candidates, num_emitted) with imports from pipeline/src/fusbal_pipeline/diagnostics_keys.py.",
+        "pipeline/tests/test_ball_v1.py: keep assertions compatible with the same key strings (constants resolve to strings)."
+      ]
+    },
+    {
+      "id": "IMP-004",
+      "title": "Align ball tracker break_reason/segment_id semantics with missing_reason and intent vocabulary",
+      "area": "pipeline",
+      "roi_0_to_10": 8,
+      "effort": "M",
+      "risk": "medium",
+      "why": "BallTracker currently emits break_reason=detector_missing for all missing cases (including jump_rejected/low_confidence) and uses a constant segment_id, which weakens interpretability and diagnostics for downstream gating.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/ball/tracker.py: map missing_reason to an appropriate break_reason vocabulary, and/or evolve the contract vocabulary for ball-specific missing reasons.",
+        "pipeline/src/fusbal_pipeline/ball/track_types.py: centralize missing reason vocab and document mapping.",
+        "pipeline/tests/test_ball_v1.py: add assertions that break_reason matches the missing condition (once mapping is defined)."
+      ]
+    },
+    {
+      "id": "IMP-005",
+      "title": "Add deterministic negative-scenario tests for shots/goals inference",
+      "area": "pipeline",
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "low",
+      "why": "TASK-EVENT-001 requires tests proving no events on negative scenarios. Current coverage validates candidate/unknown emission but does not demonstrate the absence of false positives.",
+      "proposed_changes": [
+        "pipeline/tests/test_events_v1.py: add cases where ball is stationary / insufficient dt / insufficient speed and assert infer_shots_goals_v1 returns [].",
+        "pipeline/tests/test_events_v1.py: add a case with missing-only tracks and assert no events."
+      ]
+    },
+    {
+      "id": "IMP-006",
+      "title": "Add tests for pos_state=unknown semantics and ‘unevaluable’ scenarios",
+      "area": "pipeline",
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "medium",
+      "why": "INT-040 defines unknown as reserved for unevaluable frames/spans with an explicit reason. Current implementations largely collapse unevaluable into missing and tests do not exercise unknown semantics.",
+      "proposed_changes": [
+        "pipeline/tests/test_ball_v1.py: add synthetic frames flagged as unevaluable and assert unknown is emitted (once implemented).",
+        "pipeline/src/fusbal_pipeline/contract.py: ensure validate_track_record_v1 rules accommodate unknown records without requiring geometry fields."
+      ]
+    },
+    {
+      "id": "IMP-007",
+      "title": "Introduce an explicit ‘unknown’ emission path in ball tracker for unevaluable frames",
+      "area": "pipeline",
+      "roi_0_to_10": 6,
+      "effort": "M",
+      "risk": "medium",
+      "why": "The intent distinguishes missing (evaluated but no acceptable position) from unknown (unevaluable). BallTracker currently emits missing for most failures, which may conflate these cases for downstream audits.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/ball/tracker.py: define conditions for unknown (e.g., invalid/missing timing or detector unavailable) and emit pos_state=unknown with diagnostics.missing_reason/unknown_reason.",
+        "pipeline/src/fusbal_pipeline/diagnostics_keys.py: add ball-unknown reason keys if needed."
+      ]
+    },
+    {
+      "id": "IMP-008",
+      "title": "Strengthen contract validation messages around ball-specific semantics",
+      "area": "pipeline",
+      "roi_0_to_10": 6,
+      "effort": "M",
+      "risk": "low",
+      "why": "Contract validation enforces generic rules (e.g., missing requires break_reason + segment_id) but does not help ensure ball-specific intent semantics (missing vs unknown reasons) are being followed.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/contract.py: add optional semantic checks for ball records (e.g., require diagnostics.missing_reason when pos_state is missing/unknown).",
+        "pipeline/tests/test_contract_validation.py: add tests for these semantic checks if introduced."
+      ]
+    },
+    {
+      "id": "IMP-009",
+      "title": "Expose ball tracking quality summary metrics for conservative downstream gating",
+      "area": "pipeline",
+      "roi_0_to_10": 5,
+      "effort": "M",
+      "risk": "low",
+      "why": "INT-040 nonfunctional objectives call for quality metrics/diagnostics to support conservative event inference. Current tracker emits per-frame diagnostics but no aggregated quality summary surface.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/ball/tracker.py: track simple counters (missing run lengths, jump rejects) and emit into diagnostics/quality_summary.json if/when that pipeline surface exists.",
+        "pipeline/src/fusbal_pipeline/bundle.py / bundle writer: ensure the quality summary includes ball-specific metrics deterministically."
+      ]
+    },
+    {
+      "id": "IMP-010",
+      "title": "Improve portal visualization for ball missing/unknown and event evidence pointers",
+      "area": "portal",
+      "roi_0_to_10": 5,
+      "effort": "M",
+      "risk": "low",
+      "why": "INT-040 emphasizes auditability via explicit missing/unknown and evidence pointers; surfacing these clearly in the portal reduces investigation time and increases trust.",
+      "proposed_changes": [
+        "apps/portal: add UI rendering for ball pos_state timelines and quick navigation for evidence pointers (artifact_id + range).",
+        "apps/portal: highlight events with state=candidate/unknown distinctly from confirmed."
+      ]
+    }
+  ]
+}

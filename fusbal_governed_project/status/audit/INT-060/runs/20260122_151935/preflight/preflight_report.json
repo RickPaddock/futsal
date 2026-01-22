@@ -1,0 +1,167 @@
+{
+  "type": "intent_preflight_report",
+  "schema_version": 1,
+  "intent_id": "INT-060",
+  "run_id": "20260122_151935",
+  "timestamp": "2026-01-22T15:22:23Z",
+  "blockers_ranked": [
+    {
+      "roi_0_to_10": 10,
+      "effort": "S",
+      "risk": "high",
+      "issue": "Output location and 'bundle path' semantics are inconsistent between INT-060 success criteria and TASK-OVERLAY-001 acceptance.",
+      "why": "Implementers may pick different defaults (bundle dir vs explicit --out), breaking closeability and wasting time on rework.",
+      "exact_fix": "Edit spec/intents/INT-060.json to define 'bundle path' (bundle directory) and set a single normative output rule: default output is <bundle_dir>/overlay.mp4 with optional --out override; mirror wording in spec/tasks/TASK-OVERLAY-001.json acceptance to match.",
+      "override_option": "Reduce scope: remove any mention of bundle semantics and require only explicit --out <path> (impact: weaker alignment with FUSBAL-V1-OUT-001 bundle layout)."
+    },
+    {
+      "roi_0_to_10": 9,
+      "effort": "S",
+      "risk": "high",
+      "issue": "Tracks contract is referenced but not specified (required fields, types, coordinate system, and selection rules).",
+      "why": "High risk of building overlay against the wrong record shape/keys, especially around bbox representation and frame indexing; also risks fabricated overlays if selection rules are unclear.",
+      "exact_fix": "Add an explicit 'Minimum tracks.jsonl fields used by overlay V1' section to spec/intents/INT-060.json (or spec/tasks/TASK-OVERLAY-001.json) that defines required keys and behavior: entity_type, frame, frame_index, pos_state, confidence, and bbox in image_px; specify how to handle missing/invalid/out-of-bounds bboxes and multiple ball records per frame.",
+      "override_option": "Reduce scope: require overlay to support only a single canonical sample tracks.jsonl fixture format (impact: less general; future refactor likely)."
+    },
+    {
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "medium",
+      "issue": """Useful/human-useful"" overlay is subjective; overlay visual requirements (marker style, confidence text format, placement) are underspecified.",
+      "why": "Leads to endless iteration and disagreement during UAT; also makes acceptance criteria non-objective.",
+      "exact_fix": "Rewrite success_criteria in spec/intents/INT-060.json to include objective visual minimums: draw a bbox rectangle (or fixed-radius circle at bbox center), drawtext includes 'ball' plus confidence formatted to 2 decimals, color/opacity rules (e.g., confidence>=0.6 green else yellow), and do not draw anything when no present ball record exists.",
+      "override_option": "Relax requirement: accept any marker and any confidence text as long as it is present and non-fabricated (impact: weaker 'useful' guarantee; UAT may still fail)."
+    },
+    {
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "requirements_in_scope includes FUSBAL-V1-DATA-001 (calibration) but the intent explicitly scopes to frame=image_px overlay; calibration does not appear needed.",
+      "why": "Creates scope creep pressure toward calibration/BEV concerns and complicates guardrail expectations.",
+      "exact_fix": "Either (a) remove FUSBAL-V1-DATA-001 from spec/intents/INT-060.json requirements_in_scope, or (b) add a sentence in summary/success_criteria clarifying what part of DATA-001 is exercised (e.g., 'overlay consumes image_px only; no calibration required in this intent').",
+      "override_option": "Keep FUSBAL-V1-DATA-001 but explicitly mark it 'context only' and non-blocking for closure (impact: deviates from strict in-scope requirement semantics)."
+    },
+    {
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "Determinism scope is partially defined, but evidence artifact for 'deterministic command construction' is not specified (what string/serialization is compared/logged).",
+      "why": "Without a defined canonical representation, determinism tests may assert the wrong thing (e.g., list ordering vs normalized command string).",
+      "exact_fix": "Update spec/tasks/TASK-OVERLAY-001.json acceptance to require a single canonical serialized command representation (e.g., JSON array of ffmpeg args) and assert exact equality in tests; optionally require writing that representation to an evidence file under status/audit for manual debugging.",
+      "override_option": "Narrow determinism: unit-test only filtergraph string determinism (impact: leaves other args potentially unstable)."
+    },
+    {
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "low",
+      "issue": "Edge cases are missing from acceptance criteria (empty tracks file, malformed JSONL line, unsupported frame types, multiple balls per frame).",
+      "why": "These cases will occur in UAT and can cause ffmpeg failures or misleading overlays.",
+      "exact_fix": "Add explicit negative/edge acceptance bullets in spec/tasks/TASK-OVERLAY-001.json: empty tracks => overlay has no markers; malformed line => fail with line number; frame!=image_px => ignore with warning; multiple balls per frame => choose highest confidence or draw all (pick one).",
+      "override_option": "Reduce scope: declare malformed lines undefined behavior and allow best-effort parsing (impact: makes trust-first weaker and debugging harder)."
+    },
+    {
+      "roi_0_to_10": 5,
+      "effort": "S",
+      "risk": "low",
+      "issue": "Guardrail/provenance expectations for new code units are not explicitly planned in the intent/tasks (REQ tags to satisfy SYS-ARCH-15).",
+      "why": "Can cause guardrails or audit to fail late; also creates inconsistent requirement mapping choices across implementers.",
+      "exact_fix": "Add a note in spec/tasks/TASK-OVERLAY-001.json deliverables or acceptance: new pipeline files must include requirement mapping tags (e.g., REQ: SYS-ARCH-15 and REQ: FUSBAL-V1-OUT-001 / FUSBAL-V1-TRUST-001 as appropriate) according to repo provenance conventions.",
+      "override_option": "Defer provenance tagging until a later cleanup task (impact: risks immediate guardrail/audit failures)."
+    }
+  ],
+  "ambiguities": [
+    {
+      "ambiguous_text": "useful overlay.mp4 rendering for UAT",
+      "risk": "Subjective output; acceptance disputes.",
+      "proposed_rewrite": "Render overlay.mp4 that draws a ball marker and confidence text on frames with present ball track records; marker style and confidence formatting are explicitly specified."
+    },
+    {
+      "ambiguous_text": "human-useful `overlay.mp4`",
+      "risk": "Unclear minimum visual signal (bbox vs dot vs label).",
+      "proposed_rewrite": "Overlay draws a rectangle around the ball bbox (image_px) and a text label 'ball <conf>' with conf to 2 decimals; output is playable and time-aligned to input."
+    },
+    {
+      "ambiguous_text": "contract-valid `tracks.jsonl`",
+      "risk": "Implementer guesses schema/keys; mismatch with validators.",
+      "proposed_rewrite": "tracks.jsonl lines are JSON objects; overlay V1 requires: frame_index:int, entity_type:'ball', frame:'image_px', pos_state:'present'|'missing', confidence:0..1, bbox:{x,y,w,h} in pixels."
+    },
+    {
+      "ambiguous_text": "write a playable mp4 at the bundle path",
+      "risk": "Ambiguous output destination and naming; breaks downstream expectations.",
+      "proposed_rewrite": "Given --bundle-dir <dir>, write <dir>/overlay.mp4 by default; --out overrides the output file path."
+    },
+    {
+      "ambiguous_text": "ball bbox/marker",
+      "risk": "Different visuals; hard to verify.",
+      "proposed_rewrite": "Use bbox drawbox with 2px border (or circle at bbox center with fixed radius); pick one and document it as normative for V1."
+    },
+    {
+      "ambiguous_text": "includes confidence text",
+      "risk": "Unclear source field and formatting; potential rounding/locale differences.",
+      "proposed_rewrite": "Confidence text is derived from track record's confidence field; formatted as fixed-point with 2 decimals using '.' decimal separator."
+    },
+    {
+      "ambiguous_text": "Fail explicitly and actionably when the required backend (system ffmpeg) is not available.",
+      "risk": "Unclear detection method and guidance.",
+      "proposed_rewrite": "If 'ffmpeg' is not discoverable on PATH, exit non-zero and print: 'ffmpeg not found. Install via brew install ffmpeg (macOS) or apt-get install ffmpeg (Debian/Ubuntu).'"
+    }
+  ],
+  "scope_alignment": {
+    "inferred_surfaces": [
+      "spec/intents/INT-060.json",
+      "spec/tasks/TASK-OVERLAY-001.json",
+      "spec/tasks/TASK-OVERLAY-002.json",
+      "pipeline/src/fusbal_pipeline/overlay/* (implementation)",
+      "pipeline/src/fusbal_pipeline/cli.py (implementation)",
+      "pipeline/tests/test_overlay_render.py (implementation)",
+      "status/audit/INT-060/runs/<run_id>/* (evidence)"
+    ],
+    "paths_allowed": [
+      "spec/",
+      "spec/md/docs/",
+      "pipeline/",
+      "status/audit/"
+    ],
+    "paths_excluded": [
+      "docs/",
+      "status/intents/",
+      "status/portal/",
+      "status/wizard/"
+    ],
+    "mismatches": [
+      "Intent narrative references a 'bundle path' but tasks/acceptance primarily model a direct --out file path.",
+      "requirements_in_scope includes calibration (FUSBAL-V1-DATA-001) but intent scopes overlay to image_px, which does not require calibration."
+    ],
+    "recommended_edits": [
+      "Define 'bundle_dir' semantics and default output path in INT-060 and TASK-OVERLAY-001.",
+      "Define minimum tracks.jsonl fields/behavior for overlay V1.",
+      "Remove or justify FUSBAL-V1-DATA-001 in requirements_in_scope."
+    ]
+  },
+  "closeability": {
+    "tasks": {
+      "status": "FAIL",
+      "notes": "Tasks exist and are wired, but acceptance criteria rely on undefined terms (bundle path, tracks contract, visual minimums) that require guessing."
+    },
+    "work_packages": {
+      "status": "PASS",
+      "notes": "Generated work package INT-060-001 covers TASK-OVERLAY-001 and TASK-OVERLAY-002; titles match intent."
+    },
+    "close_gates": {
+      "status": "PASS",
+      "notes": "Close gate commands are present in INT-060 and appear to exist in package.json: generate, guardrails, audit:intent."
+    },
+    "guardrail_plan": {
+      "status": "FAIL",
+      "notes": "In-scope requirements have guardrails (notably req_tag_enforced_on_done and repository guardrails), but tasks do not specify the requirement/provenance tags expected to satisfy SYS-ARCH-15 and audit workflows."
+    }
+  },
+  "minimum_next_steps": [
+    "Edit spec/intents/INT-060.json to define output semantics (bundle_dir vs --out) and align success criteria with tasks.",
+    "Edit spec/intents/INT-060.json and/or spec/tasks/TASK-OVERLAY-001.json to define the minimum tracks.jsonl fields/behavior used by overlay V1 (including edge cases).",
+    "Edit spec/intents/INT-060.json to remove or justify FUSBAL-V1-DATA-001 in requirements_in_scope.",
+    "Edit spec/intents/INT-060.json success_criteria to replace subjective 'useful' wording with objective visual minimums (marker + confidence formatting).",
+    "Edit spec/tasks/TASK-OVERLAY-001.json acceptance to cover edge cases (empty/malformed tracks, multiple balls per frame, unsupported frame types) and determinism evidence representation.",
+    "Edit spec/tasks/TASK-OVERLAY-001.json (and/or TASK-OVERLAY-002.json) to state provenance/REQ-tag expectations to satisfy SYS-ARCH-15 and guardrails."
+  ]
+}

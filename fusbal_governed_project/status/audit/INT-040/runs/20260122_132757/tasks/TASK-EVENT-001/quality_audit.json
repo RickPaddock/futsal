@@ -1,0 +1,91 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-040",
+  "run_id": "20260122_132757",
+  "task_id": "TASK-EVENT-001",
+  "timestamp": "2026-01-22T13:32:09Z",
+  "functional": {
+    "status": "fail",
+    "notes": "Inference emits conservative candidate/unknown events with valid evidence pointers, but the task’s required deterministic test evidence is incomplete (missing negative-scenario coverage).",
+    "evidence": [
+      "pipeline/src/fusbal_pipeline/events/shots_goals.py:infer_shots_goals_v1",
+      "pipeline/src/fusbal_pipeline/contract.py:validate_event_record_v1",
+      "pipeline/tests/test_events_v1.py:test_infer_shots_goals_v1_emits_candidate_not_confirmed",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt: Evidence pointers section"
+    ],
+    "findings": [
+      "Implementation never emits confirmed events (trust-first); emits shot=candidate and goal=unknown only.",
+      "Evidence pointers use artifact_id=tracks_jsonl and exactly one of time_range_ms/frame_range, satisfying contract validation.",
+      "Task evidence requires deterministic tests for (a) no events on negative scenarios, (b) candidate/unknown on ambiguous scenarios, (c) evidence pointer well-formedness; current tests cover (b)/(c) but not (a)."
+    ]
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "notes": "Conservative by construction: candidate/unknown only; uses explicit thresholds and contract-validated evidence pointers.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/events/shots_goals.py:ShotsGoalsConfig",
+        "pipeline/src/fusbal_pipeline/events/shots_goals.py:infer_shots_goals_v1",
+        "pipeline/src/fusbal_pipeline/contract.py:validate_event_record_v1"
+      ],
+      "findings": [
+        "Avoids hallucinated ‘confirmed’ events.",
+        "Evidence pointers are validated against bundle artifact ids."
+      ]
+    },
+    "performance": {
+      "status": "pass",
+      "notes": "Single pass over sorted ball records; O(N log N) sort, otherwise O(N).",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/events/shots_goals.py:infer_shots_goals_v1"
+      ],
+      "findings": []
+    },
+    "security": {
+      "status": "pass",
+      "notes": "No external IO or command execution; operates on provided records.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/events/shots_goals.py"
+      ],
+      "findings": []
+    },
+    "maintainability": {
+      "status": "pass",
+      "notes": "Small, explicit config and deterministic sorting; contract validator enforces evidence pointer rules.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/events/shots_goals.py",
+        "pipeline/src/fusbal_pipeline/contract.py:validate_event_record_v1"
+      ],
+      "findings": []
+    },
+    "overall_status": "pass"
+  },
+  "gate": {
+    "status": "fail",
+    "blockers": [
+      "Required deterministic unit test evidence is incomplete: missing coverage proving ‘no events on negative scenarios’ for infer_shots_goals_v1."
+    ]
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-EVENT-001.json",
+    "deliverable_paths": [
+      "pipeline/src/fusbal_pipeline/events/shots_goals.py",
+      "pipeline/src/fusbal_pipeline/events/types.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/events/shots_goals.py",
+      "pipeline/src/fusbal_pipeline/events/types.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/src/fusbal_pipeline/bundle.py",
+      "pipeline/tests/test_events_v1.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 6,
+    "notes": "Core behavior matches conservative intent, but required test evidence is incomplete."
+  }
+}

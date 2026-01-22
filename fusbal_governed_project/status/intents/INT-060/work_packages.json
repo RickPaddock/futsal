@@ -1,0 +1,13 @@
+{
+  "intent_id": "INT-060",
+  "work_packages": [
+    {
+      "work_package_id": "INT-060-001",
+      "title": "Overlay rendering",
+      "primary_task_ids": [
+        "TASK-OVERLAY-001",
+        "TASK-OVERLAY-002"
+      ]
+    }
+  ]
+}

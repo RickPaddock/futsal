@@ -1,0 +1,513 @@
+{
+  "generated": true,
+  "source": "spec/intents/*.json + spec/tasks/*.json + spec/requirements/index.json",
+  "requirements_source": "spec/requirements/index.json",
+  "intents": [
+    {
+      "intent_id": "INT-001",
+      "title": "Bootstrap Fusbal governed project: requirements, provenance, evidence, portal",
+      "status": "closed",
+      "created_date": "2026-01-20",
+      "closed_date": "2026-01-20",
+      "requirements_in_scope": [
+        {
+          "id": "AUD-REQ-10",
+          "title": "Generate + enforce Requirement ↔ Code provenance (100% policy with guardrails).",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        },
+        {
+          "id": "SYS-ARCH-15",
+          "title": "All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        }
+      ],
+      "tasks": [
+        {
+          "task_id": "TASK-BOOT-001",
+          "title": "Spec/templates and generators for governed surfaces",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-BOOT-002",
+          "title": "Guardrails to enforce generation and provenance discipline",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-BOOT-003",
+          "title": "Evidence run records + minimal internal portal",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-BOOT-004",
+          "title": "Product docs + high-level delivery plan surfaces",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "intent_id": "INT-010",
+      "title": "Define V1 output contract + pipeline scaffolding",
+      "status": "closed",
+      "created_date": "2026-01-20",
+      "closed_date": "2026-01-21",
+      "requirements_in_scope": [
+        {
+          "id": "AUD-REQ-10",
+          "title": "Generate + enforce Requirement ↔ Code provenance (100% policy with guardrails).",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        },
+        {
+          "id": "FUSBAL-V1-DATA-001",
+          "title": "All sources emit a canonical track record format suitable for fusion and reporting.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-OUT-001",
+          "title": "Produce a deterministic per-match output bundle (overlay, BEV, tracks, events, report) with diagnostics.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-TRUST-001",
+          "title": "Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "SYS-ARCH-15",
+          "title": "All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        }
+      ],
+      "tasks": [
+        {
+          "task_id": "TASK-INT-010-IMP-001",
+          "title": "Stream `tracks.jsonl` validation for large bundles",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-002",
+          "title": "Add structured error codes and optional JSON output for CLI validation",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-003",
+          "title": "Add minimal unit tests for manifest determinism and schema validation",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-004",
+          "title": "Extend `init` to optionally scaffold placeholder outputs",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-005",
+          "title": "Tighten numeric/range validation for track/event fields",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-006",
+          "title": "Improve manifest portability (avoid forced absolute paths)",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-007",
+          "title": "Export the V1 contract as JSON Schema for downstream validators",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-008",
+          "title": "Show per-task quality audit results in the internal portal UI",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-009",
+          "title": "Capture evidence for `npm run generate` runs and enforce at close",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-010-IMP-010",
+          "title": "Add lightweight formatting/linting for the pipeline Python package",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-V1-CLI-001",
+          "title": "Minimal CLI to init/validate bundle structure",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-V1-DATA-001",
+          "title": "Canonical track record format + metadata",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-V1-OUT-001",
+          "title": "Match bundle layout + required artifacts",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "intent_id": "INT-020",
+      "title": "Calibration + BEV mapping MVP",
+      "status": "closed",
+      "created_date": "2026-01-20",
+      "closed_date": "2026-01-21",
+      "requirements_in_scope": [
+        {
+          "id": "FUSBAL-V1-BEV-001",
+          "title": "When calibration quality is sufficient, generate bird’s-eye-view (BEV) tracks and video in pitch meters.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-CAL-001",
+          "title": "Calibration maps each camera to pitch coordinates with explicit quality gating and diagnostics.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-TRUST-001",
+          "title": "Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        }
+      ],
+      "tasks": [
+        {
+          "task_id": "TASK-CAL-001",
+          "title": "Pitch templates + calibration inputs per venue/pitch",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-CAL-002",
+          "title": "Auto-fit from field markings + diagnostics",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-CAL-003",
+          "title": "Manual fallback + explicit calibration quality gating",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "intent_id": "INT-030",
+      "title": "Player tracking MVP (trust-first)",
+      "status": "closed",
+      "created_date": "2026-01-20",
+      "closed_date": "2026-01-20",
+      "requirements_in_scope": [
+        {
+          "id": "FUSBAL-V1-PLAYER-001",
+          "title": "Detect and track all players per match with conservative identity continuity.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-TEAM-001",
+          "title": "Assign players to Team A/B via bib colors (plus smoothing) with an Unknown state.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-TRUST-001",
+          "title": "Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        }
+      ],
+      "tasks": [
+        {
+          "task_id": "TASK-INT-030-IMP-001",
+          "title": "Executable pipeline run emits tracks.jsonl (detections → MOT → team)",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-002",
+          "title": "Deterministic unit tests for detections, MOT breaks, and team smoothing",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-003",
+          "title": "Tighten contract validation for segment/break semantics",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-004",
+          "title": "Fixture-based smoke run generates a valid, non-placeholder bundle",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-005",
+          "title": "Reduce contract template drift by injecting schema snippets during generation",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-006",
+          "title": "Emit explicit unknown records/diagnostics for ambiguous detections",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-007",
+          "title": "Bound MOT state and add out_of_view heuristic",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-008",
+          "title": "Centralize diagnostics key constants",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-009",
+          "title": "Portal surfaces emphasize per-task quality blockers",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-030-IMP-010",
+          "title": "Evidence run.json includes git SHA and environment metadata",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-PLAYER-DET-001",
+          "title": "Player detector(s) per frame + confidence",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-PLAYER-MOT-001",
+          "title": "Multi-object tracking with swap avoidance",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-TEAM-001",
+          "title": "Bib-color team assignment with smoothing",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "intent_id": "INT-040",
+      "title": "Ball tracking + conservative shots/goals (V1)",
+      "status": "todo",
+      "created_date": "2026-01-20",
+      "closed_date": "",
+      "requirements_in_scope": [
+        {
+          "id": "FUSBAL-V1-BALL-001",
+          "title": "Track the ball when visible and explicitly represent missing/unknown spans without hallucination.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-EVENT-001",
+          "title": "Infer shots and goals conservatively in V1 (high precision) and emit confidence + evidence pointers.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-TRUST-001",
+          "title": "Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        }
+      ],
+      "tasks": [
+        {
+          "task_id": "TASK-BALL-DET-001",
+          "title": "Ball detector(s) + gating",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-BALL-TRACK-001",
+          "title": "Intermittent ball tracking + missing state",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-EVENT-001",
+          "title": "Conservative shots/goals inference",
+          "status": "done"
+        },
+        {
+          "task_id": "TASK-INT-040-IMP-001",
+          "title": "Ball detections: explicit per-frame missing/unknown records",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-040-IMP-002",
+          "title": "Output contract: explicit ball detection/track schemas and examples",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-040-IMP-003",
+          "title": "Ball detections: use centralized diagnostics key constants",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-040-IMP-004",
+          "title": "Ball tracker: align break_reason/segment semantics with missing reasons",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-040-IMP-005",
+          "title": "Shots/goals inference: add deterministic negative-scenario tests",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-040-IMP-006",
+          "title": "Ball pos_state=unknown: define semantics + add tests for unevaluable frames",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-040-IMP-007",
+          "title": "Ball tracker: implement explicit unknown emission path for unevaluable frames",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-040-IMP-008",
+          "title": "Contract validation: strengthen ball-specific semantic checks and errors",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-040-IMP-009",
+          "title": "Diagnostics quality_summary: add ball tracking quality metrics for conservative gating",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-INT-040-IMP-010",
+          "title": "Portal: visualize ball missing/unknown + event evidence pointers",
+          "status": "todo"
+        }
+      ]
+    },
+    {
+      "intent_id": "INT-050",
+      "title": "Video ingest → plumbing proof → baseline real detections (UAT)",
+      "status": "todo",
+      "created_date": "2026-01-22",
+      "closed_date": "",
+      "requirements_in_scope": [
+        {
+          "id": "FUSBAL-V1-BALL-001",
+          "title": "Track the ball when visible and explicitly represent missing/unknown spans without hallucination.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-DATA-001",
+          "title": "All sources emit a canonical track record format suitable for fusion and reporting.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-EVENT-001",
+          "title": "Infer shots and goals conservatively in V1 (high precision) and emit confidence + evidence pointers.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-TRUST-001",
+          "title": "Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "REQ-V1-BALL-DETECT-BASELINE-001",
+          "title": "Baseline real ball detections: given a provided futsal video, the pipeline can emit non-empty ball detections/tracks on at least a subset of frames with confidence and diagnostics.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "REQ-V1-VIDEO-INGEST-001",
+          "title": "Video ingest: given a local single-camera match video, the pipeline can decode frames deterministically and produce a time-indexed stream for downstream detectors/trackers.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "REQ-V1-VIDEO-RUNNER-001",
+          "title": "End-to-end runner: ingest a video and export a valid V1 output bundle with tracks/events under `output/<match_id>/` (plumbing-first, deterministic).",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "SYS-ARCH-15",
+          "title": "All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        }
+      ],
+      "tasks": [
+        {
+          "task_id": "TASK-BALL-DET-BASELINE-001",
+          "title": "Baseline local ball detector (real detections for UAT clip)",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-RUN-VIDEO-001",
+          "title": "End-to-end run-video: ingest film → export bundle (plumbing proof)",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-VIDEO-INGEST-001",
+          "title": "Deterministic video ingest + frame timebase",
+          "status": "todo"
+        }
+      ]
+    },
+    {
+      "intent_id": "INT-060",
+      "title": "Useful overlay.mp4 rendering for UAT (ball + confidence)",
+      "status": "todo",
+      "created_date": "2026-01-22",
+      "closed_date": "",
+      "requirements_in_scope": [
+        {
+          "id": "FUSBAL-V1-BALL-001",
+          "title": "Track the ball when visible and explicitly represent missing/unknown spans without hallucination.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-DATA-001",
+          "title": "All sources emit a canonical track record format suitable for fusion and reporting.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-OUT-001",
+          "title": "Produce a deterministic per-match output bundle (overlay, BEV, tracks, events, report) with diagnostics.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-TRUST-001",
+          "title": "Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "SYS-ARCH-15",
+          "title": "All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        }
+      ],
+      "tasks": [
+        {
+          "task_id": "TASK-OVERLAY-001",
+          "title": "Overlay rendering: video + tracks.jsonl → overlay.mp4",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-OVERLAY-002",
+          "title": "Overlay nonfunctional: determinism + backend checks",
+          "status": "todo"
+        }
+      ]
+    }
+  ]
+}

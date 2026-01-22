@@ -1,0 +1,96 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-040",
+  "run_id": "20260122_132757",
+  "task_id": "TASK-BALL-DET-001",
+  "timestamp": "2026-01-22T13:32:09Z",
+  "functional": {
+    "status": "fail",
+    "notes": "Ball detection candidates are emitted deterministically with confidence + diagnostics when present, but the intent-level requirement for explicit missing/unknown (not implied by gaps) is not met for detections.",
+    "evidence": [
+      "pipeline/src/fusbal_pipeline/ball/detections.py:emit_ball_detections_v1",
+      "pipeline/src/fusbal_pipeline/ball/detector.py:default_detection_diagnostics",
+      "pipeline/tests/test_ball_v1.py:test_emit_ball_detections_v1_suppresses_low_confidence",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt: Canonical track record + diagnostics keys sections"
+    ],
+    "findings": [
+      "Per-frame detection output is 0..N present-only TrackRecordV1 entries; missing/unknown for a frame is represented by an empty list plus a separate FrameDetectionsDiagnostics dict, not by explicit TrackRecordV1 records/spans.",
+      "Intent success_criteria requires ball detections and tracks to carry explicit pos_state semantics where missing/unknown are explicit records/spans (not implied by gaps)."
+    ]
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "notes": "BBox normalization and confidence clamping prevent obvious invalid outputs; conservative min_confidence gating suppresses low-confidence candidates.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/ball/detections.py:_normalize_bbox_xyxy_px",
+        "pipeline/src/fusbal_pipeline/ball/detections.py:_clamp_0_1",
+        "pipeline/src/fusbal_pipeline/ball/detections.py:DetectionGatingConfig"
+      ],
+      "findings": [
+        "Deterministic ordering enforced via sort on bbox + -confidence.",
+        "Confidence values are clamped to [0,1]."
+      ]
+    },
+    "performance": {
+      "status": "pass",
+      "notes": "Per-frame work is linear in candidate count with a deterministic sort; no unbounded state.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/ball/detections.py:emit_ball_detections_v1"
+      ],
+      "findings": [
+        "Sort cost is O(N log N) per frame, appropriate for small candidate counts."
+      ]
+    },
+    "security": {
+      "status": "pass",
+      "notes": "No filesystem or command execution; processes in-memory data only.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/ball/detections.py"
+      ],
+      "findings": []
+    },
+    "maintainability": {
+      "status": "fail",
+      "notes": "Diagnostics keys are hardcoded strings here rather than the centralized diagnostics_keys module, increasing drift risk.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/ball/detections.py (hardcoded diagnostics keys)",
+        "pipeline/src/fusbal_pipeline/diagnostics_keys.py (canonical keys)"
+      ],
+      "findings": [
+        "detections.py emits diagnostics {\"frame_index\", \"gating_reason\"} without importing shared constants.",
+        "The contract template recommends stable diagnostic keys; centralized constants exist but are not used here."
+      ]
+    },
+    "overall_status": "fail"
+  },
+  "gate": {
+    "status": "fail",
+    "blockers": [
+      "Detections do not emit explicit missing/unknown records/spans per frame; missing is implied by absence and a side-channel diagnostics dict (does not satisfy INT-040 success_criteria).",
+      "Maintainability: ball detections diagnostics keys are not using centralized diagnostics constants, increasing drift risk."
+    ]
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-BALL-DET-001.json",
+    "deliverable_paths": [
+      "pipeline/src/fusbal_pipeline/ball/detections.py",
+      "pipeline/src/fusbal_pipeline/ball/detector.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/ball/detections.py",
+      "pipeline/src/fusbal_pipeline/ball/detector.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/src/fusbal_pipeline/diagnostics_keys.py",
+      "pipeline/tests/test_ball_v1.py",
+      "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 4,
+    "notes": "Core detection emission is deterministic and conservative, but intent-level explicit missing/unknown semantics for detections are not implemented."
+  }
+}

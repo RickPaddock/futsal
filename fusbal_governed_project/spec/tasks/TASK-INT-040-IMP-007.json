@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-040-IMP-007",
+  "intent_id": "INT-040",
+  "title": "Ball tracker: implement explicit unknown emission path for unevaluable frames",
+  "status": "todo",
+  "scope": [
+    "Extend BallTracker to emit pos_state=unknown for defined unevaluable conditions, with explicit reasons.",
+    "Preserve strict trust-first behavior: never emit present without direct evidence.",
+    "Keep outputs deterministic and contract-valid."
+  ],
+  "acceptance": [
+    "BallTracker emits pos_state=unknown (not missing) for at least one well-defined unevaluable condition, with explicit diagnostic reason.",
+    "BallTracker continues to emit explicit missing for evaluated-but-no-position conditions (detector_missing, low_confidence, jump_rejected).",
+    "Unit tests cover unknown emission and validate with validate_track_record_v1."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-040-IMP-007-001",
+      "title": "Ball tracker supports unknown emission",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/ball/tracker.py",
+        "pipeline/src/fusbal_pipeline/ball/track_types.py",
+        "pipeline/src/fusbal_pipeline/diagnostics_keys.py",
+        "pipeline/src/fusbal_pipeline/contract.py",
+        "pipeline/tests/test_ball_v1.py"
+      ],
+      "acceptance": [
+        "Unknown emission has stable reason vocabulary and does not conflict with missing semantics.",
+        "Contract validation passes and documentation is updated as needed."
+      ],
+      "evidence": [
+        "Deterministic tests validate unknown emission behavior."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-040-IMP-007-001",
+      "title": "Define unknown reason vocabulary for ball tracker.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_007.SUB_001",
+      "done_when": [
+        "Unknown reasons are explicit, stable, and referenced from centralized constants if applicable."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-040-IMP-007-002",
+      "title": "Implement unknown emission and add tests.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_007.SUB_002",
+      "done_when": [
+        "Tracker emits unknown for the defined unevaluable condition and tests cover it deterministically."
+      ]
+    }
+  ]
+}

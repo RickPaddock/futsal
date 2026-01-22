@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-040-IMP-008",
+  "intent_id": "INT-040",
+  "title": "Contract validation: strengthen ball-specific semantic checks and errors",
+  "status": "todo",
+  "scope": [
+    "Improve contract validation to better enforce ball-specific trust-first semantics and provide actionable error messages.",
+    "Optionally require explicit reasons for ball missing/unknown records via diagnostics keys.",
+    "Keep validation deterministic and backward-compatible where possible."
+  ],
+  "acceptance": [
+    "If a ball record has pos_state in {missing, unknown}, validation enforces presence of an explicit reason (either via break_reason mapping or diagnostics keys) per the chosen contract semantics.",
+    "Error messages are deterministic and pinpoint the failing field (line/index details preserved).",
+    "Unit tests cover the new semantic checks without introducing nondeterminism."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-040-IMP-008-001",
+      "title": "Ball-specific contract semantic checks and tests",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/contract.py",
+        "pipeline/tests/test_contract_validation.py",
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Validation catches missing/unknown without explicit reasons (when required) and reports clear errors.",
+        "Docs reflect the enforcement rules."
+      ],
+      "evidence": [
+        "Unit tests demonstrate failures and passing cases deterministically."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-040-IMP-008-001",
+      "title": "Define contract-level rule for explicit reasons on ball missing/unknown.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_008.SUB_001",
+      "done_when": [
+        "Rule is documented and enforced by validate_track_record_v1."
+      ]
+    }
+  ]
+}

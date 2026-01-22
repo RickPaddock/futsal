@@ -1,0 +1,104 @@
+{
+  "type": "intent_preflight_report",
+  "schema_version": 1,
+  "intent_id": "INT-040",
+  "run_id": "20260122_150314",
+  "timestamp": "2026-01-22T15:03:54Z",
+  "blockers_ranked": [
+    {
+      "roi_0_to_10": 10,
+      "effort": "S",
+      "risk": "high",
+      "issue": "`paths_allowed` in `spec/intents/INT-040.json` does not include `apps/portal/`, but planned task `TASK-INT-040-IMP-010` explicitly requires portal code changes under `apps/portal/**`.",
+      "why": "This creates a guaranteed scope/guardrails conflict: the intent forbids editing required deliverable paths, causing either scope creep, blocked implementation, or non-compliant changes.",
+      "exact_fix": "Edit `spec/intents/INT-040.json` to either (a) add `apps/portal/` to `paths_allowed`, or (b) remove `TASK-INT-040-IMP-010` from `task_ids_planned` and from the `work_packages` list (and move it to a dedicated portal intent).",
+      "override_option": "Optional override: keep `TASK-INT-040-IMP-010` but defer it by removing it from INT-040 planned tasks/work packages; impact is reduced UX/audit visibility until a follow-up intent."
+    },
+    {
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "“High precision / conservative” for shots/goals is still not fully operationalized into a minimal, testable bar (what qualifies as `confirmed` vs `candidate/unknown` vs omitted).",
+      "why": "Implementations can diverge and still claim compliance; audits become subjective and regressions can slip in as recall optimizations.",
+      "exact_fix": "Tighten `spec/tasks/TASK-EVENT-001.json` acceptance with explicit negative paths: MUST NOT emit `event_state=confirmed` in ambiguous scenarios; define at least one minimal 'confirmed' criterion OR explicitly state that V1 emits only candidate/unknown (no confirmed) until a later intent."
+    },
+    {
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "Ball `pos_state=unknown` is referenced as a supported state, but intent-level success criteria do not define a canonical trigger set (what counts as “unevaluable”).",
+      "why": "Teams may use `unknown` as a loophole (masking missing/evidence gaps) or never emit it, making the contract inconsistent across runs and consumers.",
+      "exact_fix": "Add a short, explicit definition of `unknown` triggers to `spec/intents/INT-040.json` (e.g., corrupted frame decode, missing timestamp, frame dropped by ingest), and require a stable `unknown_reason` diagnostic key."
+    }
+  ],
+  "ambiguities": [
+    {
+      "ambiguous_text": "“Infer shots/goals with high precision; mark candidates when uncertain.”",
+      "risk": "No objective bar for when an event can be `confirmed`; implementations may drift toward higher recall or overconfidence.",
+      "proposed_rewrite": "Define `event_state ∈ {confirmed,candidate,unknown}` with explicit rules: `confirmed` requires meeting a named, testable criterion; otherwise emit `candidate/unknown` or omit. Add explicit negative scenarios where `confirmed` is forbidden."
+    },
+    {
+      "ambiguous_text": "“unknown is reserved for unevaluable frames/spans (include a reason)”",
+      "risk": "“Unevaluable” is undefined; could be used to avoid emitting `missing`.",
+      "proposed_rewrite": "Enumerate allowed `unknown_reason` values (e.g., `decode_error`, `timestamp_missing`, `input_corrupt`) and state that normal non-detection cases must be `missing`, not `unknown`."
+    },
+    {
+      "ambiguous_text": "“evidence pointers referencing bundle artifacts”",
+      "risk": "`artifact_id` can drift unless tied to a canonical list; consumers may not resolve pointers reliably.",
+      "proposed_rewrite": "Require `artifact_id` to match a contract-documented bundle artifact key (e.g., `tracks_jsonl`, `overlay_mp4`) and require exactly one of `{time_range_ms, frame_range}`."
+    }
+  ],
+  "scope_alignment": {
+    "inferred_surfaces": [
+      "pipeline ball detections/tracks/events modules",
+      "output contract template at spec/md/docs/data/OUTPUT_CONTRACT.mdt",
+      "optional portal UX changes for evidence pointers (TASK-INT-040-IMP-010)",
+      "audit evidence output under status/audit/INT-040/runs/<run_id>/"
+    ],
+    "paths_allowed": [
+      "spec/",
+      "spec/md/docs/",
+      "pipeline/",
+      "status/audit/"
+    ],
+    "paths_excluded": [
+      "docs/",
+      "status/intents/",
+      "status/portal/",
+      "status/wizard/"
+    ],
+    "mismatches": [
+      "`TASK-INT-040-IMP-010` requires `apps/portal/**` changes, but `apps/portal/` is not allowed by INT-040 scope."
+    ],
+    "recommended_edits": [
+      "Add `apps/portal/` to `spec/intents/INT-040.json.paths_allowed` OR remove/move `TASK-INT-040-IMP-010` to a portal-focused intent.",
+      "Define explicit `unknown_reason` triggers for `pos_state=unknown` at the intent level.",
+      "Operationalize event confirmation policy for shots/goals (confirmed vs candidate/unknown)."
+    ]
+  },
+  "closeability": {
+    "tasks": {
+      "status": "PASS",
+      "notes": "All planned task IDs exist as `spec/tasks/*.json` and reference INT-040."
+    },
+    "work_packages": {
+      "status": "PASS",
+      "notes": "Generated work packages cover all planned tasks (including the IMP-* series)."
+    },
+    "close_gates": {
+      "status": "PASS",
+      "notes": "Close gate commands are specified and governance-aligned (generate, guardrails, audit:intent)."
+    },
+    "guardrail_plan": {
+      "status": "FAIL",
+      "notes": "Scope mismatch for portal deliverables (apps/portal) blocks compliant implementation/closure unless INT-040 paths are updated or the portal task is moved."
+    }
+  },
+  "minimum_next_steps": [
+    "Resolve the portal scope mismatch by adding `apps/portal/` to `spec/intents/INT-040.json.paths_allowed` or removing/moving `TASK-INT-040-IMP-010`.",
+    "Define canonical `pos_state=unknown` triggers and require a stable `unknown_reason` diagnostic key in `spec/intents/INT-040.json`.",
+    "Tighten `spec/tasks/TASK-EVENT-001.json` to operationalize when `event_state=confirmed` is allowed (or explicitly disallow confirmed for V1).",
+    "Regenerate and re-run guardrails after any spec edits (`npm run generate`, `npm run guardrails`)."
+  ]
+}
+

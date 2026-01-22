@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-040-IMP-005",
+  "intent_id": "INT-040",
+  "title": "Shots/goals inference: add deterministic negative-scenario tests",
+  "status": "todo",
+  "scope": [
+    "Add deterministic test coverage proving infer_shots_goals_v1 does not emit events on negative scenarios.",
+    "Cover stationary ball, insufficient dt, insufficient speed, and missing-only sequences.",
+    "Keep trust-first semantics: candidate/unknown only when evidence supports it."
+  ],
+  "acceptance": [
+    "Tests demonstrate infer_shots_goals_v1 returns [] for negative scenarios.",
+    "Existing test coverage continues to pass and validate_event_record_v1 remains satisfied for any emitted events.",
+    "Tests are deterministic and do not rely on external fixtures."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-040-IMP-005-001",
+      "title": "Negative-scenario unit tests for shots/goals inference",
+      "paths": [
+        "pipeline/tests/test_events_v1.py",
+        "pipeline/src/fusbal_pipeline/events/shots_goals.py"
+      ],
+      "acceptance": [
+        "At least two negative scenarios are covered (no shot, no goal).",
+        "Assertions explicitly verify no false positives are emitted."
+      ],
+      "evidence": [
+        "`pytest` passes with deterministic results."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-040-IMP-005-001",
+      "title": "Add negative-scenario tests for infer_shots_goals_v1.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_005.SUB_001",
+      "done_when": [
+        "Tests cover stationary ball, insufficient dt/speed, and missing-only sequences.",
+        "No events are emitted in these scenarios."
+      ]
+    }
+  ]
+}

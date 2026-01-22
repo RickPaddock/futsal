@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-040-IMP-009",
+  "intent_id": "INT-040",
+  "title": "Diagnostics quality_summary: add ball tracking quality metrics for conservative gating",
+  "status": "todo",
+  "scope": [
+    "Add deterministic, aggregated ball tracking quality metrics into diagnostics/quality_summary.json.",
+    "Support conservative downstream event gating by summarizing missing/unknown runs, jump rejections, and confidence/quality distributions.",
+    "Ensure the quality summary remains deterministic and schema-stable."
+  ],
+  "acceptance": [
+    "diagnostics/quality_summary.json includes a ball section with deterministic metrics (counts, durations, thresholds used).",
+    "Fixture/test path produces a non-placeholder quality summary when ball tracking runs are executed.",
+    "Unit tests cover deterministic quality summary output for synthetic sequences."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-040-IMP-009-001",
+      "title": "Ball quality metrics emitted into diagnostics/quality_summary.json",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/bundle.py",
+        "pipeline/src/fusbal_pipeline/cli.py",
+        "pipeline/src/fusbal_pipeline/ball/tracker.py",
+        "pipeline/src/fusbal_pipeline/contract.py",
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "The placeholder quality_summary is replaced/augmented by real ball metrics when a run produces ball tracks.",
+        "Metrics are deterministic and documented."
+      ],
+      "evidence": [
+        "Deterministic unit tests validate metric computation and stable output encoding."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-040-IMP-009-001",
+      "title": "Define ball quality metrics schema within quality_summary.json.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_009.SUB_001",
+      "done_when": [
+        "Metrics schema is explicit and documented, including thresholds and counters."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-040-IMP-009-002",
+      "title": "Implement deterministic metric computation and write-out.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_009.SUB_002",
+      "done_when": [
+        "Runs produce non-placeholder quality summary with ball metrics, and tests validate determinism."
+      ]
+    }
+  ]
+}

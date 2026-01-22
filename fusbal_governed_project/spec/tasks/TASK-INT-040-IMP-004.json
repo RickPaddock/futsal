@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-040-IMP-004",
+  "intent_id": "INT-040",
+  "title": "Ball tracker: align break_reason/segment semantics with missing reasons",
+  "status": "todo",
+  "scope": [
+    "Improve ball tracker interpretability by aligning missing_reason conditions with break_reason and segment_id semantics.",
+    "Avoid collapsing all missing cases into a single break_reason value when diagnostics indicate distinct causes.",
+    "Preserve trust-first behavior (missing over hallucination)."
+  ],
+  "acceptance": [
+    "Ball tracker emits break_reason values that reflect the actual missing condition (e.g., low_confidence vs jump_rejected vs detector_missing) OR the contract is extended to allow a ball-specific break vocabulary.",
+    "Segment semantics are consistent and deterministic (segment_id changes only when a segment boundary is explicitly modeled).",
+    "Deterministic unit tests cover each missing condition mapping and validate with `validate_track_record_v1`."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-040-IMP-004-001",
+      "title": "Ball tracker missing/break semantics improved",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/ball/tracker.py",
+        "pipeline/src/fusbal_pipeline/ball/track_types.py",
+        "pipeline/src/fusbal_pipeline/contract.py",
+        "pipeline/tests/test_ball_v1.py"
+      ],
+      "acceptance": [
+        "Missing diagnostics remain explicit, and break_reason meaning is not misleading.",
+        "Contract validation rules remain satisfied."
+      ],
+      "evidence": [
+        "Unit tests assert break_reason matches missing_reason condition and contract validation passes."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-040-IMP-004-001",
+      "title": "Define mapping from missing_reason to break_reason for ball tracks.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_004.SUB_001",
+      "done_when": [
+        "Mapping is documented and implemented deterministically.",
+        "Contract and docs reflect the mapping/vocabulary."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-040-IMP-004-002",
+      "title": "Add tests for each missing condition mapping.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_004.SUB_002",
+      "done_when": [
+        "Tests cover detector_missing, low_confidence, jump_rejected and validate emitted records."
+      ]
+    }
+  ]
+}

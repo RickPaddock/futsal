@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-040-IMP-001",
+  "intent_id": "INT-040",
+  "title": "Ball detections: explicit per-frame missing/unknown records",
+  "status": "todo",
+  "scope": [
+    "Represent ball detection output with explicit per-frame pos_state semantics: present, missing, unknown.",
+    "Eliminate implicit missing (absence-only) for ball detection surfaces consumed by tracks/events.",
+    "Keep output deterministic and trust-first (prefer missing/unknown over wrong)."
+  ],
+  "acceptance": [
+    "Ball detection outputs include `pos_state ∈ {present, missing, unknown}` with explicit records/spans for missing/unknown (not implied by gaps).",
+    "Missing/unknown include an explicit reason in structured diagnostics (stable key vocabulary).",
+    "Deterministic unit tests cover: explicit missing on empty candidates, unknown on unevaluable frames (if supported), and that present is only emitted when gated evidence exists."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-040-IMP-001-001",
+      "title": "Ball detections emit explicit missing/unknown records",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/ball/detections.py",
+        "pipeline/src/fusbal_pipeline/ball/detector.py",
+        "pipeline/src/fusbal_pipeline/contract.py"
+      ],
+      "acceptance": [
+        "When no candidate passes gating, an explicit `entity_type=ball` record is emitted with `pos_state=missing` (or `unknown` when unevaluable), rather than emitting no record.",
+        "`pos_state=present` is only emitted when a gated candidate exists for that frame."
+      ],
+      "evidence": [
+        "Deterministic unit tests validate explicit per-frame missing/unknown semantics and contract validation passes for emitted records."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-INT-040-IMP-001-002",
+      "title": "Contract template updated with explicit ball detection semantics",
+      "paths": [
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Contract template documents the chosen explicit-record representation for ball detections, including required fields and examples."
+      ],
+      "evidence": [
+        "`npm run generate` renders docs reflecting explicit missing/unknown ball detection semantics."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-040-IMP-001-001",
+      "title": "Define explicit-record representation for ball detections.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_001.SUB_001",
+      "done_when": [
+        "Output representation is unambiguous: every frame has an explicit ball detection state record (present/missing/unknown) or a documented equivalent span representation.",
+        "Representation is validated by contract tooling and deterministic tests."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-040-IMP-001-002",
+      "title": "Add deterministic tests for explicit missing/unknown ball detections.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.INT_040.IMP_001.SUB_002",
+      "done_when": [
+        "Tests cover empty candidates -> missing, unevaluable -> unknown (if implemented), and present only with gated evidence.",
+        "Tests assert stable diagnostics reasons are included for missing/unknown."
+      ]
+    }
+  ]
+}

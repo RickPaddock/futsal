@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-OVERLAY-001",
+  "intent_id": "INT-060",
+  "title": "Overlay rendering: video + tracks.jsonl → overlay.mp4",
+  "status": "todo",
+  "scope": [
+    "Add a deterministic overlay renderer that reads a local input video and contract-valid `tracks.jsonl` and produces a playable `overlay.mp4`.",
+    "Start with ball overlays for `entity_type=ball` records in `frame=image_px` (bbox-based marker) plus confidence text; player overlays can be added later.",
+    "Fail explicitly and actionably when the required backend (system ffmpeg) is not available."
+  ],
+  "acceptance": [
+    "A CLI command exists (e.g., `python -m fusbal_pipeline render-overlay --video <path> --tracks <tracks.jsonl> --out <overlay.mp4>`) and succeeds when system `ffmpeg` is available.",
+    "Overlay is playable and contains ball overlays on frames where tracks contain `entity_type=ball`, `frame=image_px`, `pos_state=present` entries.",
+    "Trust-first: overlay draws only from track evidence; when there are no present ball records, it draws no fabricated ball markers.",
+    "Deterministic command construction: given identical inputs, the computed overlay filter graph / ffmpeg arguments are identical (unit-tested).",
+    "Negative path: when `ffmpeg` is not installed, the CLI fails with a clear instruction message."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-OVERLAY-001-001",
+      "title": "Overlay renderer module and CLI wiring",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/overlay/__init__.py",
+        "pipeline/src/fusbal_pipeline/overlay/render.py",
+        "pipeline/src/fusbal_pipeline/cli.py"
+      ],
+      "acceptance": [
+        "Renderer builds a deterministic overlay command from tracks.jsonl.",
+        "CLI wires the renderer into a usable command with actionable errors."
+      ],
+      "evidence": [
+        "A local run renders a playable overlay mp4 using the provided UAT clip and tracks.jsonl output (video not committed)."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-OVERLAY-001-002",
+      "title": "Unit tests for overlay command determinism and trust-first behavior",
+      "paths": [
+        "pipeline/tests/test_overlay_render.py"
+      ],
+      "acceptance": [
+        "Tests validate deterministic command generation and no overlays when no present ball tracks exist."
+      ],
+      "evidence": [
+        "`pytest -q pipeline/tests` passes."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-OVERLAY-001-001",
+      "title": "Implement overlay command builder from tracks.jsonl (ball only).",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_OVERLAY_001.SUB_001",
+      "done_when": [
+        "A deterministic filter graph is generated from ball bbox records with confidence labels.",
+        "Only present ball records produce draw operations."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-OVERLAY-001-002",
+      "title": "Add CLI command and actionable backend checks for ffmpeg.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_OVERLAY_001.SUB_002",
+      "done_when": [
+        "CLI command exists and provides clear errors when ffmpeg missing.",
+        "Output overlay path can be inside a bundle directory as overlay.mp4."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-OVERLAY-001-003",
+      "title": "Add unit tests for determinism and trust-first overlay drawing.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_OVERLAY_001.SUB_003",
+      "done_when": [
+        "Tests cover deterministic command output, and no overlay when no present ball tracks exist."
+      ]
+    }
+  ]
+}
+

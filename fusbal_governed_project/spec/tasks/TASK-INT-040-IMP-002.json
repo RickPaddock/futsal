@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-040-IMP-002",
+  "intent_id": "INT-040",
+  "title": "Output contract: explicit ball detection/track schemas and examples",
+  "status": "todo",
+  "scope": [
+    "Make ball-specific detection and tracking semantics explicit in the output contract template.",
+    "Include required fields, enums, reasons, and minimal examples aligned with code validation rules.",
+    "Reduce ambiguity between generic TrackRecordV1 and ball-specific trust-first rules."
+  ],
+  "acceptance": [
+    "Contract template contains dedicated sections for: (a) ball detections, (b) ball tracks, (c) ball missing/unknown semantics with reasons.",
+    "Examples shown in the contract pass `validate_track_record_v1` and follow segment/break semantics where required.",
+    "`npm run generate` produces docs reflecting the ball schema sections deterministically."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-040-IMP-002-001",
+      "title": "Contract template extended with ball detection + tracking sections",
+      "paths": [
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt",
+        "pipeline/src/fusbal_pipeline/contract.py"
+      ],
+      "acceptance": [
+        "Ball-specific schema and examples are included, and examples are compatible with code validation rules.",
+        "Enumerations and vocabularies are documented and stable."
+      ],
+      "evidence": [
+        "`npm run generate` and `npm run guardrails` pass."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-040-IMP-002-001",
+      "title": "Add contract template sections for ball detection and ball tracking.",
+      "status": "todo",
+      "area": "spec",
+      "provenance_prefix": "FUSBAL.SPEC.INT_040.IMP_002.SUB_001",
+      "done_when": [
+        "Contract has clear ball-specific sections with required fields and examples.",
+        "Evidence pointer and missing/unknown semantics are referenced where relevant."
+      ]
+    }
+  ]
+}

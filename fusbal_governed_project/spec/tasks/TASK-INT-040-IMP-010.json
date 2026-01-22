@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-INT-040-IMP-010",
+  "intent_id": "INT-040",
+  "title": "Portal: visualize ball missing/unknown + event evidence pointers",
+  "status": "todo",
+  "scope": [
+    "Improve internal portal visibility into ball missing/unknown states and event evidence pointers to reduce audit time.",
+    "Provide consistent rendering for evidence pointers (artifact_id + time_range_ms/frame_range) where they appear in task/audit surfaces.",
+    "Keep portal deterministic and safe (no untrusted command execution)."
+  ],
+  "acceptance": [
+    "Portal renders evidence pointers in a structured way (artifact_id + range) rather than opaque strings when available.",
+    "Intent/task pages highlight ball trust-first semantics (missing/unknown) as key audit signals for INT-040.",
+    "UI changes are covered by minimal component-level checks or deterministic render snapshots where feasible."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-INT-040-IMP-010-001",
+      "title": "Portal structured rendering for evidence pointers and ball states",
+      "paths": [
+        "apps/portal/pages/internal/intents/[intentId].js",
+        "apps/portal/pages/internal/tasks/[taskId].js",
+        "apps/portal/pages/internal/tasks/index.js"
+      ],
+      "acceptance": [
+        "Evidence pointers are displayed as (artifact + range) when present in structured form.",
+        "Quality blockers related to ball missing/unknown semantics are prominently visible."
+      ],
+      "evidence": [
+        "`npm run guardrails` passes; portal refresh surfaces remain functional."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-INT-040-IMP-010-001",
+      "title": "Add UI component for evidence pointer rendering.",
+      "status": "todo",
+      "area": "portal",
+      "provenance_prefix": "FUSBAL.PORTAL.INT_040.IMP_010.SUB_001",
+      "done_when": [
+        "Evidence pointers are rendered in a consistent, human-readable format across portal views."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-INT-040-IMP-010-002",
+      "title": "Highlight ball missing/unknown audit signals on intent/task pages.",
+      "status": "todo",
+      "area": "portal",
+      "provenance_prefix": "FUSBAL.PORTAL.INT_040.IMP_010.SUB_002",
+      "done_when": [
+        "INT-040-related pages surface ball trust-first semantics and blockers prominently."
+      ]
+    }
+  ]
+}

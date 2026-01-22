@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-OVERLAY-002",
+  "intent_id": "INT-060",
+  "title": "Overlay nonfunctional: determinism + backend checks",
+  "status": "todo",
+  "scope": [
+    "Ensure overlay rendering has deterministic command construction and trust-first behavior validated by unit tests.",
+    "Ensure required backend dependencies are detected with actionable error messages (ffmpeg missing)."
+  ],
+  "acceptance": [
+    "Unit tests exist that assert deterministic overlay filter/argument construction for a fixed tracks.jsonl input.",
+    "Unit tests cover trust-first behavior: no draw operations when there are no `pos_state=present` ball records.",
+    "Negative path is explicit: missing ffmpeg produces a clear error message with install guidance."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-OVERLAY-002-001",
+      "title": "Overlay rendering unit tests and backend-check behavior",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py",
+        "pipeline/tests/test_overlay_render.py"
+      ],
+      "acceptance": [
+        "Tests pass deterministically without requiring a real video or ffmpeg execution.",
+        "Error messaging is actionable and stable."
+      ],
+      "evidence": [
+        "`pytest -q pipeline/tests` passes."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-OVERLAY-002-001",
+      "title": "Add determinism tests for overlay command generation.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_OVERLAY_002.SUB_001",
+      "done_when": [
+        "Tests cover stable filtergraph generation from a fixed tracks.jsonl input."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-OVERLAY-002-002",
+      "title": "Add negative-path tests for missing ffmpeg backend.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_OVERLAY_002.SUB_002",
+      "done_when": [
+        "Tests assert actionable error message when ffmpeg missing."
+      ]
+    }
+  ]
+}
+

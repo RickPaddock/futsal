@@ -1,0 +1,36 @@
+{
+  "intent_id": "INT-040",
+  "work_packages": [
+    {
+      "work_package_id": "INT-040-001",
+      "title": "Ball detection + tracking",
+      "primary_task_ids": [
+        "TASK-BALL-DET-001",
+        "TASK-BALL-TRACK-001"
+      ]
+    },
+    {
+      "work_package_id": "INT-040-002",
+      "title": "Shots/goals inference",
+      "primary_task_ids": [
+        "TASK-EVENT-001"
+      ]
+    },
+    {
+      "work_package_id": "INT-040-003",
+      "title": "Quality + auditability improvements",
+      "primary_task_ids": [
+        "TASK-INT-040-IMP-001",
+        "TASK-INT-040-IMP-002",
+        "TASK-INT-040-IMP-003",
+        "TASK-INT-040-IMP-004",
+        "TASK-INT-040-IMP-005",
+        "TASK-INT-040-IMP-006",
+        "TASK-INT-040-IMP-007",
+        "TASK-INT-040-IMP-008",
+        "TASK-INT-040-IMP-009",
+        "TASK-INT-040-IMP-010"
+      ]
+    }
+  ]
+}

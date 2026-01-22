@@ -1,0 +1,137 @@
+{
+  "intent_id": "INT-040",
+  "title": "Ball tracking + conservative shots/goals (V1)",
+  "status": "todo",
+  "created_date": "2026-01-20",
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
+  "paths_allowed": [
+    "spec/",
+    "spec/md/docs/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
+  "close_gate": [
+    "npm run generate",
+    "npm run guardrails",
+    "npm run audit:intent -- --intent-id INT-040"
+  ],
+  "summary": [
+    "Track the ball with explicit missing/unknown state; never hallucinate position when not visible.",
+    "Infer shots/goals with high precision; mark candidates when uncertain."
+  ],
+  "non_goals": [
+    "Full event taxonomy or match analytics beyond shots/goals for V1.",
+    "Maximizing recall at the expense of precision (trust-first, conservative outputs).",
+    "Sensor ingestion/fusion work for V1 (camera-only output remains valid and schema-stable; sensors handled in a dedicated intent)."
+  ],
+  "success_criteria": [
+    "Ball detections and tracks include `confidence` in [0,1], structured diagnostics, and `pos_state ∈ {present, missing, unknown}` where: `present` requires direct gated evidence for that frame/span; `missing` means evaluated but no acceptable ball position exists (include a reason); `unknown` is reserved for unevaluable frames/spans (include a reason). Missing/unknown MUST be explicit records/spans (not implied by gaps).",
+    "Trust-first: MUST NOT emit `pos_state=\"present\"` without direct evidence for that time/frame/span; prefer missing/unknown over fabricated positions.",
+    "Shots/goals events include `event_state ∈ {confirmed, candidate, unknown}`, `confidence` in [0,1], and evidence pointers referencing bundle artifacts (at minimum: `artifact_id` and exactly one of {time_range_ms, frame_range}); uncertain events are omitted or explicitly emitted as candidate/unknown (never asserted as confirmed).",
+    "Output contract template documents ball detection/track/event schemas (field lists, enums, minimal examples), including evidence-pointer semantics."
+  ],
+  "requirements_in_scope": [
+    "FUSBAL-V1-BALL-001",
+    "FUSBAL-V1-EVENT-001",
+    "FUSBAL-V1-TRUST-001"
+  ],
+  "task_ids_planned": [
+    "TASK-BALL-DET-001",
+    "TASK-BALL-TRACK-001",
+    "TASK-EVENT-001",
+    "TASK-INT-040-IMP-001",
+    "TASK-INT-040-IMP-002",
+    "TASK-INT-040-IMP-003",
+    "TASK-INT-040-IMP-004",
+    "TASK-INT-040-IMP-005",
+    "TASK-INT-040-IMP-006",
+    "TASK-INT-040-IMP-007",
+    "TASK-INT-040-IMP-008",
+    "TASK-INT-040-IMP-009",
+    "TASK-INT-040-IMP-010"
+  ],
+  "quality_areas": [
+    {
+      "area_id": "functional",
+      "title": "Functional objectives",
+      "task_ids": [
+        "TASK-BALL-DET-001",
+        "TASK-EVENT-001",
+        "TASK-INT-040-IMP-001",
+        "TASK-INT-040-IMP-002",
+        "TASK-INT-040-IMP-004",
+        "TASK-INT-040-IMP-007"
+      ],
+      "objectives": [
+        "Ball detections and events are emitted with confidence and diagnostics.",
+        "Shots/goals inference is conservative and emits evidence pointers."
+      ]
+    },
+    {
+      "area_id": "nonfunctional",
+      "title": "Non-functional objectives",
+      "categories_required": [
+        "correctness_safety",
+        "performance",
+        "security",
+        "maintainability"
+      ],
+      "task_ids": [
+        "TASK-BALL-TRACK-001",
+        "TASK-INT-040-IMP-003",
+        "TASK-INT-040-IMP-005",
+        "TASK-INT-040-IMP-006",
+        "TASK-INT-040-IMP-008",
+        "TASK-INT-040-IMP-009",
+        "TASK-INT-040-IMP-010"
+      ],
+      "objectives": [
+        "Ball tracks never hallucinate; missing/unknown spans are explicit (correctness/safety).",
+        "Track quality metrics/diagnostics support conservative downstream gating."
+      ]
+    }
+  ],
+  "work_packages": [
+    {
+      "work_package_id": "INT-040-001",
+      "title": "Ball detection + tracking",
+      "items": [
+        "TASK-BALL-DET-001 Per-frame ball detections with confidence + conservative gating + contract update.",
+        "TASK-BALL-TRACK-001 Ball tracks with explicit missing spans + quality metrics/diagnostics + contract update."
+      ]
+    },
+    {
+      "work_package_id": "INT-040-002",
+      "title": "Shots/goals inference",
+      "items": [
+        "TASK-EVENT-001 Conservative shots/goals inference with confidence + evidence pointers + contract update."
+      ]
+    },
+    {
+      "work_package_id": "INT-040-003",
+      "title": "Quality + auditability improvements",
+      "items": [
+        "TASK-INT-040-IMP-001 Ball detections emit explicit missing/unknown records.",
+        "TASK-INT-040-IMP-002 Contract template documents ball detection/track schemas and examples.",
+        "TASK-INT-040-IMP-003 Ball detections use centralized diagnostics key constants.",
+        "TASK-INT-040-IMP-004 Ball tracker break_reason/segment semantics aligned with missing reasons.",
+        "TASK-INT-040-IMP-005 Add deterministic negative-scenario tests for shots/goals inference.",
+        "TASK-INT-040-IMP-006 Define and test ball pos_state=unknown semantics.",
+        "TASK-INT-040-IMP-007 Implement explicit unknown emission path in ball tracker.",
+        "TASK-INT-040-IMP-008 Strengthen contract validation for ball-specific semantic checks.",
+        "TASK-INT-040-IMP-009 Emit ball tracking quality metrics into diagnostics/quality_summary.json.",
+        "TASK-INT-040-IMP-010 Portal visualizations for ball missing/unknown and evidence pointers."
+      ]
+    }
+  ]
+}
