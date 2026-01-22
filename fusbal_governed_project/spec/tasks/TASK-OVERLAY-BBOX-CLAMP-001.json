@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-OVERLAY-BBOX-CLAMP-001",
+  "intent_id": "INT-060",
+  "title": "Overlay: clamp/skip out-of-frame bboxes",
+  "status": "done",
+  "scope": [
+    "Improve robustness by clamping or skipping bboxes that fall outside the video frame bounds.",
+    "Use probed video dimensions where available."
+  ],
+  "acceptance": [
+    "Overlay generation clamps or skips invalid/out-of-range bboxes deterministically.",
+    "Unit tests cover at least one out-of-range bbox case." 
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-OVERLAY-BBOX-CLAMP-001-001",
+      "title": "BBox bounds handling + tests",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py",
+        "pipeline/tests/test_overlay_render.py"
+      ],
+      "acceptance": [
+        "No negative drawbox sizes are emitted; invalid bboxes are ignored/clamped." 
+      ],
+      "evidence": [
+        "pytest green." 
+      ]
+    }
+  ]
+}

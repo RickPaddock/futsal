@@ -40,11 +40,24 @@ export default async function handler(req, res) {
   }
 
   const ext = path.extname(abs).toLowerCase();
-  const raw = fs.readFileSync(abs);
   if (ext === ".json") {
     res.setHeader("content-type", "application/json; charset=utf-8");
-  } else {
-    res.setHeader("content-type", "text/plain; charset=utf-8");
+    res.status(200).send(fs.readFileSync(abs));
+    return;
   }
-  res.status(200).send(raw);
+
+  if (ext === ".mp4") {
+    res.setHeader("content-type", "video/mp4");
+    res.setHeader("content-disposition", `inline; filename="${path.basename(abs)}"`);
+    const stream = fs.createReadStream(abs);
+    stream.on("error", () => {
+      res.status(500).end();
+    });
+    res.status(200);
+    stream.pipe(res);
+    return;
+  }
+
+  res.setHeader("content-type", "text/plain; charset=utf-8");
+  res.status(200).send(fs.readFileSync(abs));
 }

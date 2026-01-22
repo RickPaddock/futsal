@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-PORTAL-READMODEL-CACHE-TEST-001",
+  "intent_id": "INT-050",
+  "title": "Portal: unit test for audit run list caching",
+  "status": "done",
+  "scope": [
+    "Add a lightweight unit test verifying the portal read model cache behavior for audit run listing.",
+    "Use Node's built-in test runner to avoid adding dependencies."
+  ],
+  "acceptance": [
+    "A test exists that verifies listAuditRunsDeep returns cached results within TTL and refreshes after TTL.",
+    "Test runs via a package.json script under apps/portal." 
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-PORTAL-READMODEL-CACHE-TEST-001-001",
+      "title": "Node test + npm script",
+      "paths": [
+        "apps/portal/lib/portal_read_model.test.mjs",
+        "apps/portal/package.json"
+      ],
+      "acceptance": [
+        "`npm run test:read-model` runs and passes locally." 
+      ],
+      "evidence": [
+        "Guardrails remain green." 
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-PORTAL-READMODEL-CACHE-TEST-001-001",
+      "title": "Implement a cache TTL unit test.",
+      "status": "done",
+      "area": "portal",
+      "provenance_prefix": "FUSBAL.PORTAL.TASK_READMODEL_CACHE_TEST_001.SUB_001",
+      "done_when": [
+        "Test asserts cache hit within TTL and refresh after TTL." 
+      ]
+    }
+  ]
+}

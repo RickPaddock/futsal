@@ -459,10 +459,11 @@ def validate_event_record_v1(obj: object) -> list[str]:
     return errors
 
 
-def validate_tracks_jsonl(path: Path) -> list[str]:
+def validate_tracks_jsonl(path: Path, *, strict_frame_index_monotonicity: bool = False) -> list[str]:
     if not path.is_file():
         return [f"tracks file missing: {path}"]
     errors: list[str] = []
+    last_ball_frame_index_by_track_id: dict[str, int] = {}
     with path.open("r", encoding="utf8") as f:
         for idx, raw in enumerate(f, start=1):
             line = raw.strip()
@@ -475,6 +476,20 @@ def validate_tracks_jsonl(path: Path) -> list[str]:
                 continue
             for err in validate_track_record_v1(obj):
                 errors.append(f"{path}: line {idx}: {err}")
+
+            if strict_frame_index_monotonicity and isinstance(obj, dict):
+                if obj.get("entity_type") == "ball":
+                    track_id = obj.get("track_id")
+                    diag = obj.get("diagnostics")
+                    if isinstance(track_id, str) and track_id.strip() and isinstance(diag, dict):
+                        fi = diag.get(FRAME_INDEX)
+                        if isinstance(fi, int) and not isinstance(fi, bool):
+                            prev = last_ball_frame_index_by_track_id.get(track_id)
+                            if prev is not None and fi <= prev:
+                                errors.append(
+                                    f"{path}: line {idx}: track.diagnostics.{FRAME_INDEX} must be strictly increasing for ball track_id={track_id!r} (prev={prev}, got {fi})"
+                                )
+                            last_ball_frame_index_by_track_id[track_id] = int(fi)
     return errors
 
 

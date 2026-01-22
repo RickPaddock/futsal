@@ -1,0 +1,90 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-050",
+  "run_id": "20260122_205224",
+  "task_id": "TASK-VALIDATE-STRICT-AND-REPORT-001",
+  "timestamp": "2026-01-22T21:02:15Z",
+  "functional": {
+    "status": "pass",
+    "evidence": [
+      "PYTHONPATH=pipeline/src python3 -m pytest pipeline/tests -q (45 passed)",
+      "npm --workspace apps/portal run test:read-model (pass)",
+      "status/audit/INT-050/runs/20260122_205224/audit/audit_report.json",
+      "status/audit/INT-050/runs/20260122_205224/guardrails/run.json"
+    ],
+    "findings": [
+      "validate supports json output and strict toggle: pipeline/src/fusbal_pipeline/cli.py:618 cmd_validate",
+      "run-video emits validation_report.json: pipeline/src/fusbal_pipeline/cli.py:477"
+    ]
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "notes": "no issues found",
+      "evidence": [
+        "PYTHONPATH=pipeline/src python3 -m pytest pipeline/tests -q (45 passed)",
+        "npm --workspace apps/portal run test:read-model (pass)",
+        "status/audit/INT-050/runs/20260122_205224/audit/audit_report.json",
+        "status/audit/INT-050/runs/20260122_205224/guardrails/run.json"
+      ],
+      "findings": []
+    },
+    "performance": {
+      "status": "pass",
+      "notes": "no issues found",
+      "evidence": [
+        "PYTHONPATH=pipeline/src python3 -m pytest pipeline/tests -q (45 passed)",
+        "npm --workspace apps/portal run test:read-model (pass)",
+        "status/audit/INT-050/runs/20260122_205224/audit/audit_report.json",
+        "status/audit/INT-050/runs/20260122_205224/guardrails/run.json"
+      ],
+      "findings": []
+    },
+    "security": {
+      "status": "pass",
+      "notes": "no issues found",
+      "evidence": [
+        "PYTHONPATH=pipeline/src python3 -m pytest pipeline/tests -q (45 passed)",
+        "npm --workspace apps/portal run test:read-model (pass)",
+        "status/audit/INT-050/runs/20260122_205224/audit/audit_report.json",
+        "status/audit/INT-050/runs/20260122_205224/guardrails/run.json"
+      ],
+      "findings": []
+    },
+    "maintainability": {
+      "status": "pass",
+      "evidence": [
+        "PYTHONPATH=pipeline/src python3 -m pytest pipeline/tests -q (45 passed)",
+        "npm --workspace apps/portal run test:read-model (pass)",
+        "status/audit/INT-050/runs/20260122_205224/audit/audit_report.json",
+        "status/audit/INT-050/runs/20260122_205224/guardrails/run.json"
+      ],
+      "findings": [
+        "Structured ValidationError objects produced for UI/automation: pipeline/src/fusbal_pipeline/cli.py:652"
+      ]
+    },
+    "overall_status": "pass"
+  },
+  "gate": {
+    "status": "pass",
+    "blockers": []
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-VALIDATE-STRICT-AND-REPORT-001.json",
+    "deliverable_paths": [
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/src/fusbal_pipeline/cli.py"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/src/fusbal_pipeline/video/ingest.py"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 8,
+    "notes": "no blockers found"
+  }
+}

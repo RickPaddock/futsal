@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-OVERLAY-RENDER-REPORT-001",
+  "intent_id": "INT-060",
+  "title": "Overlay: write overlay_render_report.json for automation",
+  "status": "done",
+  "scope": [
+    "Write a machine-readable report for overlay rendering runs (ok/errors + deterministic hashes) to aid automation and audits.",
+    "Do not change required bundle layout validation requirements."
+  ],
+  "acceptance": [
+    "render-overlay writes overlay_render_report.json (default path alongside output) containing ok/errors and deterministic fields (e.g., vf hash).",
+    "Report is written deterministically (sorted keys) and is bounded in size.",
+    "Unit tests cover report writing behavior (where feasible)." 
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-OVERLAY-RENDER-REPORT-001-001",
+      "title": "Report writing implementation",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/cli.py",
+        "pipeline/src/fusbal_pipeline/overlay/render.py"
+      ],
+      "acceptance": [
+        "Report includes vf_sha256 and draw op counts." 
+      ],
+      "evidence": [
+        "Local render-overlay run produces the report; tests remain green." 
+      ]
+    }
+  ]
+}

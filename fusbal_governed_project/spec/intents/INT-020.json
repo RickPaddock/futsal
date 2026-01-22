@@ -4,7 +4,7 @@
   "status": "closed",
   "created_date": "2026-01-20",
   "runbooks": {
-    "decision": "create",
+    "decision": "update",
     "paths_mdt": [
       "spec/md/docs/runbooks/calibration-and-bev.mdt"
     ],

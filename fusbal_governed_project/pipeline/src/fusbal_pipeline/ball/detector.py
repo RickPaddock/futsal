@@ -59,6 +59,10 @@ class BaselineBallDetector:
     """Heuristic ball detector on rgb24 frames (decoded via ffmpeg).
 
     This is a plumbing/UAT baseline only. It is intentionally conservative and low-recall.
+
+    Thread-safety: this detector is stateful (stores a previous frame buffer) and must be
+    used sequentially for a single video stream. Do not share one instance across threads
+    or across independent videos without re-instantiating.
     """
 
     decode_width_px: int
@@ -155,7 +159,12 @@ class BaselineBallDetector:
                 if l2 >= int(self.cfg.min_luma_0_to_255) and sat2 <= int(self.cfg.max_saturation_0_to_255):
                     q += 1
         ratio = float(q / area) if area else 0.0
-        if ratio < float(self.cfg.blob_min_ratio_0_to_1):
+        min_ratio = float(self.cfg.blob_min_ratio_0_to_1)
+        if min_ratio < 0:
+            min_ratio = 0.0
+        if min_ratio > 1:
+            min_ratio = 1.0
+        if ratio < min_ratio:
             return []
 
         # Scale bbox back into source pixel coordinates (frame=image_px refers to source video pixels).
@@ -174,8 +183,16 @@ class BaselineBallDetector:
             return []
 
         conf = (float(luma) / 255.0) * (1.0 - float(sat) / 255.0)
-        if ratio > float(self.cfg.blob_high_ratio_threshold_0_to_1):
-            conf *= float(self.cfg.blob_high_ratio_conf_scale)
+        high_ratio_threshold = float(self.cfg.blob_high_ratio_threshold_0_to_1)
+        if high_ratio_threshold < 0:
+            high_ratio_threshold = 0.0
+        if high_ratio_threshold > 1:
+            high_ratio_threshold = 1.0
+        high_ratio_scale = float(self.cfg.blob_high_ratio_conf_scale)
+        if high_ratio_scale < 0:
+            high_ratio_scale = 0.0
+        if ratio > high_ratio_threshold:
+            conf *= high_ratio_scale
         if conf < 0:
             conf = 0.0
         if conf > 1:

@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-VALIDATE-STRICT-AND-REPORT-001",
+  "intent_id": "INT-050",
+  "title": "Optional strict validation and machine-readable validation report",
+  "status": "done",
+  "scope": [
+    "Add an opt-in strict mode for validation suitable for CI/gated workflows.",
+    "Emit a machine-readable validation report for run-video outputs without changing required bundle layout."
+  ],
+  "acceptance": [
+    "`fusbal-pipeline validate --strict` enables additional contract checks without changing default behavior.",
+    "Strict mode includes at least one additional safety check (e.g., strictly increasing diagnostics.frame_index per ball track_id).",
+    "run-video writes an optional `validation_report.json` containing `ok` and `errors[]` in a stable structure.",
+    "If validation fails, run-video exits non-zero with an actionable message."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-VALIDATE-STRICT-AND-REPORT-001-001",
+      "title": "Strict flag + strict contract checks",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/cli.py",
+        "pipeline/src/fusbal_pipeline/contract.py"
+      ],
+      "acceptance": [
+        "Strict flag is present on validate CLI and is plumbed into contract validation.",
+        "Default validate behavior remains unchanged when --strict is not provided."
+      ],
+      "evidence": [
+        "A focused unit test (or integration test) demonstrates strict mode catches a non-monotonic ball diagnostics.frame_index sequence."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-VALIDATE-STRICT-AND-REPORT-001-002",
+      "title": "Optional validation_report.json emitted by run-video",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/cli.py"
+      ],
+      "acceptance": [
+        "validation_report.json is written alongside required bundle artifacts and does not break bundle layout validation.",
+        "Report includes full structured errors, not just ok=true/false."
+      ],
+      "evidence": [
+        "A run-video test run produces validation_report.json with ok=true."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-VALIDATE-STRICT-AND-REPORT-001-001",
+      "title": "Implement strict validation flag and frame_index monotonicity check.",
+      "status": "done",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_VALIDATE_STRICT_001.SUB_001",
+      "done_when": [
+        "Strict mode can be enabled from CLI and produces additional errors when invariants are violated."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-VALIDATE-STRICT-AND-REPORT-001-002",
+      "title": "Write machine-readable validation_report.json in run-video.",
+      "status": "done",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_VALIDATE_STRICT_001.SUB_002",
+      "done_when": [
+        "run-video emits validation_report.json with ok and errors[]."
+      ]
+    }
+  ]
+}

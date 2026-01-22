@@ -13,13 +13,18 @@
       "work_package_id": "INT-050-002",
       "title": "Baseline real detections (UAT)",
       "primary_task_ids": [
-        "TASK-BALL-DET-BASELINE-001"
+        "TASK-BALL-DET-BASELINE-001",
+        "TASK-BALL-DET-UAT-FIXTURE-SYNTH-001"
       ]
     },
     {
       "work_package_id": "INT-050-003",
       "title": "Hardening + portal UX",
       "primary_task_ids": [
+        "TASK-EVENTS-DETERMINISTIC-SORT-001",
+        "TASK-VALIDATE-STRICT-AND-REPORT-001",
+        "TASK-VIDEO-TOOLS-VERSION-DIAGNOSTICS-001",
+        "TASK-PORTAL-READMODEL-CACHE-TEST-001",
         "TASK-RUN-VIDEO-STREAM-001",
         "TASK-VIDEO-TOOLS-TIMEOUT-001",
         "TASK-RUN-VIDEO-NULL-ASSERT-001",

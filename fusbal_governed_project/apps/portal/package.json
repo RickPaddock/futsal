@@ -7,7 +7,8 @@
     "dev": "next dev -p 3015",
     "build": "next build",
     "start": "next start -p 3015",
-    "check:csrf": "node scripts/check_csrf.mjs"
+    "check:csrf": "node scripts/check_csrf.mjs",
+    "test:read-model": "node --test lib/portal_read_model.test.mjs"
   },
   "dependencies": {
     "next": "^14.2.5",

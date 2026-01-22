@@ -8,6 +8,22 @@
         "TASK-OVERLAY-001",
         "TASK-OVERLAY-002"
       ]
+    },
+    {
+      "work_package_id": "INT-060-002",
+      "title": "Hardening + portal UX",
+      "primary_task_ids": [
+        "TASK-OVERLAY-TIMEOUT-STDERR-001",
+        "TASK-OVERLAY-FPS-PROBE-001",
+        "TASK-OVERLAY-ENABLE-N-EXPR-001",
+        "TASK-OVERLAY-DEDUP-PER-FRAME-001",
+        "TASK-OVERLAY-MAXOPS-TOPK-001",
+        "TASK-OVERLAY-FFMPEG-OVERRIDE-VERSION-001",
+        "TASK-OVERLAY-BBOX-CLAMP-001",
+        "TASK-OVERLAY-RENDER-REPORT-001",
+        "TASK-OVERLAY-TRUSTFIRST-MESSAGE-001",
+        "TASK-PORTAL-OVERLAY-LINK-001"
+      ]
     }
   ]
 }

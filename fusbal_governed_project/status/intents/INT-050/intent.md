@@ -1,11 +1,12 @@
 ---
 generated: true
 source: spec/intents/INT-050.json
-source_sha256: sha256:11f8cc3a807071d20bfc93a0fb5add44f837ab2c316ecb4dfb8a27ba43fd5986
+source_sha256: sha256:be04c3de67972925825ff6bb51ffe97c2bb6bac5b35c7c6f7421b4b1773a46df
 intent_id: INT-050
 title: Video ingest → plumbing proof → baseline real detections (UAT)
-status: todo
+status: closed
 created_date: 2026-01-22
+closed_date: 2026-01-22
 close_gate:
   - "npm run generate"
   - "npm run guardrails"
@@ -28,9 +29,14 @@ close_gate:
 ### INT-050-002 — Baseline real detections (UAT)
 
 - TASK-BALL-DET-BASELINE-001 Baseline local ball detector producing non-empty detections on the provided clip with confidence/diagnostics.
+- TASK-BALL-DET-UAT-FIXTURE-SYNTH-001 Add a compact synthetic fixture spec + test to validate baseline present outputs without committing real video.
 
 ### INT-050-003 — Hardening + portal UX
 
+- TASK-EVENTS-DETERMINISTIC-SORT-001 Sort events deterministically before writing events.json.
+- TASK-VALIDATE-STRICT-AND-REPORT-001 Add validate --strict and emit validation_report.json from run-video.
+- TASK-VIDEO-TOOLS-VERSION-DIAGNOSTICS-001 Capture and gate ffmpeg/ffprobe versions in diagnostics.
+- TASK-PORTAL-READMODEL-CACHE-TEST-001 Add a unit test for portal audit-run listing cache behavior.
 - TASK-RUN-VIDEO-STREAM-001 Stream run-video to reduce memory usage.
 - TASK-VIDEO-TOOLS-TIMEOUT-001 Add video tooling timeouts and better stderr surfacing.
 - TASK-RUN-VIDEO-NULL-ASSERT-001 Strengthen tests: detector disabled → zero present.

@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-BALL-DET-UAT-FIXTURE-SYNTH-001",
+  "intent_id": "INT-050",
+  "title": "Baseline detector UAT fixture (synthetic, deterministic)",
+  "status": "done",
+  "scope": [
+    "Add a compact, deterministic fixture that approximates a minimal 'present' scenario for the baseline ball detector without committing real video.",
+    "Use the fixture in a test to ensure the end-to-end runner can produce present ball records with the baseline detector enabled."
+  ],
+  "acceptance": [
+    "A fixture spec exists under pipeline/fixtures describing a small synthetic frame sequence.",
+    "A test consumes the fixture spec and asserts a minimum number of present ball records are emitted.",
+    "Fixture remains small and deterministic (JSON spec only)."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-BALL-DET-UAT-FIXTURE-SYNTH-001-001",
+      "title": "Fixture spec + test consuming it",
+      "paths": [
+        "pipeline/fixtures/ball_detector/synthetic_spot_present_v1.json",
+        "pipeline/tests/test_run_video_v1.py"
+      ],
+      "acceptance": [
+        "Fixture-driven test passes without external video files." 
+      ],
+      "evidence": [
+        "Pytest run for the fixture test passes locally." 
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-BALL-DET-UAT-FIXTURE-SYNTH-001-001",
+      "title": "Create synthetic fixture spec for deterministic frames.",
+      "status": "done",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_BALL_DET_UAT_FIXTURE_001.SUB_001",
+      "done_when": [
+        "Fixture spec checked in and describes frame generation." 
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-BALL-DET-UAT-FIXTURE-SYNTH-001-002",
+      "title": "Add test that uses fixture spec and asserts present frames.",
+      "status": "done",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_BALL_DET_UAT_FIXTURE_001.SUB_002",
+      "done_when": [
+        "Test reads fixture spec, generates frames, and validates outputs." 
+      ]
+    }
+  ]
+}

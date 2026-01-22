@@ -1,0 +1,29 @@
+{
+  "type": "intent_tasks_note",
+  "schema_version": 1,
+  "intent_id": "INT-060",
+  "run_id": "20260122_211559",
+  "timestamp": "2026-01-22T21:15:59Z",
+  "tasks": [
+    {
+      "task_id": "TASK-OVERLAY-001",
+      "title": "Overlay rendering: video + tracks.jsonl → overlay.mp4",
+      "status": "done",
+      "deliverable_paths": [
+        "pipeline/src/fusbal_pipeline/overlay/__init__.py",
+        "pipeline/src/fusbal_pipeline/overlay/render.py",
+        "pipeline/src/fusbal_pipeline/cli.py",
+        "pipeline/tests/test_overlay_render.py"
+      ]
+    },
+    {
+      "task_id": "TASK-OVERLAY-002",
+      "title": "Overlay nonfunctional: determinism + backend checks",
+      "status": "done",
+      "deliverable_paths": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py",
+        "pipeline/tests/test_overlay_render.py"
+      ]
+    }
+  ]
+}

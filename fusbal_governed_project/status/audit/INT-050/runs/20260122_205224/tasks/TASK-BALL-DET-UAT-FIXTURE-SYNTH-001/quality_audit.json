@@ -1,0 +1,90 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-050",
+  "run_id": "20260122_205224",
+  "task_id": "TASK-BALL-DET-UAT-FIXTURE-SYNTH-001",
+  "timestamp": "2026-01-22T21:02:15Z",
+  "functional": {
+    "status": "pass",
+    "evidence": [
+      "PYTHONPATH=pipeline/src python3 -m pytest pipeline/tests -q (45 passed)",
+      "npm --workspace apps/portal run test:read-model (pass)",
+      "status/audit/INT-050/runs/20260122_205224/audit/audit_report.json",
+      "status/audit/INT-050/runs/20260122_205224/guardrails/run.json"
+    ],
+    "findings": [
+      "Deterministic fixture committed as JSON: pipeline/fixtures/ball_detector/synthetic_spot_present_v1.json",
+      "Fixture-driven test: pipeline/tests/test_run_video_v1.py:171"
+    ]
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "notes": "no issues found",
+      "evidence": [
+        "PYTHONPATH=pipeline/src python3 -m pytest pipeline/tests -q (45 passed)",
+        "npm --workspace apps/portal run test:read-model (pass)",
+        "status/audit/INT-050/runs/20260122_205224/audit/audit_report.json",
+        "status/audit/INT-050/runs/20260122_205224/guardrails/run.json"
+      ],
+      "findings": []
+    },
+    "performance": {
+      "status": "pass",
+      "notes": "no issues found",
+      "evidence": [
+        "PYTHONPATH=pipeline/src python3 -m pytest pipeline/tests -q (45 passed)",
+        "npm --workspace apps/portal run test:read-model (pass)",
+        "status/audit/INT-050/runs/20260122_205224/audit/audit_report.json",
+        "status/audit/INT-050/runs/20260122_205224/guardrails/run.json"
+      ],
+      "findings": []
+    },
+    "security": {
+      "status": "pass",
+      "notes": "no issues found",
+      "evidence": [
+        "PYTHONPATH=pipeline/src python3 -m pytest pipeline/tests -q (45 passed)",
+        "npm --workspace apps/portal run test:read-model (pass)",
+        "status/audit/INT-050/runs/20260122_205224/audit/audit_report.json",
+        "status/audit/INT-050/runs/20260122_205224/guardrails/run.json"
+      ],
+      "findings": []
+    },
+    "maintainability": {
+      "status": "pass",
+      "notes": "no issues found",
+      "evidence": [
+        "PYTHONPATH=pipeline/src python3 -m pytest pipeline/tests -q (45 passed)",
+        "npm --workspace apps/portal run test:read-model (pass)",
+        "status/audit/INT-050/runs/20260122_205224/audit/audit_report.json",
+        "status/audit/INT-050/runs/20260122_205224/guardrails/run.json"
+      ],
+      "findings": []
+    },
+    "overall_status": "pass"
+  },
+  "gate": {
+    "status": "pass",
+    "blockers": []
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-BALL-DET-UAT-FIXTURE-SYNTH-001.json",
+    "deliverable_paths": [
+      "pipeline/fixtures/ball_detector/synthetic_spot_present_v1.json",
+      "pipeline/tests/test_run_video_v1.py"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/fixtures/ball_detector/synthetic_spot_present_v1.json",
+      "pipeline/tests/test_run_video_v1.py",
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/src/fusbal_pipeline/video/ingest.py",
+      "pipeline/src/fusbal_pipeline/contract.py"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 8,
+    "notes": "no blockers found"
+  }
+}

@@ -1,7 +1,7 @@
 {
   "intent_id": "INT-060",
   "title": "Useful overlay.mp4 rendering for UAT (ball + confidence)",
-  "status": "todo",
+  "status": "closed",
   "created_date": "2026-01-22",
   "runbooks": {
     "decision": "none",
@@ -49,7 +49,17 @@
   ],
   "task_ids_planned": [
     "TASK-OVERLAY-001",
-    "TASK-OVERLAY-002"
+    "TASK-OVERLAY-002",
+    "TASK-OVERLAY-TIMEOUT-STDERR-001",
+    "TASK-OVERLAY-FPS-PROBE-001",
+    "TASK-OVERLAY-ENABLE-N-EXPR-001",
+    "TASK-OVERLAY-DEDUP-PER-FRAME-001",
+    "TASK-OVERLAY-MAXOPS-TOPK-001",
+    "TASK-OVERLAY-FFMPEG-OVERRIDE-VERSION-001",
+    "TASK-OVERLAY-BBOX-CLAMP-001",
+    "TASK-OVERLAY-RENDER-REPORT-001",
+    "TASK-OVERLAY-TRUSTFIRST-MESSAGE-001",
+    "TASK-PORTAL-OVERLAY-LINK-001"
   ],
   "quality_areas": [
     {
@@ -72,7 +82,17 @@
         "maintainability"
       ],
       "task_ids": [
-        "TASK-OVERLAY-002"
+        "TASK-OVERLAY-002",
+        "TASK-OVERLAY-TIMEOUT-STDERR-001",
+        "TASK-OVERLAY-FPS-PROBE-001",
+        "TASK-OVERLAY-ENABLE-N-EXPR-001",
+        "TASK-OVERLAY-DEDUP-PER-FRAME-001",
+        "TASK-OVERLAY-MAXOPS-TOPK-001",
+        "TASK-OVERLAY-FFMPEG-OVERRIDE-VERSION-001",
+        "TASK-OVERLAY-BBOX-CLAMP-001",
+        "TASK-OVERLAY-RENDER-REPORT-001",
+        "TASK-OVERLAY-TRUSTFIRST-MESSAGE-001",
+        "TASK-PORTAL-OVERLAY-LINK-001"
       ],
       "objectives": [
         "Overlay command construction is deterministic and trust-first (correctness/safety).",
@@ -88,6 +108,23 @@
         "TASK-OVERLAY-001 Implement `render-overlay` CLI to produce a useful overlay.mp4 from video + tracks.jsonl.",
         "TASK-OVERLAY-002 Determinism tests + actionable backend checks for overlay rendering."
       ]
+    },
+    {
+      "work_package_id": "INT-060-002",
+      "title": "Hardening + portal UX",
+      "items": [
+        "TASK-OVERLAY-TIMEOUT-STDERR-001 Add ffmpeg timeout and bounded stderr excerpts to reduce hang risk.",
+        "TASK-OVERLAY-FPS-PROBE-001 Probe fps from video metadata when --fps is omitted.",
+        "TASK-OVERLAY-ENABLE-N-EXPR-001 Use frame-index based enable expressions to reduce float drift.",
+        "TASK-OVERLAY-DEDUP-PER-FRAME-001 Deduplicate overlays per frame window (readability + smaller filters).",
+        "TASK-OVERLAY-MAXOPS-TOPK-001 Apply deterministic top-K truncation for max_ops.",
+        "TASK-OVERLAY-FFMPEG-OVERRIDE-VERSION-001 Support FUSBAL_FFMPEG_PATH override and capture ffmpeg version.",
+        "TASK-OVERLAY-BBOX-CLAMP-001 Clamp/skip out-of-frame bboxes using probed video dimensions.",
+        "TASK-OVERLAY-RENDER-REPORT-001 Write overlay_render_report.json for automation.",
+        "TASK-OVERLAY-TRUSTFIRST-MESSAGE-001 Emit clear trust-first note when no markers are rendered.",
+        "TASK-PORTAL-OVERLAY-LINK-001 Surface overlay.mp4 link in portal when present."
+      ]
     }
-  ]
+  ],
+  "closed_date": "2026-01-22"
 }

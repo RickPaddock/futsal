@@ -3,7 +3,7 @@
   "task_id": "TASK-OVERLAY-002",
   "intent_id": "INT-060",
   "title": "Overlay nonfunctional: determinism + backend checks",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Ensure overlay rendering has deterministic command construction and trust-first behavior validated by unit tests.",
     "Ensure required backend dependencies are detected with actionable error messages (ffmpeg missing)."
@@ -34,7 +34,7 @@
     {
       "subtask_id": "SUB-TASK-OVERLAY-002-001",
       "title": "Add determinism tests for overlay command generation.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_OVERLAY_002.SUB_001",
       "done_when": [
@@ -44,7 +44,7 @@
     {
       "subtask_id": "SUB-TASK-OVERLAY-002-002",
       "title": "Add negative-path tests for missing ffmpeg backend.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_OVERLAY_002.SUB_002",
       "done_when": [
@@ -53,4 +53,3 @@
     }
   ]
 }
-

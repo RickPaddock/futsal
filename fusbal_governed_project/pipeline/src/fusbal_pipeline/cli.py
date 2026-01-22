@@ -20,7 +20,7 @@ from .bundle import (
 )
 from .contract import validate_events_json, validate_tracks_jsonl
 from .errors import ERROR, ValidationError, make_error
-from .overlay.render import OverlayError, render_overlay_mp4
+from .overlay.render import OverlayError, OverlayRenderResult, render_overlay_mp4
 
 from .player.detections import DetectionGatingConfig, emit_player_detections_v1
 from .player.mot import SwapAvoidantMOT
@@ -64,6 +64,26 @@ def _write_json(path: Path, obj: object) -> None:
 def _write_jsonl(path: Path, rows: list[object]) -> None:
     lines = [json.dumps(r, sort_keys=True, separators=(",", ":")) for r in rows]
     path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf8")
+
+
+def _event_sort_key_v1(e: dict[str, Any]) -> tuple[int, str, float, str]:
+    t_ms_raw = e.get("t_ms")
+    t_ms = int(t_ms_raw) if isinstance(t_ms_raw, int) and not isinstance(t_ms_raw, bool) else 0
+    event_type = str(e.get("event_type") or "")
+    conf_raw = e.get("confidence")
+    conf = float(conf_raw) if isinstance(conf_raw, (int, float)) and not isinstance(conf_raw, bool) else 0.0
+
+    artifact_id = ""
+    evidence = e.get("evidence")
+    if isinstance(evidence, list) and evidence and isinstance(evidence[0], dict):
+        artifact_id = str(evidence[0].get("artifact_id") or "")
+
+    # confidence descending for stable prioritization
+    return (t_ms, event_type, -conf, artifact_id)
+
+
+def _sorted_events_v1(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted([dict(e) for e in events], key=_event_sort_key_v1)
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -217,7 +237,7 @@ def cmd_run_fixture(args: argparse.Namespace) -> int:
     )
     _write_jsonl(paths.tracks_jsonl, all_records)
     events = infer_shots_goals_v1(tracks=all_records, source="shots_goals_v1")
-    _write_json(paths.events_json, events)
+    _write_json(paths.events_json, _sorted_events_v1(events))
     _write_json(
         paths.diagnostics_quality_summary_json,
         {
@@ -423,6 +443,7 @@ def _run_video_write_bundle(
     )
     _write_jsonl(paths.tracks_jsonl, records)
     events = infer_shots_goals_v1(tracks=records, source="shots_goals_v1", cfg=shots_cfg)
+    events = _sorted_events_v1(events)
     _write_json(paths.events_json, events)
     _write_jsonl(paths.diagnostics_dir / "ball_detections.jsonl", det_diag_rows)
     _write_quality_summary_v1(paths, tracks=records, ball_tracker=ball_tracker)
@@ -450,9 +471,22 @@ def _run_video_write_bundle(
     _write_json(paths.report_json, report)
 
     # Validate what we wrote.
-    validate_args = argparse.Namespace(bundle=str(out_dir), format="text")
-    rc = cmd_validate(validate_args)
-    if rc != 0:
+    validation_errors = collect_bundle_validation_errors(paths.root, strict=False)
+
+    # Optional, machine-readable summary for automation (does not affect required bundle layout).
+    (paths.root / "validation_report.json").write_text(
+        json.dumps(
+            {
+                "ok": not validation_errors,
+                "errors": validation_errors,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf8",
+    )
+    if validation_errors:
         raise VideoIngestError(
             "bundle validation failed (run `fusbal-pipeline validate` for details)",
             exit_code=6,
@@ -583,35 +617,41 @@ def _validate_manifest_v1(obj: object) -> tuple[MatchManifestV1 | None, list[str
 
 def cmd_validate(args: argparse.Namespace) -> int:
     bundle_root = Path(args.bundle).expanduser().resolve()
-    paths = MatchBundlePaths(root=bundle_root)
     out_format: Literal["text", "json"] = getattr(args, "format", "text")
+    strict = bool(getattr(args, "strict", False))
 
-    errors: list[ValidationError] = []
+    errors = collect_bundle_validation_errors(bundle_root, strict=strict)
+    code = 0 if not errors else 2
 
-    def emit_and_exit(code: int) -> int:
-        if out_format == "json":
-            payload = {"ok": code == 0, "errors": errors}
-            sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-            return code
-        for e in errors:
-            p = e.get("path")
-            msg = e.get("message", "")
-            c = e.get("code", "")
-            ctx = ""
-            if "line" in e:
-                ctx = f" line={e['line']}"
-            elif "index" in e:
-                ctx = f" index={e['index']}"
-            elif "field" in e:
-                ctx = f" field={e['field']}"
-            prefix = f"[validate:error] {c}"
-            if p:
-                sys.stderr.write(f"{prefix} {p}: {msg}{ctx}\n")
-            else:
-                sys.stderr.write(f"{prefix} {msg}{ctx}\n")
-        if code == 0:
-            sys.stdout.write("[validate] ok\n")
+    if out_format == "json":
+        payload = {"ok": code == 0, "errors": errors}
+        sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
         return code
+
+    for e in errors:
+        p = e.get("path")
+        msg = e.get("message", "")
+        c = e.get("code", "")
+        ctx = ""
+        if "line" in e:
+            ctx = f" line={e['line']}"
+        elif "index" in e:
+            ctx = f" index={e['index']}"
+        elif "field" in e:
+            ctx = f" field={e['field']}"
+        prefix = f"[validate:error] {c}"
+        if p:
+            sys.stderr.write(f"{prefix} {p}: {msg}{ctx}\n")
+        else:
+            sys.stderr.write(f"{prefix} {msg}{ctx}\n")
+    if code == 0:
+        sys.stdout.write("[validate] ok\n")
+    return code
+
+
+def collect_bundle_validation_errors(bundle_root: Path, *, strict: bool) -> list[ValidationError]:
+    paths = MatchBundlePaths(root=bundle_root)
+    errors: list[ValidationError] = []
 
     def add_contract_error(kind: str, raw: str) -> None:
         # Try to parse the structured prefix added by contract validation.
@@ -655,7 +695,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
         errors.append(
             make_error(ERROR.MANIFEST_MISSING, "missing manifest", path=str(paths.manifest_json))
         )
-        return emit_and_exit(2)
+        return errors
     try:
         manifest_raw: Any = json.loads(paths.manifest_json.read_text(encoding="utf8"))
     except json.JSONDecodeError as e:
@@ -666,31 +706,35 @@ def cmd_validate(args: argparse.Namespace) -> int:
                 path=str(paths.manifest_json),
             )
         )
-        return emit_and_exit(2)
+        return errors
 
     manifest, manifest_errors = _validate_manifest_v1(manifest_raw)
     if manifest_errors:
         for err in manifest_errors:
             errors.append(make_error(ERROR.MANIFEST_INVALID, err, path=str(paths.manifest_json)))
-        return emit_and_exit(2)
+        return errors
 
     sensors_present = bool(manifest["inputs"]["sensor_paths"])
     layout_errors = validate_bundle_layout(bundle_root, sensors_present=sensors_present)
     if layout_errors:
         for err in layout_errors:
             errors.append(make_error(ERROR.BUNDLE_LAYOUT_INVALID, err, path=str(bundle_root)))
-        return emit_and_exit(2)
+        return errors
 
     data_errors: list[str] = []
-    data_errors.extend(validate_tracks_jsonl(paths.tracks_jsonl))
+    data_errors.extend(
+        validate_tracks_jsonl(
+            paths.tracks_jsonl,
+            strict_frame_index_monotonicity=strict,
+        )
+    )
     data_errors.extend(validate_events_json(paths.events_json))
     if data_errors:
         for err in data_errors:
             kind = "events" if "/events.json" in err.replace("\\", "/") else "tracks"
             add_contract_error(kind, err)
-        return emit_and_exit(2)
 
-    return emit_and_exit(0)
+    return errors
 
 
 def cmd_render_overlay(args: argparse.Namespace) -> int:
@@ -701,17 +745,98 @@ def cmd_render_overlay(args: argparse.Namespace) -> int:
     WHY: Provide a practical, human-useful overlay for UAT from contract-valid tracks.
     """
 
+    video_path = Path(args.video).expanduser()
+    tracks_jsonl = Path(args.tracks).expanduser()
+    out_mp4 = Path(args.out).expanduser()
+
+    timeout_s = float(args.timeout_s) if args.timeout_s is not None else 30.0
+    report_path = Path(args.report).expanduser() if args.report else (out_mp4.parent / "overlay_render_report.json")
+
+    md: VideoMetadata | None = None
+    fps: float | None = float(args.fps) if args.fps is not None else None
+    if fps is None:
+        try:
+            md = probe_video_metadata(video_path=video_path, source_rel_path=str(video_path.name))
+            fps = float(md.fps)
+        except VideoIngestError as e:
+            # Deterministic, actionable failure.
+            err = f"failed to probe fps: {e}"
+            _write_json(
+                report_path,
+                {
+                    "schema_version": 1,
+                    "ok": False,
+                    "error": err,
+                    "video": str(video_path),
+                    "tracks_jsonl": str(tracks_jsonl),
+                    "out_mp4": str(out_mp4),
+                },
+            )
+            sys.stderr.write(f"[render-overlay:error] {err}\n")
+            return 2
+
+    # Best-effort: probe dimensions for bbox clamping. If probing fails (missing ffprobe), continue.
+    if md is None:
+        try:
+            md = probe_video_metadata(video_path=video_path, source_rel_path=str(video_path.name))
+        except VideoIngestError:
+            md = None
+
     try:
-        render_overlay_mp4(
-            video_path=Path(args.video).expanduser(),
-            tracks_jsonl=Path(args.tracks).expanduser(),
-            out_mp4=Path(args.out).expanduser(),
-            fps=float(args.fps),
+        result: OverlayRenderResult = render_overlay_mp4(
+            video_path=video_path,
+            tracks_jsonl=tracks_jsonl,
+            out_mp4=out_mp4,
+            fps=float(fps),
             max_ops=int(args.max_ops),
+            timeout_s=timeout_s,
+            width_px=int(md.width_px) if md is not None else None,
+            height_px=int(md.height_px) if md is not None else None,
         )
     except OverlayError as e:
+        _write_json(
+            report_path,
+            {
+                "schema_version": 1,
+                "ok": False,
+                "error": str(e),
+                "video": str(video_path),
+                "tracks_jsonl": str(tracks_jsonl),
+                "out_mp4": str(out_mp4),
+            },
+        )
         sys.stderr.write(f"[render-overlay:error] {e}\n")
         return 2
+
+    _write_json(
+        report_path,
+        {
+            "schema_version": 1,
+            "ok": bool(result.ok),
+            "video": str(video_path),
+            "tracks_jsonl": str(tracks_jsonl),
+            "out_mp4": str(out_mp4),
+            "fps": float(result.plan.fps),
+            "width_px": result.plan.width_px,
+            "height_px": result.plan.height_px,
+            "vf_sha256": result.plan.vf_sha256,
+            "eligible_boxes": int(result.plan.eligible_boxes),
+            "selected_boxes": int(result.plan.selected_boxes),
+            "draw_ops": int(result.plan.draw_ops),
+            "ffmpeg_path": str(result.ffmpeg_path),
+            "ffmpeg_version": result.ffmpeg_version_first_line,
+            "stderr_excerpt": result.stderr_excerpt,
+            "error": result.error,
+        },
+    )
+
+    if result.plan.vf == "null":
+        sys.stdout.write("[render-overlay:note] trust-first: no present ball records; overlay contains no markers\n")
+
+    if not result.ok:
+        sys.stderr.write(f"[render-overlay:error] {result.error or 'render failed'}\n")
+        return 2
+
     sys.stdout.write("[render-overlay] ok\n")
     return 0
 
@@ -721,7 +846,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_ingest = sub.add_parser("ingest-video", help="Probe a local video and print deterministic metadata")
-    p_ingest.add_argument("--video", required=True, help="Input video path (local)")
+    p_ingest.add_argument(
+        "--video",
+        required=True,
+        help=(
+            "Input video path (local). Tooling is system ffprobe/ffmpeg from PATH, or override via "
+            "FUSBAL_FFPROBE_PATH / FUSBAL_FFMPEG_PATH. Timeouts via FUSBAL_FFPROBE_TIMEOUT_S / FUSBAL_FFMPEG_READ_TIMEOUT_S."
+        ),
+    )
     p_ingest.add_argument(
         "--out",
         help="Optional bundle dir used to normalize paths (absolute paths outside this are reduced to basenames)",
@@ -729,7 +861,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_ingest.set_defaults(func=cmd_ingest_video)
 
     p_run_video = sub.add_parser("run-video", help="Ingest a local video and export a valid V1 bundle (INT-050)")
-    p_run_video.add_argument("--video", required=True, help="Input video path (local)")
+    p_run_video.add_argument(
+        "--video",
+        required=True,
+        help=(
+            "Input video path (local). Tooling is system ffprobe/ffmpeg from PATH, or override via "
+            "FUSBAL_FFPROBE_PATH / FUSBAL_FFMPEG_PATH. Timeouts via FUSBAL_FFPROBE_TIMEOUT_S / FUSBAL_FFMPEG_READ_TIMEOUT_S."
+        ),
+    )
     p_run_video.add_argument("--match-id", required=True, help="Match id (used for manifest + default output dir)")
     p_run_video.add_argument(
         "--out",
@@ -815,14 +954,29 @@ def build_parser() -> argparse.ArgumentParser:
         default="text",
         help="Output format",
     )
+    p_validate.add_argument(
+        "--strict",
+        action="store_true",
+        help="Enable strict validations (e.g., require ball diagnostics.frame_index monotonicity).",
+    )
     p_validate.set_defaults(func=cmd_validate)
 
     p_overlay = sub.add_parser("render-overlay", help="Render overlay.mp4 from video + tracks.jsonl")
     p_overlay.add_argument("--video", required=True, help="Input video path (local)")
     p_overlay.add_argument("--tracks", required=True, help="tracks.jsonl path (contract-valid)")
     p_overlay.add_argument("--out", required=True, help="Output overlay.mp4 path")
-    p_overlay.add_argument("--fps", type=float, default=30.0, help="FPS used to map t_ms to frame windows")
+    p_overlay.add_argument(
+        "--fps",
+        type=float,
+        default=None,
+        help="Optional FPS used to map t_ms to frame indices (default: probe from video)",
+    )
     p_overlay.add_argument("--max-ops", type=int, default=5000, help="Max draw operations to include (safety cap)")
+    p_overlay.add_argument("--timeout-s", type=float, default=30.0, help="Timeout for ffmpeg execution (seconds)")
+    p_overlay.add_argument(
+        "--report",
+        help="Optional path for overlay_render_report.json (default: alongside --out)",
+    )
     p_overlay.set_defaults(func=cmd_render_overlay)
 
     return parser

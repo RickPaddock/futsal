@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import select
 import shutil
 import subprocess
@@ -24,6 +25,9 @@ class VideoIngestError(RuntimeError):
 EXIT_CODE_MISSING_INPUT = 3
 EXIT_CODE_MISSING_TOOL = 4
 EXIT_CODE_DECODE_FAILED = 5
+
+
+_MIN_FFMPEGISH_VERSION = (4, 0, 0)
 
 
 @dataclass(frozen=True)
@@ -87,7 +91,16 @@ def _require_tool(name: str) -> str:
         if override:
             p = Path(str(override)).expanduser()
             if p.is_file():
-                return str(p)
+                exe = str(p)
+                if name in {"ffmpeg", "ffprobe"}:
+                    vline = _probe_tool_version(exe)
+                    parsed = _parse_ffmpegish_version(vline or "") if vline else None
+                    if parsed and parsed < _MIN_FFMPEGISH_VERSION:
+                        raise VideoIngestError(
+                            f"{name} too old: {vline!r} (need >= {_MIN_FFMPEGISH_VERSION[0]}.{_MIN_FFMPEGISH_VERSION[1]})",
+                            exit_code=EXIT_CODE_MISSING_TOOL,
+                        )
+                return exe
             raise VideoIngestError(
                 f"configured tool path does not exist for {name}: {override} (via {env_key})",
                 exit_code=EXIT_CODE_MISSING_TOOL,
@@ -95,6 +108,14 @@ def _require_tool(name: str) -> str:
 
     exe = shutil.which(name)
     if exe:
+        if name in {"ffmpeg", "ffprobe"}:
+            vline = _probe_tool_version(exe)
+            parsed = _parse_ffmpegish_version(vline or "") if vline else None
+            if parsed and parsed < _MIN_FFMPEGISH_VERSION:
+                raise VideoIngestError(
+                    f"{name} too old: {vline!r} (need >= {_MIN_FFMPEGISH_VERSION[0]}.{_MIN_FFMPEGISH_VERSION[1]})",
+                    exit_code=EXIT_CODE_MISSING_TOOL,
+                )
         return exe
     raise VideoIngestError(
         f"missing required tool '{name}'. Install ffmpeg/ffprobe and ensure it is on PATH "
@@ -110,6 +131,40 @@ def _stderr_excerpt(stderr: str, *, max_chars: int = 1000) -> str:
     if len(s) <= max_chars:
         return s
     return s[-max_chars:]
+
+
+def _probe_tool_version(exe: str, *, timeout_s: float = 2.0) -> str | None:
+    # Best-effort only; never fail ingest due to version probing.
+    try:
+        res = _run_checked([str(exe), "-version"], timeout_s=timeout_s)
+    except VideoIngestError:
+        return None
+    if res.returncode != 0:
+        return None
+    out = res.stdout.decode("utf8", errors="replace").strip().splitlines()
+    if not out:
+        return None
+    # Keep deterministic, compact.
+    return out[0].strip()[:200] if out[0].strip() else None
+
+
+def _parse_ffmpegish_version(first_line: str) -> tuple[int, int, int] | None:
+    # Accept common formats:
+    #   ffmpeg version 6.1.1 ...
+    #   ffprobe version 6.1.1 ...
+    s = (first_line or "").strip()
+    if not s:
+        return None
+    m = re.search(r"\bff(?:mpeg|probe)\s+version\s+([0-9]+)(?:\.([0-9]+))?(?:\.([0-9]+))?\b", s)
+    if not m:
+        return None
+    try:
+        major = int(m.group(1))
+        minor = int(m.group(2) or 0)
+        patch = int(m.group(3) or 0)
+    except ValueError:
+        return None
+    return major, minor, patch
 
 
 def _run_checked(args: list[str], *, timeout_s: float | None = None) -> subprocess.CompletedProcess[bytes]:
@@ -217,6 +272,7 @@ def probe_video_metadata(*, video_path: Path, source_rel_path: str) -> VideoMeta
 
     diagnostics: dict[str, object] = {
         "ffprobe_path": str(ffprobe),
+        "ffprobe_version": _probe_tool_version(str(ffprobe)) or "unknown",
         "ffprobe_stream_0": s0,
     }
     return VideoMetadata(
@@ -245,6 +301,22 @@ def iter_video_frames_rgb24(
     meta = probe_video_metadata(video_path=video_path, source_rel_path=source_rel_path)
 
     ffmpeg = _require_tool("ffmpeg")
+
+    # Attach ffmpeg info to diagnostics (best-effort).
+    meta = VideoMetadata(
+        fps=meta.fps,
+        width_px=meta.width_px,
+        height_px=meta.height_px,
+        nb_frames=meta.nb_frames,
+        duration_s=meta.duration_s,
+        source_rel_path=meta.source_rel_path,
+        diagnostics={
+            **dict(meta.diagnostics or {}),
+            "ffmpeg_path": str(ffmpeg),
+            "ffmpeg_version": _probe_tool_version(str(ffmpeg)) or "unknown",
+            "ffmpeg_read_timeout_s": float(os.environ.get("FUSBAL_FFMPEG_READ_TIMEOUT_S", "10.0")),
+        },
+    )
 
     if not isinstance(max_decode_width_px, int) or isinstance(max_decode_width_px, bool) or max_decode_width_px <= 0:
         raise VideoIngestError(f"invalid max_decode_width_px: {max_decode_width_px!r}")

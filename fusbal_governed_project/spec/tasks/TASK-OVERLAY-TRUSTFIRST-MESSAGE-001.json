@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-OVERLAY-TRUSTFIRST-MESSAGE-001",
+  "intent_id": "INT-060",
+  "title": "Overlay: clearer trust-first messaging when nothing is rendered",
+  "status": "done",
+  "scope": [
+    "Improve UX by emitting a clear note when tracks contain no renderable present ball records.",
+    "Keep success semantics unchanged (render still succeeds; overlay contains no markers)."
+  ],
+  "acceptance": [
+    "When there are no present ball records in image_px, CLI emits an informational note explaining that no markers will be drawn.",
+    "Unit tests cover trust-first null behavior; messaging remains concise." 
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-OVERLAY-TRUSTFIRST-MESSAGE-001-001",
+      "title": "Messaging improvement",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/cli.py",
+        "pipeline/src/fusbal_pipeline/overlay/render.py"
+      ],
+      "acceptance": [
+        "Message is printed once and does not spam logs." 
+      ],
+      "evidence": [
+        "Unit tests remain green." 
+      ]
+    }
+  ]
+}

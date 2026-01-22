@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-PORTAL-OVERLAY-LINK-001",
+  "intent_id": "INT-060",
+  "title": "Portal: link to overlay.mp4 when present",
+  "status": "done",
+  "scope": [
+    "Improve UAT workflow by surfacing a link to overlay.mp4 when it exists in a known location.",
+    "Ensure any file serving is safe (path traversal protections) and limited to allowed roots."
+  ],
+  "acceptance": [
+    "Portal UI surfaces overlay.mp4 presence and provides a link to view/download it.",
+    "Any backend route used to serve the file enforces safe, repo-relative paths and allows only expected roots.",
+    "Guardrails remain green." 
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-PORTAL-OVERLAY-LINK-001-001",
+      "title": "Portal UI + safe file serving",
+      "paths": [
+        "apps/portal/pages/internal/intents/[intentId].js",
+        "apps/portal/pages/api/internal/file.js",
+        "apps/portal/lib/portal_read_model.js"
+      ],
+      "acceptance": [
+        "Overlay link renders when file exists; missing files are handled gracefully." 
+      ],
+      "evidence": [
+        "npm run guardrails passes; portal renders." 
+      ]
+    }
+  ]
+}

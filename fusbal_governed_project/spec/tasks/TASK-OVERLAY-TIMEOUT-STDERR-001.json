@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-OVERLAY-TIMEOUT-STDERR-001",
+  "intent_id": "INT-060",
+  "title": "Overlay: ffmpeg timeout + stderr excerpt on failure",
+  "status": "done",
+  "scope": [
+    "Add an explicit timeout to overlay ffmpeg execution to reduce hang risk.",
+    "Include a bounded stderr excerpt (deterministic) in errors to improve debugging."
+  ],
+  "acceptance": [
+    "render-overlay supports a timeout flag and fails explicitly on timeout.",
+    "Failures include a bounded stderr excerpt and do not dump unbounded output.",
+    "Behavior is deterministic and trust-first (no fabricated overlays)."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-OVERLAY-TIMEOUT-STDERR-001-001",
+      "title": "Timeout + stderr excerpt implementation",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py",
+        "pipeline/src/fusbal_pipeline/cli.py"
+      ],
+      "acceptance": [
+        "Overlay renderer uses subprocess timeout and wraps errors as OverlayError with bounded stderr excerpt."
+      ],
+      "evidence": [
+        "Unit tests cover bounded stderr excerpt helper (where applicable) and CLI wiring." 
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-OVERLAY-TIMEOUT-STDERR-001-001",
+      "title": "Add timeout + bounded stderr excerpt to overlay execution.",
+      "status": "done",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_OVERLAY_TIMEOUT_STDERR_001.SUB_001",
+      "done_when": [
+        "Overlay errors are actionable and bounded; timeout failure is explicit."
+      ]
+    }
+  ]
+}

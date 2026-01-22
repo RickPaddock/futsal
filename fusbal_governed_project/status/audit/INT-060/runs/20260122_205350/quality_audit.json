@@ -1,0 +1,205 @@
+{
+  "type": "intent_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-060",
+  "run_id": "20260122_205350",
+  "timestamp": "2026-01-22T21:26:02Z",
+  "scope": {
+    "areas_in_scope": [
+      "pipeline",
+      "portal",
+      "scripts",
+      "tools"
+    ]
+  },
+  "audit_inputs": {
+    "intent_spec_path": "spec/intents/INT-060.json",
+    "task_spec_paths": [
+      "spec/tasks/TASK-OVERLAY-001.json",
+      "spec/tasks/TASK-OVERLAY-002.json"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/overlay/render.py",
+      "pipeline/src/fusbal_pipeline/overlay/__init__.py",
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/tests/test_overlay_render.py",
+      "status/intents/INT-060/scope.json",
+      "status/intents/INT-060/work_packages.json",
+      "status/intents/INT-060/intent.md"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 8,
+    "top_risks": [
+      "Overlay rendering has no execution timeout; ffmpeg could hang on some inputs.",
+      "Overlay filter generation parses and sorts all eligible boxes before applying max_ops cap (could be heavy for huge tracks files).",
+      "CLI requires user-provided fps; mismatches between fps and the actual video can shift overlay timing."
+    ],
+    "top_quick_wins": [
+      "Add a timeout + stderr excerpt to overlay ffmpeg execution.",
+      "Probe video fps via ffprobe when available (or default from ingest metadata) and keep fps deterministic.",
+      "Deduplicate ball overlays per time window to reduce filter size and improve readability."
+    ]
+  },
+  "verification": {
+    "functional": {
+      "status": "pass",
+      "notes": "Overlay render path is implemented, trust-first, and command construction is deterministic for a fixed tracks input (per tests)."
+    },
+    "nonfunctional": {
+      "correctness_safety": {
+        "status": "pass",
+        "notes": "Trust-first overlay behavior is explicit (present ball only) and guarded by tests."
+      },
+      "performance": {
+        "status": "pass",
+        "notes": "Has safety cap (max_ops) but could be optimized for very large tracks inputs."
+      },
+      "security": {
+        "status": "pass",
+        "notes": "No shell execution; drawtext label quoted; bbox inputs validated as ints."
+      },
+      "maintainability": {
+        "status": "pass",
+        "notes": "Overlay logic is well-contained and unit-tested; CLI error handling is consistent."
+      },
+      "overall_status": "pass"
+    }
+  },
+  "improvements": [
+    {
+      "id": "IMP-001",
+      "title": "Add ffmpeg execution timeout + stderr excerpt for overlay rendering",
+      "area": "pipeline",
+      "roi_0_to_10": 10,
+      "effort": "S",
+      "risk": "low",
+      "why": "Overlay rendering currently runs ffmpeg without a timeout, which can hang on corrupted inputs. Adding a timeout and deterministic stderr excerpt improves reliability and debuggability without changing overlay semantics.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py: add timeout_s parameter to render_overlay_mp4() and use subprocess.run(..., timeout=...).",
+        "pipeline/src/fusbal_pipeline/overlay/render.py: include a bounded stderr excerpt in OverlayError for non-zero exit and timeout paths.",
+        "pipeline/src/fusbal_pipeline/cli.py: add --timeout-s flag to render-overlay and plumb it into render_overlay_mp4()."
+      ]
+    },
+    {
+      "id": "IMP-002",
+      "title": "Probe fps from video metadata instead of requiring manual --fps",
+      "area": "pipeline",
+      "roi_0_to_10": 9,
+      "effort": "S",
+      "risk": "medium",
+      "why": "Incorrect fps causes overlays to appear at the wrong times. Probing fps via ffprobe (when available) reduces user error and aligns timing with the actual input video.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/cli.py: make --fps optional for render-overlay; default to probed fps when omitted.",
+        "pipeline/src/fusbal_pipeline/video/ingest.py: reuse probe_video_metadata() to obtain fps for the provided --video path.",
+        "pipeline/tests/test_overlay_render.py: add a unit test confirming deterministic argument selection when fps is probed vs provided."
+      ]
+    },
+    {
+      "id": "IMP-003",
+      "title": "Use frame-index based enable expressions to avoid float rounding drift",
+      "area": "pipeline",
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "low",
+      "why": "The current enable expression uses float timestamps formatted to milliseconds, which can introduce tiny rounding discrepancies. Converting t_ms to a deterministic frame window (n-based) can be clearer and more stable.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py: switch enable from between(t,...) to between(n, start_n, end_n) computed from t_ms and fps.",
+        "pipeline/tests/test_overlay_render.py: update deterministic filter snapshot assertions accordingly."
+      ]
+    },
+    {
+      "id": "IMP-004",
+      "title": "Deduplicate overlays per time window to reduce filter size and improve readability",
+      "area": "pipeline",
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "low",
+      "why": "If multiple ball present records share the same t_ms (or same frame window), the filter graph can become noisy and large. Keeping only the highest-confidence bbox per window improves usability and reduces filter length.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py: after parsing/sorting, collapse boxes by computed frame window and keep max confidence per window.",
+        "pipeline/tests/test_overlay_render.py: add a unit test that multiple boxes at same t_ms results in one draw op pair."
+      ]
+    },
+    {
+      "id": "IMP-005",
+      "title": "Optimize max_ops handling by selecting top-K without sorting the full tracks set",
+      "area": "pipeline",
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "medium",
+      "why": "Current logic parses and sorts all eligible boxes before applying the max_ops cap. For large tracks files, selecting only the K earliest items by the same deterministic key reduces CPU and memory while preserving determinism.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py: use heapq.nsmallest(max_ops, boxes, key=...) or streaming selection prior to final ordering.",
+        "pipeline/tests/test_overlay_render.py: add a regression test for deterministic truncation behavior when inputs exceed max_ops."
+      ]
+    },
+    {
+      "id": "IMP-006",
+      "title": "Add ffmpeg path override + version capture for overlay renderer",
+      "area": "pipeline",
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "low",
+      "why": "Other pipeline components support env overrides and version diagnostics for ffmpeg/ffprobe; overlay renderer should align for consistency and support controlled environments.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py: support FUSBAL_FFMPEG_PATH override in _require_ffmpeg().",
+        "pipeline/src/fusbal_pipeline/overlay/render.py: optionally capture ffmpeg -version first line into an error context or diagnostics field.",
+        "pipeline/src/fusbal_pipeline/cli.py: mention env override in render-overlay help text."
+      ]
+    },
+    {
+      "id": "IMP-007",
+      "title": "Clamp or skip out-of-frame bboxes using probed video dimensions",
+      "area": "pipeline",
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "low",
+      "why": "Tracks may contain bboxes that are negative or exceed frame size due to upstream bugs. Explicitly clamping or skipping improves robustness and prevents confusing overlays.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py: accept optional width/height and clamp bbox_xyxy_px to [0,width/height] bounds.",
+        "pipeline/src/fusbal_pipeline/video/ingest.py: probe width/height for --video when rendering overlay.",
+        "pipeline/tests/test_overlay_render.py: add test for out-of-range bbox handling."
+      ]
+    },
+    {
+      "id": "IMP-008",
+      "title": "Add a structured overlay_render_report.json for automation",
+      "area": "pipeline",
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "low",
+      "why": "A small machine-readable report (ok/errors + derived filter string hash) makes UAT automation and auditing easier without changing the mp4 output semantics.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/cli.py: write optional overlay_render_report.json alongside overlay.mp4 with ok/errors and args (redacted paths).",
+        "pipeline/src/fusbal_pipeline/overlay/render.py: return or expose the computed vf string and args for reporting."
+      ]
+    },
+    {
+      "id": "IMP-009",
+      "title": "Improve trust-first messaging when tracks contain no renderable ball records",
+      "area": "pipeline",
+      "roi_0_to_10": 5,
+      "effort": "S",
+      "risk": "low",
+      "why": "When there are no present ball records, the renderer uses a null filter, which is correct but can surprise users. Emitting a clear note helps UAT workflows interpret results.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py: detect empty box set and return a structured summary (e.g., counts by pos_state).",
+        "pipeline/src/fusbal_pipeline/cli.py: print a single informational line when no overlays are expected (still returns ok)."
+      ]
+    },
+    {
+      "id": "IMP-010",
+      "title": "Add a portal link to overlay.mp4 when present in a bundle",
+      "area": "portal",
+      "roi_0_to_10": 4,
+      "effort": "M",
+      "risk": "medium",
+      "why": "UAT is faster when overlays can be discovered and opened from the portal without manual filesystem navigation. This is optional but high leverage for reviewer workflows.",
+      "proposed_changes": [
+        "apps/portal/pages/internal/...: add conditional rendering for overlay.mp4 if it exists in the bundle directory.",
+        "apps/portal/lib/...: extend read model to surface overlay artefact presence and path in a safe, repo-relative way."
+      ]
+    }
+  ]
+}

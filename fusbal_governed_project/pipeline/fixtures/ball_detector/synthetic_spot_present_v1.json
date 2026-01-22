@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "fixture_id": "FIX-BALL-DET-SYNTH-SPOT-001",
+  "title": "Synthetic alternating bright spot (present every other frame)",
+  "notes": "Compact deterministic fixture spec (no video committed). Tests generate rgb24 frames from this description.",
+  "video": {
+    "width_px": 32,
+    "height_px": 32,
+    "fps": 10.0,
+    "num_frames": 12
+  },
+  "background_rgb": [0, 0, 0],
+  "spot": {
+    "rgb": [255, 255, 255],
+    "size_px": 3,
+    "center_xy": [16, 16],
+    "enabled_on": "odd_frames"
+  },
+  "expected": {
+    "min_present_frames": 4
+  }
+}

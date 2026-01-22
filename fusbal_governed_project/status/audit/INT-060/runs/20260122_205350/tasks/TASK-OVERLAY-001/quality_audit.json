@@ -1,0 +1,91 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-060",
+  "run_id": "20260122_205350",
+  "task_id": "TASK-OVERLAY-001",
+  "timestamp": "2026-01-22T21:26:02Z",
+  "functional": {
+    "status": "pass",
+    "notes": "Overlay rendering path exists and is trust-first (ball-only, image_px present records only).",
+    "evidence": [
+      "pipeline/src/fusbal_pipeline/cli.py: cmd_render_overlay wires render_overlay_mp4() and emits actionable error on OverlayError.",
+      "pipeline/src/fusbal_pipeline/overlay/render.py: build_ball_overlay_filter() returns drawbox+drawtext operations based on present ball bbox records.",
+      "pipeline/tests/test_overlay_render.py: deterministic filter generation and trust-first null overlay behavior are asserted."
+    ],
+    "findings": [
+      "Overlay filter includes bbox marker (drawbox) and confidence label (drawtext).",
+      "Only records with entity_type=ball, frame=image_px, pos_state=present are rendered; missing/unknown are ignored.",
+      "Command construction is deterministic for a fixed tracks input (within the limits stated by the intent)."
+    ]
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "notes": "Trust-first filtering and input validation are in place; max_ops cap limits worst-case overlay complexity.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py: _parse_ball_boxes_from_tracks_jsonl() validates types/ranges and ignores malformed records.",
+        "pipeline/src/fusbal_pipeline/overlay/render.py: max_ops limits overlay operations (safety cap)."
+      ],
+      "findings": [
+        "Deterministic sort over extracted boxes provides stable overlay ordering.",
+        "Malformed JSON lines are rejected with a precise file:line error."
+      ]
+    },
+    "performance": {
+      "status": "pass",
+      "notes": "Linear parse plus sort; max_ops prevents unbounded filter growth but parse still loads all eligible boxes before truncation.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py: boxes.sort(...) then builds up to max_ops draw operations."
+      ],
+      "findings": [
+        "Potential optimization: avoid full sort when tracks are extremely large by selecting only the first max_ops items by the same sort key."
+      ]
+    },
+    "security": {
+      "status": "pass",
+      "notes": "Subprocess invoked without shell; drawtext label is quoted; bbox inputs are validated as integers.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py: subprocess.run(args) with list args (no shell).",
+        "pipeline/src/fusbal_pipeline/overlay/render.py: shlex.quote(label) used for drawtext text argument."
+      ],
+      "findings": [
+        "No direct shell injection path from tracks values (integers only for geometry; fixed-format label)."
+      ]
+    },
+    "maintainability": {
+      "status": "pass",
+      "notes": "Overlay logic is isolated to a small module with unit tests and clear error types.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py: OverlayError and deterministic builder functions.",
+        "pipeline/tests/test_overlay_render.py: unit tests cover key invariants."
+      ],
+      "findings": [
+        "Clear separation between filter construction and ffmpeg execution."
+      ]
+    },
+    "overall_status": "pass"
+  },
+  "gate": {
+    "status": "pass",
+    "blockers": []
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-OVERLAY-001.json",
+    "deliverable_paths": [
+      "pipeline/src/fusbal_pipeline/overlay/__init__.py",
+      "pipeline/src/fusbal_pipeline/overlay/render.py",
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/tests/test_overlay_render.py"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/overlay/render.py",
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/tests/test_overlay_render.py"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 8,
+    "notes": "Meets functional intent; main gaps are operational hardening (timeouts/fps probing) rather than correctness." 
+  }
+}

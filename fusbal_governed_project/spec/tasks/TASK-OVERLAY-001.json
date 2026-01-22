@@ -3,7 +3,7 @@
   "task_id": "TASK-OVERLAY-001",
   "intent_id": "INT-060",
   "title": "Overlay rendering: video + tracks.jsonl → overlay.mp4",
-  "status": "todo",
+  "status": "done",
   "scope": [
     "Add a deterministic overlay renderer that reads a local input video and contract-valid `tracks.jsonl` and produces a playable `overlay.mp4`.",
     "Start with ball overlays for `entity_type=ball` records in `frame=image_px` (bbox-based marker) plus confidence text; player overlays can be added later.",
@@ -51,7 +51,7 @@
     {
       "subtask_id": "SUB-TASK-OVERLAY-001-001",
       "title": "Implement overlay command builder from tracks.jsonl (ball only).",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_OVERLAY_001.SUB_001",
       "done_when": [
@@ -62,7 +62,7 @@
     {
       "subtask_id": "SUB-TASK-OVERLAY-001-002",
       "title": "Add CLI command and actionable backend checks for ffmpeg.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_OVERLAY_001.SUB_002",
       "done_when": [
@@ -73,7 +73,7 @@
     {
       "subtask_id": "SUB-TASK-OVERLAY-001-003",
       "title": "Add unit tests for determinism and trust-first overlay drawing.",
-      "status": "todo",
+      "status": "done",
       "area": "pipeline",
       "provenance_prefix": "FUSBAL.PIPELINE.TASK_OVERLAY_001.SUB_003",
       "done_when": [
@@ -82,4 +82,3 @@
     }
   ]
 }
-

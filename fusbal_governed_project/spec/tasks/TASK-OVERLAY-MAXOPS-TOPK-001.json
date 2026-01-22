@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-OVERLAY-MAXOPS-TOPK-001",
+  "intent_id": "INT-060",
+  "title": "Overlay: optimize max_ops selection deterministically",
+  "status": "done",
+  "scope": [
+    "Avoid sorting the full eligible set when max_ops truncation is applied.",
+    "Keep deterministic truncation semantics." 
+  ],
+  "acceptance": [
+    "When inputs exceed max_ops, selection/truncation is deterministic and tested.",
+    "Implementation avoids sorting the full set when feasible (e.g., top-K selection)." 
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-OVERLAY-MAXOPS-TOPK-001-001",
+      "title": "Deterministic top-K truncation",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py",
+        "pipeline/tests/test_overlay_render.py"
+      ],
+      "acceptance": [
+        "Regression test covers truncation determinism." 
+      ],
+      "evidence": [
+        "pytest green." 
+      ]
+    }
+  ]
+}

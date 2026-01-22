@@ -103,3 +103,166 @@ def test_baseline_ball_detector_detects_bright_low_saturation_pixel() -> None:
     assert out[0]["confidence"] >= 0.0
     bbox = out[0]["bbox_xyxy_px"]
     assert isinstance(bbox, list) and len(bbox) == 4
+
+
+def test_run_video_emits_present_ball_records_with_baseline_detector(tmp_path: Path) -> None:
+    # End-to-end-ish: run the run-video bundle writer with the baseline detector enabled.
+    # Uses a deterministic synthetic frame sequence (no external video required).
+    meta = VideoMetadata(
+        fps=10.0,
+        width_px=8,
+        height_px=8,
+        nb_frames=32,
+        duration_s=3.2,
+        source_rel_path="clip.mp4",
+        diagnostics={},
+    )
+
+    w, h = 8, 8
+    black = bytes([0] * (w * h * 3))
+
+    def frame_with_white_pixel(*, x: int, y: int) -> bytes:
+        buf = bytearray(black)
+        i = (y * w + x) * 3
+        buf[i] = 255
+        buf[i + 1] = 255
+        buf[i + 2] = 255
+        return bytes(buf)
+
+    frames: list[VideoFrame] = []
+    for frame_index in range(0, 32):
+        t_ms = frame_index * 100
+        img = frame_with_white_pixel(x=3, y=3) if (frame_index % 2 == 1) else black
+        frames.append(VideoFrame(frame_index=frame_index, t_ms=t_ms, width_px=w, height_px=h, pix_fmt="rgb24", rgb24=img))
+
+    out_dir = tmp_path / "run_video_baseline"
+    _run_video_write_bundle(
+        out_dir=out_dir,
+        match_id="M2",
+        meta=meta,
+        frames=frames,
+        ball_detector_enabled=True,
+        ball_detector_cfg=BaselineBallDetectorConfig(
+            sample_step_px=1,
+            min_luma_0_to_255=200,
+            max_saturation_0_to_255=30,
+            bbox_radius_px=1,
+            edge_margin_ratio_0_to_1=0.0,
+            blob_window_radius_px=1,
+            blob_min_ratio_0_to_1=0.02,
+            blob_high_ratio_threshold_0_to_1=1.0,
+            blob_high_ratio_conf_scale=1.0,
+            min_abs_delta_luma_0_to_255=3,
+        ),
+        min_confidence=0.6,
+    )
+
+    lines = (out_dir / "tracks.jsonl").read_text(encoding="utf8").splitlines()
+    present = 0
+    for line in lines:
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        if rec.get("entity_type") == "ball" and rec.get("pos_state") == "present":
+            present += 1
+    assert present >= 10
+
+
+def test_run_video_baseline_detector_fixture_synthetic_spot(tmp_path: Path) -> None:
+    fixture_path = Path(__file__).resolve().parents[1] / "fixtures" / "ball_detector" / "synthetic_spot_present_v1.json"
+    obj = json.loads(fixture_path.read_text(encoding="utf8"))
+    v = obj["video"]
+
+    w = int(v["width_px"])
+    h = int(v["height_px"])
+    fps = float(v["fps"])
+    num_frames = int(v["num_frames"])
+
+    bg = obj.get("background_rgb") or [0, 0, 0]
+    bg_r, bg_g, bg_b = (int(bg[0]), int(bg[1]), int(bg[2]))
+
+    spot = obj["spot"]
+    spot_rgb = spot.get("rgb") or [255, 255, 255]
+    sr, sg, sb = (int(spot_rgb[0]), int(spot_rgb[1]), int(spot_rgb[2]))
+    spot_size = int(spot.get("size_px") or 3)
+    cx, cy = (int(spot["center_xy"][0]), int(spot["center_xy"][1]))
+    enabled_on = str(spot.get("enabled_on") or "odd_frames")
+    expected_min_present = int(obj.get("expected", {}).get("min_present_frames") or 0)
+
+    def make_frame(*, include_spot: bool) -> bytes:
+        buf = bytearray([0] * (w * h * 3))
+        for i in range(0, len(buf), 3):
+            buf[i] = bg_r
+            buf[i + 1] = bg_g
+            buf[i + 2] = bg_b
+        if include_spot:
+            half = max(0, spot_size // 2)
+            for yy in range(max(0, cy - half), min(h, cy + half + 1)):
+                for xx in range(max(0, cx - half), min(w, cx + half + 1)):
+                    j = (yy * w + xx) * 3
+                    buf[j] = sr
+                    buf[j + 1] = sg
+                    buf[j + 2] = sb
+        return bytes(buf)
+
+    meta = VideoMetadata(
+        fps=fps,
+        width_px=w,
+        height_px=h,
+        nb_frames=num_frames,
+        duration_s=float(num_frames) / fps if fps else None,
+        source_rel_path="fixture.mp4",
+        diagnostics={"fixture_id": str(obj.get("fixture_id"))},
+    )
+
+    frames: list[VideoFrame] = []
+    for frame_index in range(0, num_frames):
+        if enabled_on == "odd_frames":
+            include_spot = (frame_index % 2) == 1
+        elif enabled_on == "even_frames":
+            include_spot = (frame_index % 2) == 0
+        else:
+            include_spot = True
+        t_ms = int(round(frame_index * 1000.0 / fps))
+        frames.append(
+            VideoFrame(
+                frame_index=frame_index,
+                t_ms=t_ms,
+                width_px=w,
+                height_px=h,
+                pix_fmt="rgb24",
+                rgb24=make_frame(include_spot=include_spot),
+            )
+        )
+
+    out_dir = tmp_path / "run_video_fixture"
+    _run_video_write_bundle(
+        out_dir=out_dir,
+        match_id="FIX1",
+        meta=meta,
+        frames=frames,
+        ball_detector_enabled=True,
+        ball_detector_cfg=BaselineBallDetectorConfig(
+            sample_step_px=1,
+            min_luma_0_to_255=200,
+            max_saturation_0_to_255=30,
+            bbox_radius_px=2,
+            edge_margin_ratio_0_to_1=0.0,
+            blob_window_radius_px=2,
+            blob_min_ratio_0_to_1=0.01,
+            blob_high_ratio_threshold_0_to_1=1.0,
+            blob_high_ratio_conf_scale=1.0,
+            min_abs_delta_luma_0_to_255=5,
+        ),
+        min_confidence=0.6,
+    )
+
+    lines = (out_dir / "tracks.jsonl").read_text(encoding="utf8").splitlines()
+    present = 0
+    for line in lines:
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        if rec.get("entity_type") == "ball" and rec.get("pos_state") == "present":
+            present += 1
+    assert present >= expected_min_present

@@ -24,7 +24,7 @@
     "status/wizard/"
   ],
   "runbooks": {
-    "decision": "create",
+    "decision": "update",
     "paths_mdt": [
       "spec/md/docs/runbooks/calibration-and-bev.mdt"
     ],

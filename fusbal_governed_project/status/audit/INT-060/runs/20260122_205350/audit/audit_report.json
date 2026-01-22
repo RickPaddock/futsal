@@ -1,0 +1,23 @@
+{
+  "type": "intent_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-060",
+  "intent_status": "todo",
+  "timestamp": "2026-01-22T20:55:00Z",
+  "errors": [],
+  "summary": {
+    "planned_tasks": 2,
+    "missing_task_specs": 0,
+    "quality_areas_issues": 0,
+    "runbooks_issues": 0,
+    "paths_scope_issues": 0,
+    "new_requirements_declared": 0,
+    "new_requirements_with_code_refs": 0,
+    "new_requirements_missing_code_refs": 0
+  },
+  "new_requirements": {
+    "declared": [],
+    "with_code_refs": [],
+    "missing_code_refs": []
+  }
+}

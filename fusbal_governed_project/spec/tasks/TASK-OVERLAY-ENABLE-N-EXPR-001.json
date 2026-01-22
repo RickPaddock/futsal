@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-OVERLAY-ENABLE-N-EXPR-001",
+  "intent_id": "INT-060",
+  "title": "Overlay: frame-index enable expressions (avoid float drift)",
+  "status": "done",
+  "scope": [
+    "Use frame-index based enable expressions (n) instead of float timestamp windows to reduce rounding drift.",
+    "Keep filter generation deterministic and tested."
+  ],
+  "acceptance": [
+    "Overlay filter uses n-based expressions derived deterministically from t_ms and fps.",
+    "Unit tests cover deterministic filter construction." 
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-OVERLAY-ENABLE-N-EXPR-001-001",
+      "title": "n-based enable expression implementation",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py",
+        "pipeline/tests/test_overlay_render.py"
+      ],
+      "acceptance": [
+        "Tests validate deterministic filter output." 
+      ],
+      "evidence": [
+        "pytest -q pipeline/tests/test_overlay_render.py passes." 
+      ]
+    }
+  ]
+}

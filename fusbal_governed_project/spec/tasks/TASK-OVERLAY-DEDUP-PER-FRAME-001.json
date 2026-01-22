@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-OVERLAY-DEDUP-PER-FRAME-001",
+  "intent_id": "INT-060",
+  "title": "Overlay: deduplicate ball overlays per frame window",
+  "status": "done",
+  "scope": [
+    "Reduce filter size and improve readability by deduplicating multiple ball present records that map to the same frame window.",
+    "Keep deterministic selection (highest confidence wins; stable tie-break)."
+  ],
+  "acceptance": [
+    "For multiple eligible ball records mapping to the same frame window, only one overlay is emitted (deterministic selection).",
+    "Unit tests cover deduplication behavior." 
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-OVERLAY-DEDUP-PER-FRAME-001-001",
+      "title": "Deduplication logic + tests",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py",
+        "pipeline/tests/test_overlay_render.py"
+      ],
+      "acceptance": [
+        "Deterministic overlay filter includes one draw op pair per frame window." 
+      ],
+      "evidence": [
+        "pytest covers dedupe case." 
+      ]
+    }
+  ]
+}

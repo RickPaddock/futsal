@@ -1,0 +1,218 @@
+{
+  "type": "intent_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-050",
+  "run_id": "20260122_201058",
+  "timestamp": "2026-01-22T20:13:30Z",
+  "scope": {
+    "areas_in_scope": [
+      "pipeline",
+      "portal",
+      "scripts",
+      "tools"
+    ]
+  },
+  "audit_inputs": {
+    "intent_spec_path": "spec/intents/INT-050.json",
+    "task_spec_paths": [
+      "spec/tasks/TASK-VIDEO-INGEST-001.json",
+      "spec/tasks/TASK-RUN-VIDEO-001.json",
+      "spec/tasks/TASK-BALL-DET-BASELINE-001.json",
+      "spec/tasks/TASK-RUN-VIDEO-STREAM-001.json",
+      "spec/tasks/TASK-VIDEO-TOOLS-TIMEOUT-001.json",
+      "spec/tasks/TASK-RUN-VIDEO-NULL-ASSERT-001.json",
+      "spec/tasks/TASK-DIAGNOSTICS-BALL-DETECTIONS-001.json",
+      "spec/tasks/TASK-SHOTS-GOALS-CONFIG-001.json",
+      "spec/tasks/TASK-CONTRACT-BALL-FRAMEIDX-001.json",
+      "spec/tasks/TASK-VIDEO-TOOLS-NODE-DECOUPLE-001.json",
+      "spec/tasks/TASK-BALL-DET-REGRESSION-001.json",
+      "spec/tasks/TASK-CLI-EXIT-CODES-001.json",
+      "spec/tasks/TASK-PORTAL-AUDIT-RUNS-001.json"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/video/ingest.py",
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/src/fusbal_pipeline/ball/detector.py",
+      "pipeline/src/fusbal_pipeline/ball/detections.py",
+      "pipeline/src/fusbal_pipeline/ball/tracker.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/tests/test_run_video_v1.py",
+      "pipeline/tests/test_ball_v1.py",
+      "pipeline/tests/test_video_ingest_v1.py",
+      "apps/portal/pages/internal/intents/[intentId].js",
+      "apps/portal/lib/portal_read_model.js"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 9,
+    "top_risks": [
+      "BaselineBallDetector uses stateful _prev_rgb24 buffer; concurrent or multi-threaded usage could produce undefined behavior",
+      "Blob-ratio conservatism in baseline detector may produce false negatives on small/distant balls",
+      "No integration test coverage for full run-video with real (non-synthetic) baseline detector on fixture"
+    ],
+    "top_quick_wins": [
+      "Add explicit docstring to BaselineBallDetector noting single-threaded/sequential usage requirement",
+      "Add smoke test for run-video with baseline detector enabled on small synthetic sequence",
+      "Document FUSBAL_FFPROBE_TIMEOUT_S and FUSBAL_FFMPEG_TIMEOUT_S env vars in README or CLI help"
+    ]
+  },
+  "verification": {
+    "functional": {
+      "status": "pass",
+      "notes": "All functional objectives met: video ingest is deterministic, run-video exports valid bundles, baseline detector produces non-empty detections on UAT clip, portal surfaces audit runs."
+    },
+    "nonfunctional": {
+      "correctness_safety": {
+        "status": "pass",
+        "notes": "Trust-first behavior is enforced: no hallucination, explicit missing/unknown, no shell injection."
+      },
+      "performance": {
+        "status": "pass",
+        "notes": "Streaming frame processing avoids unbounded memory growth; subsampling in detector reduces scan cost."
+      },
+      "security": {
+        "status": "pass",
+        "notes": "No shell execution; subprocess uses list args; paths are validated; no user-controlled injection risks."
+      },
+      "maintainability": {
+        "status": "pass",
+        "notes": "Clear separation of concerns; explicit error types; deterministic outputs; stable diagnostics keys."
+      },
+      "overall_status": "pass"
+    }
+  },
+  "improvements": [
+    {
+      "id": "IMP-001",
+      "title": "Add explicit thread-safety doc to BaselineBallDetector",
+      "area": "pipeline",
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "low",
+      "why": "BaselineBallDetector uses mutable _prev_rgb24 state; concurrent usage would produce undefined behavior. Documenting the single-threaded requirement prevents misuse.",
+      "proposed_changes": [
+        "Add docstring to pipeline/src/fusbal_pipeline/ball/detector.py:BaselineBallDetector noting single-threaded/sequential usage requirement",
+        "Consider adding a detector factory pattern or explicit reset() method for multi-video scenarios"
+      ]
+    },
+    {
+      "id": "IMP-002",
+      "title": "Add integration test for run-video with baseline detector enabled",
+      "area": "pipeline",
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "low",
+      "why": "Existing tests cover Null detector and unit-level baseline detector, but no integration test exercises full run-video with baseline detector on synthetic frames. This gap risks regressions.",
+      "proposed_changes": [
+        "Add test in pipeline/tests/test_run_video_v1.py that runs _run_video_write_bundle with ball_detector_enabled=True",
+        "Assert bundle contains >=1 present ball records with confidence>=0.6 on synthetic bright-pixel frames"
+      ]
+    },
+    {
+      "id": "IMP-003",
+      "title": "Document timeout env vars in CLI help or README",
+      "area": "pipeline",
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "low",
+      "why": "FUSBAL_FFPROBE_TIMEOUT_S and FUSBAL_FFMPEG_TIMEOUT_S are implemented but not discoverable; users may not know how to override defaults.",
+      "proposed_changes": [
+        "Add env var documentation to pipeline/README.md or pipeline/src/fusbal_pipeline/cli.py --help output",
+        "Consider adding --ffprobe-timeout-s and --ffmpeg-timeout-s CLI flags for ergonomics"
+      ]
+    },
+    {
+      "id": "IMP-004",
+      "title": "Add contract validation for diagnostics.frame_index monotonicity",
+      "area": "pipeline",
+      "roi_0_to_10": 7,
+      "effort": "M",
+      "risk": "low",
+      "why": "Contract requires diagnostics.frame_index for ball records, but does not validate monotonicity. Out-of-order records would indicate pipeline bugs.",
+      "proposed_changes": [
+        "Add optional pass in pipeline/src/fusbal_pipeline/contract.py:validate_tracks_jsonl to assert frame_index increases within same track_id",
+        "Make it opt-in via validate(..., strict=True) to avoid breaking existing outputs"
+      ]
+    },
+    {
+      "id": "IMP-005",
+      "title": "Add UAT fixture for baseline detector with known detections",
+      "area": "pipeline",
+      "roi_0_to_10": 7,
+      "effort": "M",
+      "risk": "low",
+      "why": "No fixture exists demonstrating expected baseline detector behavior on known-good frames. This would aid regression testing and documentation.",
+      "proposed_changes": [
+        "Create pipeline/fixtures/baseline_ball_uat/ with synthetic frames + expected detections JSON",
+        "Add test in pipeline/tests/ that runs baseline detector and asserts outputs match fixture expectations"
+      ]
+    },
+    {
+      "id": "IMP-006",
+      "title": "Add portal unit tests for listAuditRunsDeep caching behavior",
+      "area": "portal",
+      "roi_0_to_10": 6,
+      "effort": "M",
+      "risk": "low",
+      "why": "portal_read_model.js:listAuditRunsDeep uses in-memory caching with TTL, but no tests cover cache invalidation or stale reads.",
+      "proposed_changes": [
+        "Add unit tests in apps/portal/lib/__tests__/portal_read_model.test.js covering cache TTL expiry",
+        "Test that runs are re-scanned after TTL expires"
+      ]
+    },
+    {
+      "id": "IMP-007",
+      "title": "Add explicit bounds check for blob window in BaselineBallDetector",
+      "area": "pipeline",
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "low",
+      "why": "Blob window iteration uses max(0, y - win_r) and min(h, y + win_r + 1), but no explicit assertion that win_r is non-negative. Negative values could cause unexpected behavior.",
+      "proposed_changes": [
+        "Add assertion or clamp in pipeline/src/fusbal_pipeline/ball/detector.py:BaselineBallDetector.detect to ensure win_r >= 1",
+        "Document blob window radius constraints in BaselineBallDetectorConfig docstring"
+      ]
+    },
+    {
+      "id": "IMP-008",
+      "title": "Add CLI flag to write validation report after run-video",
+      "area": "pipeline",
+      "roi_0_to_10": 6,
+      "effort": "M",
+      "risk": "low",
+      "why": "run-video produces bundles but does not automatically validate them. Users must manually run `validate` after. An optional --validate flag would improve UX.",
+      "proposed_changes": [
+        "Add --validate flag to pipeline/src/fusbal_pipeline/cli.py:cmd_run_video_v1",
+        "After bundle export, call validate_bundle_layout + validate_tracks_jsonl + validate_events_json if flag is set",
+        "Write validation report to bundle/validation_report.json with pass/fail + error list"
+      ]
+    },
+    {
+      "id": "IMP-009",
+      "title": "Add explicit version constraint for ffmpeg/ffprobe in error messages",
+      "area": "pipeline",
+      "roi_0_to_10": 5,
+      "effort": "S",
+      "risk": "low",
+      "why": "Error messages suggest installing ffmpeg/ffprobe but do not specify minimum version. Old versions may not support required options (e.g., -f rawvideo -pix_fmt rgb24).",
+      "proposed_changes": [
+        "Add version check in pipeline/src/fusbal_pipeline/video/ingest.py:_require_tool using ffprobe -version output",
+        "Raise VideoIngestError if version < 4.0 (or other known-good threshold) with actionable guidance"
+      ]
+    },
+    {
+      "id": "IMP-010",
+      "title": "Add deterministic sort order for events.json within same t_ms",
+      "area": "pipeline",
+      "roi_0_to_10": 5,
+      "effort": "M",
+      "risk": "medium",
+      "why": "Contract requires deterministic outputs, but events at same t_ms may not have stable sort order if inference emits them in dict iteration order. This could break determinism assertions.",
+      "proposed_changes": [
+        "Add explicit sort in pipeline/src/fusbal_pipeline/cli.py before writing events.json",
+        "Sort by (t_ms, event_type, confidence desc, evidence[0].artifact_id) to ensure stable ordering",
+        "Add test in pipeline/tests/test_events_v1.py asserting two runs produce identical events.json bytes"
+      ]
+    }
+  ]
+}

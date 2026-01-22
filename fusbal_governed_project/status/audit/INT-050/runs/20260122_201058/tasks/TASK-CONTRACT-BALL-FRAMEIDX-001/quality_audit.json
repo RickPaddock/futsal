@@ -1,0 +1,71 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-050",
+  "run_id": "20260122_201058",
+  "task_id": "TASK-CONTRACT-BALL-FRAMEIDX-001",
+  "timestamp": "2026-01-22T20:13:30Z",
+  "functional": {
+    "status": "pass",
+    "notes": "Contract validator requires diagnostics.frame_index for all ball track records. Pipeline emitters comply.",
+    "evidence": [
+      "pipeline/src/fusbal_pipeline/contract.py:validate_track_record_v1 enforces frame_index for ball records",
+      "pipeline/src/fusbal_pipeline/ball/detections.py:emit_ball_detections_v1 includes FRAME_INDEX in diagnostics",
+      "pipeline/src/fusbal_pipeline/ball/tracker.py:BallTracker includes FRAME_INDEX in all emitted records"
+    ],
+    "findings": []
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "notes": "Contract hardening improves audit traceability; no silent violations.",
+      "evidence": [
+        "pipeline/tests/test_contract_validation.py covers negative-path validation"
+      ],
+      "findings": []
+    },
+    "performance": {
+      "status": "pass",
+      "notes": "Validation overhead is negligible; single dict key check.",
+      "evidence": [],
+      "findings": []
+    },
+    "security": {
+      "status": "pass",
+      "notes": "No security implications; purely structural validation.",
+      "evidence": [],
+      "findings": []
+    },
+    "maintainability": {
+      "status": "pass",
+      "notes": "Clear requirement aids debugging; diagnostics are explicit.",
+      "evidence": [
+        "pipeline/src/fusbal_pipeline/diagnostics_keys.py defines FRAME_INDEX constant"
+      ],
+      "findings": []
+    },
+    "overall_status": "pass"
+  },
+  "gate": {
+    "status": "pass",
+    "blockers": []
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-CONTRACT-BALL-FRAMEIDX-001.json",
+    "deliverable_paths": [
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/tests/test_contract_validation.py",
+      "pipeline/src/fusbal_pipeline/ball/detections.py",
+      "pipeline/src/fusbal_pipeline/ball/tracker.py"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/src/fusbal_pipeline/ball/detections.py",
+      "pipeline/src/fusbal_pipeline/ball/tracker.py"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 9,
+    "notes": "Clean contract hardening with full implementation compliance."
+  }
+}

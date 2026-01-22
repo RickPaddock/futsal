@@ -1,7 +1,7 @@
 {
   "intent_id": "INT-050",
   "title": "Video ingest → plumbing proof → baseline real detections (UAT)",
-  "status": "todo",
+  "status": "closed",
   "created_date": "2026-01-22",
   "runbooks": {
     "decision": "none",
@@ -54,6 +54,11 @@
     "TASK-VIDEO-INGEST-001",
     "TASK-RUN-VIDEO-001",
     "TASK-BALL-DET-BASELINE-001",
+    "TASK-BALL-DET-UAT-FIXTURE-SYNTH-001",
+    "TASK-EVENTS-DETERMINISTIC-SORT-001",
+    "TASK-VALIDATE-STRICT-AND-REPORT-001",
+    "TASK-VIDEO-TOOLS-VERSION-DIAGNOSTICS-001",
+    "TASK-PORTAL-READMODEL-CACHE-TEST-001",
     "TASK-RUN-VIDEO-STREAM-001",
     "TASK-VIDEO-TOOLS-TIMEOUT-001",
     "TASK-RUN-VIDEO-NULL-ASSERT-001",
@@ -73,6 +78,7 @@
         "TASK-VIDEO-INGEST-001",
         "TASK-RUN-VIDEO-001",
         "TASK-BALL-DET-BASELINE-001",
+        "TASK-BALL-DET-UAT-FIXTURE-SYNTH-001",
         "TASK-SHOTS-GOALS-CONFIG-001",
         "TASK-PORTAL-AUDIT-RUNS-001"
       ],
@@ -93,6 +99,10 @@
         "maintainability"
       ],
       "task_ids": [
+        "TASK-EVENTS-DETERMINISTIC-SORT-001",
+        "TASK-VALIDATE-STRICT-AND-REPORT-001",
+        "TASK-VIDEO-TOOLS-VERSION-DIAGNOSTICS-001",
+        "TASK-PORTAL-READMODEL-CACHE-TEST-001",
         "TASK-RUN-VIDEO-STREAM-001",
         "TASK-VIDEO-TOOLS-TIMEOUT-001",
         "TASK-RUN-VIDEO-NULL-ASSERT-001",
@@ -123,13 +133,18 @@
       "work_package_id": "INT-050-002",
       "title": "Baseline real detections (UAT)",
       "items": [
-        "TASK-BALL-DET-BASELINE-001 Baseline local ball detector producing non-empty detections on the provided clip with confidence/diagnostics."
+        "TASK-BALL-DET-BASELINE-001 Baseline local ball detector producing non-empty detections on the provided clip with confidence/diagnostics.",
+        "TASK-BALL-DET-UAT-FIXTURE-SYNTH-001 Add a compact synthetic fixture spec + test to validate baseline present outputs without committing real video."
       ]
     },
     {
       "work_package_id": "INT-050-003",
       "title": "Hardening + portal UX",
       "items": [
+        "TASK-EVENTS-DETERMINISTIC-SORT-001 Sort events deterministically before writing events.json.",
+        "TASK-VALIDATE-STRICT-AND-REPORT-001 Add validate --strict and emit validation_report.json from run-video.",
+        "TASK-VIDEO-TOOLS-VERSION-DIAGNOSTICS-001 Capture and gate ffmpeg/ffprobe versions in diagnostics.",
+        "TASK-PORTAL-READMODEL-CACHE-TEST-001 Add a unit test for portal audit-run listing cache behavior.",
         "TASK-RUN-VIDEO-STREAM-001 Stream run-video to reduce memory usage.",
         "TASK-VIDEO-TOOLS-TIMEOUT-001 Add video tooling timeouts and better stderr surfacing.",
         "TASK-RUN-VIDEO-NULL-ASSERT-001 Strengthen tests: detector disabled → zero present.",
@@ -142,5 +157,6 @@
         "TASK-PORTAL-AUDIT-RUNS-001 Show latest audit run summaries on the portal intent page."
       ]
     }
-  ]
+  ],
+  "closed_date": "2026-01-22"
 }

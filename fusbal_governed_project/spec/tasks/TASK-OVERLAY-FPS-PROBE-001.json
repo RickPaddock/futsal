@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-OVERLAY-FPS-PROBE-001",
+  "intent_id": "INT-060",
+  "title": "Overlay: probe fps from video metadata when omitted",
+  "status": "done",
+  "scope": [
+    "Reduce user error by probing fps from the input video when --fps is not provided.",
+    "Keep behavior deterministic for a given video file and explicit when probing fails."
+  ],
+  "acceptance": [
+    "render-overlay accepts --fps as optional; when omitted, fps is obtained from deterministic metadata probing.",
+    "If fps cannot be determined, command fails with an actionable message.",
+    "Unit tests cover deterministic selection behavior (provided fps vs probed fps)."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-OVERLAY-FPS-PROBE-001-001",
+      "title": "CLI wiring + metadata probing",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/cli.py",
+        "pipeline/src/fusbal_pipeline/video/ingest.py"
+      ],
+      "acceptance": [
+        "fps probing uses existing ingest metadata probe and does not require real video in tests (mocking allowed)."
+      ],
+      "evidence": [
+        "Unit tests pass and guardrails remain green."
+      ]
+    }
+  ]
+}

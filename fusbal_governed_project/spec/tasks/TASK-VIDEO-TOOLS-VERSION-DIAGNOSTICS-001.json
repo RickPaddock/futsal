@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-VIDEO-TOOLS-VERSION-DIAGNOSTICS-001",
+  "intent_id": "INT-050",
+  "title": "Capture and gate ffmpeg/ffprobe versions in ingest diagnostics",
+  "status": "done",
+  "scope": [
+    "Capture best-effort ffmpeg/ffprobe version strings into ingest diagnostics for audit/debugging.",
+    "If a parseable version is too old, fail fast with an actionable error."
+  ],
+  "acceptance": [
+    "Video ingest diagnostics include `ffprobe_version` and `ffmpeg_version` when tools are available.",
+    "A minimum supported version is enforced only when the version can be parsed (do not fail solely because version probing is unavailable).",
+    "Diagnostics remain deterministic and compact (no long multi-line tool output)."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-VIDEO-TOOLS-VERSION-DIAGNOSTICS-001-001",
+      "title": "Version probing + minimum-version gating",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/video/ingest.py"
+      ],
+      "acceptance": [
+        "Ingest records tool versions and rejects parseably-too-old versions." 
+      ],
+      "evidence": [
+        "Unit/integration tests continue to pass; negative path can be exercised manually by pointing env override to an older binary if available."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-VIDEO-TOOLS-VERSION-DIAGNOSTICS-001-001",
+      "title": "Probe tool version and attach to diagnostics.",
+      "status": "done",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_VIDEO_TOOLS_VERSION_001.SUB_001",
+      "done_when": [
+        "ffmpeg/ffprobe versions appear in diagnostics when probed successfully."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-VIDEO-TOOLS-VERSION-DIAGNOSTICS-001-002",
+      "title": "Enforce minimum parseable version.",
+      "status": "done",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_VIDEO_TOOLS_VERSION_001.SUB_002",
+      "done_when": [
+        "Too-old tools fail with a clear error and an explicit exit code."
+      ]
+    }
+  ]
+}

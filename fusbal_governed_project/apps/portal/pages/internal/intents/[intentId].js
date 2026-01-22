@@ -123,10 +123,36 @@ export async function getServerSideProps(ctx) {
   const preflightReportInfo = latestJsonUnderRuns({ candidates: ["preflight/preflight_report.json"] });
   const preflightSummary = findLatestPreflightReportInfo(repoRoot, intentId);
 
+  function findLatestOverlayArtefacts() {
+    const runIds = [...new Set((runs || []).map((r) => String(r?.run_id || "")).filter(Boolean))];
+    for (const runId of runIds) {
+      const candidates = [
+        `status/audit/${intentId}/runs/${runId}/overlay.mp4`,
+        `status/audit/${intentId}/runs/${runId}/overlay/overlay.mp4`,
+        `status/audit/${intentId}/runs/${runId}/overlay_render_report.json`,
+        `status/audit/${intentId}/runs/${runId}/overlay/overlay_render_report.json`,
+      ];
+
+      let mp4Rel = null;
+      let repRel = null;
+      for (const rel of candidates) {
+        const abs = path.join(repoRoot, rel);
+        if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) continue;
+        if (rel.endsWith(".mp4")) mp4Rel = relPosix(rel);
+        if (rel.endsWith("overlay_render_report.json")) repRel = relPosix(rel);
+      }
+
+      if (mp4Rel || repRel) return { runId, mp4Rel, repRel };
+    }
+    return null;
+  }
+
+  const overlayInfo = findLatestOverlayArtefacts();
+
   const feedTaskIds = Array.isArray(feedIntent?.tasks) ? feedIntent.tasks.map((t) => String(t.task_id || "")).filter(Boolean) : [];
   const missingFromFeed = plannedTaskIds.filter((tid) => !feedTaskIds.includes(tid));
 
-  return { props: { intentId, feedIntent, intentSpec, tasks, scope, workPackages, md, runs, readiness, qualityRunId, auditReportInfo, qualityReportInfo, preflightReportInfo, preflightSummary, perTask, missingFromFeed, csrfToken } };
+  return { props: { intentId, feedIntent, intentSpec, tasks, scope, workPackages, md, runs, readiness, qualityRunId, auditReportInfo, qualityReportInfo, preflightReportInfo, preflightSummary, perTask, missingFromFeed, overlayInfo, csrfToken } };
 }
 
 function PromptOverlay({ title, kind, defaultIntentId, defaultRunId, defaultClosedDate, onClose }) {
@@ -214,7 +240,7 @@ function PromptOverlay({ title, kind, defaultIntentId, defaultRunId, defaultClos
   );
 }
 
-export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, scope, workPackages, md, runs, readiness, qualityRunId, auditReportInfo, qualityReportInfo, preflightReportInfo, preflightSummary, perTask, missingFromFeed, csrfToken }) {
+export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, scope, workPackages, md, runs, readiness, qualityRunId, auditReportInfo, qualityReportInfo, preflightReportInfo, preflightSummary, perTask, missingFromFeed, overlayInfo, csrfToken }) {
   const router = useRouter();
   const requirements = feedIntent?.requirements_in_scope || [];
   const tasksDone = tasks.filter((t) => String(t?.status || "").trim() === "done").length;
@@ -471,6 +497,30 @@ export default function IntentDetail({ intentId, feedIntent, intentSpec, tasks, 
             </span>
           </div>
         ) : <div className="muted">No quality_audit.json found in status/audit.</div>}
+
+        <h2 style={{ marginTop: 16 }}>Overlay</h2>
+        {overlayInfo ? (
+          <>
+            {overlayInfo.mp4Rel ? (
+              <div className="kv">
+                <span>Latest overlay.mp4</span>
+                <span>
+                  <a href={`/api/internal/file?rel=${encodeURIComponent(overlayInfo.mp4Rel)}`} target="_blank" rel="noreferrer">view</a>
+                  {" "}
+                  <span className="muted">({String(overlayInfo.runId || "")})</span>
+                </span>
+              </div>
+            ) : <div className="muted">No overlay.mp4 found under recent runs.</div>}
+            {overlayInfo.repRel ? (
+              <div className="kv">
+                <span>Latest overlay_render_report.json</span>
+                <span>
+                  <a href={`/api/internal/file?rel=${encodeURIComponent(overlayInfo.repRel)}`} target="_blank" rel="noreferrer">raw</a>
+                </span>
+              </div>
+            ) : null}
+          </>
+        ) : <div className="muted">No overlay artefacts found in status/audit runs.</div>}
 
         <h3 style={{ marginTop: 16 }}>Per-task quality audits</h3>
         

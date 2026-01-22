@@ -1,0 +1,219 @@
+{
+  "type": "intent_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-050",
+  "run_id": "20260122_214612",
+  "timestamp": "2026-01-22T21:48:49Z",
+  "scope": {
+    "areas_in_scope": [
+      "pipeline",
+      "portal",
+      "scripts",
+      "tools"
+    ]
+  },
+  "audit_inputs": {
+    "intent_spec_path": "spec/intents/INT-050.json",
+    "task_spec_paths": [
+      "spec/tasks/TASK-VIDEO-INGEST-001.json",
+      "spec/tasks/TASK-RUN-VIDEO-001.json",
+      "spec/tasks/TASK-BALL-DET-BASELINE-001.json",
+      "spec/tasks/TASK-BALL-DET-UAT-FIXTURE-SYNTH-001.json",
+      "spec/tasks/TASK-EVENTS-DETERMINISTIC-SORT-001.json",
+      "spec/tasks/TASK-VALIDATE-STRICT-AND-REPORT-001.json",
+      "spec/tasks/TASK-VIDEO-TOOLS-VERSION-DIAGNOSTICS-001.json",
+      "spec/tasks/TASK-PORTAL-READMODEL-CACHE-TEST-001.json",
+      "spec/tasks/TASK-RUN-VIDEO-STREAM-001.json",
+      "spec/tasks/TASK-VIDEO-TOOLS-TIMEOUT-001.json",
+      "spec/tasks/TASK-RUN-VIDEO-NULL-ASSERT-001.json",
+      "spec/tasks/TASK-DIAGNOSTICS-BALL-DETECTIONS-001.json",
+      "spec/tasks/TASK-SHOTS-GOALS-CONFIG-001.json",
+      "spec/tasks/TASK-CONTRACT-BALL-FRAMEIDX-001.json",
+      "spec/tasks/TASK-VIDEO-TOOLS-NODE-DECOUPLE-001.json",
+      "spec/tasks/TASK-BALL-DET-REGRESSION-001.json",
+      "spec/tasks/TASK-CLI-EXIT-CODES-001.json",
+      "spec/tasks/TASK-PORTAL-AUDIT-RUNS-001.json"
+    ],
+    "code_paths_reviewed": [
+      "spec/intents/INT-050.json",
+      "spec/tasks/TASK-VIDEO-INGEST-001.json",
+      "spec/tasks/TASK-RUN-VIDEO-001.json",
+      "spec/tasks/TASK-BALL-DET-BASELINE-001.json",
+      "spec/tasks/TASK-BALL-DET-UAT-FIXTURE-SYNTH-001.json",
+      "spec/tasks/TASK-EVENTS-DETERMINISTIC-SORT-001.json",
+      "spec/tasks/TASK-VALIDATE-STRICT-AND-REPORT-001.json",
+      "spec/tasks/TASK-VIDEO-TOOLS-VERSION-DIAGNOSTICS-001.json",
+      "spec/tasks/TASK-PORTAL-READMODEL-CACHE-TEST-001.json",
+      "spec/tasks/TASK-RUN-VIDEO-STREAM-001.json",
+      "spec/tasks/TASK-VIDEO-TOOLS-TIMEOUT-001.json",
+      "spec/tasks/TASK-RUN-VIDEO-NULL-ASSERT-001.json",
+      "spec/tasks/TASK-DIAGNOSTICS-BALL-DETECTIONS-001.json",
+      "spec/tasks/TASK-SHOTS-GOALS-CONFIG-001.json",
+      "spec/tasks/TASK-CONTRACT-BALL-FRAMEIDX-001.json",
+      "spec/tasks/TASK-VIDEO-TOOLS-NODE-DECOUPLE-001.json",
+      "spec/tasks/TASK-BALL-DET-REGRESSION-001.json",
+      "spec/tasks/TASK-CLI-EXIT-CODES-001.json",
+      "spec/tasks/TASK-PORTAL-AUDIT-RUNS-001.json",
+      "pipeline/src/fusbal_pipeline/video/ingest.py",
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/src/fusbal_pipeline/ball/detector.py",
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/src/fusbal_pipeline/events/shots_goals.py",
+      "apps/portal/lib/portal_read_model.js",
+      "apps/portal/pages/internal/intents/[intentId].js"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 8,
+    "top_risks": [
+      "record_run evidence JSON may omit timestamps/status, affecting portal ordering.",
+      "Timeout paths for ffmpeg/ffprobe are not fully unit-tested."
+    ],
+    "top_quick_wins": [
+      "Fix tools/evidence/record_run.mjs to always populate timestamps.",
+      "Add focused tests for timeout behavior in ingest."
+    ]
+  },
+  "verification": {
+    "functional": {
+      "status": "pass"
+    },
+    "nonfunctional": {
+      "correctness_safety": {
+        "status": "pass"
+      },
+      "performance": {
+        "status": "pass"
+      },
+      "security": {
+        "status": "pass"
+      },
+      "maintainability": {
+        "status": "pass"
+      },
+      "overall_status": "pass"
+    }
+  },
+  "improvements": [
+    {
+      "id": "IMP-001",
+      "title": "Populate record_run timestamps/status in run.json for correct portal ordering",
+      "area": "tools",
+      "roi_0_to_10": 10,
+      "effort": "S",
+      "risk": "low",
+      "why": "run.json timestamp fields are often missing, breaking latest-run ordering and audit traceability.",
+      "proposed_changes": [
+        "tools/evidence/record_run.mjs: populate type/status/timestamp_start/timestamp_end/success"
+      ]
+    },
+    {
+      "id": "IMP-002",
+      "title": "Add tests for ffprobe/ffmpeg timeout and decode-failure exit codes",
+      "area": "pipeline",
+      "roi_0_to_10": 9,
+      "effort": "S",
+      "risk": "low",
+      "why": "Timeout behavior is implemented but not fully test-covered; regressions would reduce audit reliability.",
+      "proposed_changes": [
+        "pipeline/tests/test_video_ingest_v1.py: add timeout coverage for FUSBAL_FFPROBE_TIMEOUT_S and FUSBAL_FFMPEG_READ_TIMEOUT_S"
+      ]
+    },
+    {
+      "id": "IMP-003",
+      "title": "Guardrail to prevent null generated intent surfaces (scope/work_packages)",
+      "area": "guardrails",
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "low",
+      "why": "Null generated surfaces degrade portal readiness and work-package visibility.",
+      "proposed_changes": [
+        "scripts/guardrails/validate_repository.mjs: fail if status/intents/*/scope.json core fields are null"
+      ]
+    },
+    {
+      "id": "IMP-004",
+      "title": "Index audit runs to avoid deep directory scanning on every refresh",
+      "area": "portal",
+      "roi_0_to_10": 7,
+      "effort": "M",
+      "risk": "low",
+      "why": "Recursive scanning will slow as history grows.",
+      "proposed_changes": [
+        "apps/portal/lib/portal_read_model.js:63: add index file-based scan"
+      ]
+    },
+    {
+      "id": "IMP-005",
+      "title": "Harden portal filesystem reads with size limits and surfaced parse errors",
+      "area": "portal",
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "medium",
+      "why": "safeReadJson swallows parse errors and reads whole files; large/corrupt artefacts can cause silent failures.",
+      "proposed_changes": [
+        "apps/portal/lib/portal_read_model.js:18: add size cap and structured error return"
+      ]
+    },
+    {
+      "id": "IMP-006",
+      "title": "Make run-video validation strictness configurable via CLI flags",
+      "area": "pipeline",
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "low",
+      "why": "run-video always validates with strict=false; strict mode improves correctness gates without changing defaults.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/cli.py: add --strict for run-video and pass through to collect_bundle_validation_errors"
+      ]
+    },
+    {
+      "id": "IMP-007",
+      "title": "Add schema validation for diagnostics artefacts (ball_detections.jsonl)",
+      "area": "pipeline",
+      "roi_0_to_10": 6,
+      "effort": "M",
+      "risk": "low",
+      "why": "Diagnostics JSONL is relied on for audits but only implicitly structured.",
+      "proposed_changes": [
+        "pipeline/schemas/: add diagnostics schema; validate on validate --strict"
+      ]
+    },
+    {
+      "id": "IMP-008",
+      "title": "Improve tool-path override validation (executable bit + normalization)",
+      "area": "pipeline",
+      "roi_0_to_10": 5,
+      "effort": "S",
+      "risk": "low",
+      "why": "Overrides accept any file path; checking executability improves safety and error clarity.",
+      "proposed_changes": [
+        "pipeline/src/fusbal_pipeline/video/ingest.py:87: verify X_OK for override paths"
+      ]
+    },
+    {
+      "id": "IMP-009",
+      "title": "Add unit tests for deterministic event ordering edge cases",
+      "area": "pipeline",
+      "roi_0_to_10": 5,
+      "effort": "S",
+      "risk": "low",
+      "why": "Tie-breaker ordering is important; tests prevent subtle nondeterminism regressions.",
+      "proposed_changes": [
+        "pipeline/tests/test_events_v1.py: add tie-breaker cases"
+      ]
+    },
+    {
+      "id": "IMP-010",
+      "title": "Remove OS-specific artefacts from pipeline tree via guardrails",
+      "area": "guardrails",
+      "roi_0_to_10": 4,
+      "effort": "S",
+      "risk": "low",
+      "why": "OS artefacts create noisy diffs and can confuse tooling.",
+      "proposed_changes": [
+        "scripts/guardrails/validate_repository.mjs: flag .DS_Store and similar"
+      ]
+    }
+  ]
+}

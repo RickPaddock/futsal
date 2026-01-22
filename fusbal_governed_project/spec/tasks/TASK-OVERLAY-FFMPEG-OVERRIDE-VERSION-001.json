@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-OVERLAY-FFMPEG-OVERRIDE-VERSION-001",
+  "intent_id": "INT-060",
+  "title": "Overlay: ffmpeg path override + version capture",
+  "status": "done",
+  "scope": [
+    "Support ffmpeg path override via environment variable for controlled environments.",
+    "Capture best-effort ffmpeg version string for reporting/debugging."
+  ],
+  "acceptance": [
+    "Overlay renderer uses PATH or FUSBAL_FFMPEG_PATH override.",
+    "A best-effort ffmpeg version first-line is captured and surfaced in reporting/logging (without failing if probing fails).",
+    "Unit tests cover override behavior via mocking." 
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-OVERLAY-FFMPEG-OVERRIDE-VERSION-001-001",
+      "title": "Override + version probing",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py",
+        "pipeline/tests/test_overlay_render.py"
+      ],
+      "acceptance": [
+        "Missing ffmpeg errors mention PATH/override and include install guidance." 
+      ],
+      "evidence": [
+        "pytest green." 
+      ]
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/intents/INT-020.json
-source_sha256: sha256:93d722ad5a29171d8a387d25a5878390c65bf06d4b843d861a51f6c89a865a18
+source_sha256: sha256:b606cdcb828c82dd3a483a3a1d612a5f2361fb877bac492f4bbf331d612bf7e0
 intent_id: INT-020
 title: Calibration + BEV mapping MVP
 status: closed
@@ -31,7 +31,7 @@ close_gate:
 
 ## Runbooks (LLM navigation)
 
-- Decision: `create`
+- Decision: `update`
 - Templates: `spec/md/docs/runbooks/calibration-and-bev.mdt`
 - Notes: This intent introduces calibration input records, pitch templates, auto-fit diagnostics, and trust-first BEV gating. A runbook is required so future LLMs/humans can navigate and reproduce calibration workflows safely.
 

@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-EVENTS-DETERMINISTIC-SORT-001",
+  "intent_id": "INT-050",
+  "title": "Deterministic ordering for events.json",
+  "status": "done",
+  "scope": [
+    "Ensure any non-empty events emitted by the pipeline are written in a deterministic, stable order.",
+    "Avoid introducing semantic changes to event content; only ordering is affected."
+  ],
+  "acceptance": [
+    "`events.json` ordering is stable across runs with identical inputs/config.",
+    "Sorting key is explicit and based only on event fields present in the contract (e.g., t_ms, entity_type, event_type, event_id)."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-EVENTS-DETERMINISTIC-SORT-001-001",
+      "title": "Event sorting helper integrated into writers",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/cli.py"
+      ],
+      "acceptance": [
+        "Events are sorted before writing in run-fixture and run-video paths."
+      ],
+      "evidence": [
+        "Existing determinism tests continue to pass (tracks and events identical byte-for-byte)."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-EVENTS-DETERMINISTIC-SORT-001-001",
+      "title": "Add stable event sort key and apply to all writers.",
+      "status": "done",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.PIPELINE.TASK_EVENTS_DET_SORT_001.SUB_001",
+      "done_when": [
+        "Non-empty events.json is stable across identical runs."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "type": "task_quality_audit_report",
+  "schema_version": 1,
+  "intent_id": "INT-050",
+  "run_id": "20260122_214612",
+  "task_id": "TASK-CONTRACT-BALL-FRAMEIDX-001",
+  "timestamp": "2026-01-22T21:48:49Z",
+  "functional": {
+    "status": "pass",
+    "evidence": [
+      "status/audit/INT-050/runs/20260122_214612/audit/audit_report.json",
+      "status/audit/INT-050/runs/20260122_214612/guardrails/run.json"
+    ],
+    "findings": [
+      "Contract validates tracks/events and enforces ball diagnostics.frame_index: pipeline/src/fusbal_pipeline/contract.py:313"
+    ]
+  },
+  "nonfunctional": {
+    "correctness_safety": {
+      "status": "pass",
+      "evidence": [
+        "status/audit/INT-050/runs/20260122_214612/audit/audit_report.json",
+        "status/audit/INT-050/runs/20260122_214612/guardrails/run.json"
+      ],
+      "findings": [
+        "Optional strict monotonicity check for ball frame_index: pipeline/src/fusbal_pipeline/contract.py:462"
+      ]
+    },
+    "performance": {
+      "status": "pass",
+      "evidence": [
+        "status/audit/INT-050/runs/20260122_214612/audit/audit_report.json",
+        "status/audit/INT-050/runs/20260122_214612/guardrails/run.json"
+      ],
+      "findings": []
+    },
+    "security": {
+      "status": "pass",
+      "evidence": [
+        "status/audit/INT-050/runs/20260122_214612/audit/audit_report.json",
+        "status/audit/INT-050/runs/20260122_214612/guardrails/run.json"
+      ],
+      "findings": []
+    },
+    "maintainability": {
+      "status": "pass",
+      "evidence": [
+        "status/audit/INT-050/runs/20260122_214612/audit/audit_report.json",
+        "status/audit/INT-050/runs/20260122_214612/guardrails/run.json"
+      ],
+      "findings": []
+    },
+    "overall_status": "pass"
+  },
+  "gate": {
+    "status": "pass",
+    "blockers": []
+  },
+  "audit_inputs": {
+    "task_spec_path": "spec/tasks/TASK-CONTRACT-BALL-FRAMEIDX-001.json",
+    "deliverable_paths": [
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/tests/test_contract_validation.py",
+      "pipeline/src/fusbal_pipeline/ball/detections.py",
+      "pipeline/src/fusbal_pipeline/ball/tracker.py"
+    ],
+    "code_paths_reviewed": [
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/tests/test_contract_validation.py",
+      "pipeline/src/fusbal_pipeline/ball/detections.py",
+      "pipeline/src/fusbal_pipeline/ball/tracker.py",
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/src/fusbal_pipeline/video/ingest.py"
+    ]
+  },
+  "summary": {
+    "overall_health_0_to_10": 8
+  }
+}

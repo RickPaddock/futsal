@@ -1,0 +1,30 @@
+{
+  "run_id": "20260122_214317",
+  "timestamp_start": "2026-01-22T21:43:48Z",
+  "timestamp_end": "2026-01-22T21:43:49Z",
+  "command": "npm run guardrails",
+  "args": [
+    "npm",
+    "run",
+    "guardrails"
+  ],
+  "exit_code": 0,
+  "cwd": ".",
+  "actor": "human",
+  "intent_id": "INT-060",
+  "artefacts": [],
+  "stage": "guardrails",
+  "run_json_path": "status/audit/INT-060/runs/20260122_214317/guardrails/run.json",
+  "git": {
+    "sha": "4a4babffe69f40995919ca6820e33b29a11a6cb9",
+    "dirty": true,
+    "branch": "steve"
+  },
+  "environment": {
+    "node_version": "v24.3.0",
+    "platform": "darwin",
+    "arch": "x64",
+    "timestamp_collected": "2026-01-22T21:43:49Z"
+  },
+  "stdout": "\n> guardrails\n> node scripts/guardrails/validate_repository.mjs\n\n[generate] ok\n✓ guardrails ok\n"
+}
