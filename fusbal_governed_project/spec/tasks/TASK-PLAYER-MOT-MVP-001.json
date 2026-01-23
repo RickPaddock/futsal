@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-PLAYER-MOT-MVP-001",
+  "intent_id": "INT-071",
+  "title": "Player MOT: swap-avoidant tracking and segmentation",
+  "status": "todo",
+  "scope": [
+    "Implement/extend multi-object tracking for players with a swap-avoidant policy (break over swap).",
+    "Bound state and enforce deterministic ordering.",
+    "Emit explicit break_reason when segments end due to ambiguity."
+  ],
+  "acceptance": [
+    "Tracker produces track segments and ends segments on ambiguous association (no swaps).",
+    "Tracker is deterministic for fixed inputs (stable ordering and IDs as defined).",
+    "Contract validation enforces segment/break semantics."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-PLAYER-MOT-MVP-001-001",
+      "title": "Swap-avoidant player MOT implementation",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/player/mot.py",
+        "pipeline/src/fusbal_pipeline/player/track_types.py"
+      ],
+      "acceptance": [
+        "MOT prefers breaks to swaps and emits break_reason consistently.",
+        "Config is explicit and bounded (no runaway track state)."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-PLAYER-MOT-MVP-001-002",
+      "title": "Unit tests for no-swap behavior",
+      "paths": [
+        "pipeline/tests/test_player_mot_swap_avoidant.py"
+      ],
+      "acceptance": [
+        "Tests cover ambiguous association → break, not swap."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-PLAYER-MOT-MVP-001-001",
+      "title": "Implement swap-avoidant association and break semantics.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_PLAYER_MOT_001.SUB_001",
+      "done_when": [
+        "MOT ends segments on ambiguity and emits break_reason.",
+        "Track IDs are stable and deterministic under defined rules."
+      ]
+    }
+  ]
+}
+

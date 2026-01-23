@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-HIGHLIGHTS-CLIPS-MVP-001",
+  "intent_id": "INT-075",
+  "title": "Export highlight clips for shot/goal candidates",
+  "status": "todo",
+  "scope": [
+    "Given events.json candidates, export short highlight clips from the input video.",
+    "Keep clip extraction deterministic (time windows, encoding settings).",
+    "Record clip metadata and link it from the report."
+  ],
+  "acceptance": [
+    "A CLI path exports clips for candidate shots/goals to the bundle.",
+    "Clip windows are deterministic and documented in diagnostics.",
+    "If video tooling is unavailable, failures are actionable."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-HIGHLIGHTS-CLIPS-MVP-001-001",
+      "title": "Highlight clip exporter",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/highlights/clips.py",
+        "pipeline/src/fusbal_pipeline/cli.py"
+      ],
+      "acceptance": [
+        "Exporter writes clip mp4 files under the bundle and a metadata JSON.",
+        "Exporter is deterministic and bounded by timeouts."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-HIGHLIGHTS-CLIPS-MVP-001-001",
+      "title": "Implement deterministic clip extraction and metadata writing.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_HIGHLIGHTS_CLIPS_001.SUB_001",
+      "done_when": [
+        "highlights/clips.py exists and exports mp4 clips deterministically.",
+        "Metadata includes event_id, time window, and output paths."
+      ]
+    }
+  ]
+}
+

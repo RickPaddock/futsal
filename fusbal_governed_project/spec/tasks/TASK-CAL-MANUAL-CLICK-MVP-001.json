@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-CAL-MANUAL-CLICK-MVP-001",
+  "intent_id": "INT-073",
+  "title": "Manual calibration fallback (click points) with persisted artifact",
+  "status": "todo",
+  "scope": [
+    "Provide a minimal manual fallback for calibration when auto-fit fails (click correspondences).",
+    "Persist a reusable calibration artifact per venue/camera.",
+    "Validate inputs strictly and emit clear errors."
+  ],
+  "acceptance": [
+    "A manual correspondences format is accepted and validated.",
+    "Calibration succeeds deterministically when correspondences are valid.",
+    "Artifact can be reused for future runs with the same static camera."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-CAL-MANUAL-CLICK-MVP-001-001",
+      "title": "Manual calibration flow and validator",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/calibration/manual.py",
+        "pipeline/src/fusbal_pipeline/calibration/inputs.py"
+      ],
+      "acceptance": [
+        "Manual correspondences are validated and produce a deterministic calibration output.",
+        "Errors are actionable (missing points, out-of-bounds, wrong schema_version)."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-CAL-MANUAL-CLICK-MVP-001-001",
+      "title": "Implement manual correspondences validation and calibration output.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_CAL_MANUAL_CLICK_001.SUB_001",
+      "done_when": [
+        "manual.py accepts correspondences and emits calibration results deterministically.",
+        "inputs.py validates schema and correspondence bounds."
+      ]
+    }
+  ]
+}
+

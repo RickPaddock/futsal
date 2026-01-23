@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-PORTAL-ARTIFACTS-MVP-001",
+  "intent_id": "INT-079",
+  "title": "Portal: artifact links for overlay/report/bev with missing reasons",
+  "status": "todo",
+  "scope": [
+    "Surface artifact links for overlay.mp4, report.html/report.json, bev.mp4 (when present).",
+    "Show explicit missing_reason when artifacts are missing (e.g., bev gated).",
+    "Support local filesystem evidence runs and cloud URIs (rendered as links)."
+  ],
+  "acceptance": [
+    "Portal intent/run pages show a consistent artifact panel.",
+    "Missing artifacts show reasons, not just absence.",
+    "Artifact links are safe and only point to allowed locations."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-PORTAL-ARTIFACTS-MVP-001-001",
+      "title": "Portal artifact panel component",
+      "paths": [
+        "apps/portal/components/ArtifactsPanel.js",
+        "apps/portal/pages/internal/intents/[intentId].js"
+      ],
+      "acceptance": [
+        "Artifacts panel renders present/missing entries consistently.",
+        "Panel displays missing_reason for missing artifacts."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-PORTAL-ARTIFACTS-MVP-001-001",
+      "title": "Implement artifacts panel and integrate into intent page.",
+      "status": "todo",
+      "area": "portal",
+      "provenance_prefix": "FUSBAL.MVP.TASK_PORTAL_ARTIFACTS_001.SUB_001",
+      "done_when": [
+        "ArtifactsPanel.js exists and is used on intent/run pages.",
+        "Panel displays missing reasons from manifest/summary."
+      ]
+    }
+  ]
+}
+

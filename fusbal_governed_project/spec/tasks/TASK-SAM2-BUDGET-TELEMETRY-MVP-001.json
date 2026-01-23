@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-SAM2-BUDGET-TELEMETRY-MVP-001",
+  "intent_id": "INT-077",
+  "title": "SAM2 usage budgeting + telemetry (per-run caps)",
+  "status": "todo",
+  "scope": [
+    "Define and enforce a SAM2 usage budget per run/mode (max windows, max frames, max pairs).",
+    "Emit telemetry showing how much SAM2 was used and why.",
+    "Expose these metrics in report/diagnostics for cost control."
+  ],
+  "acceptance": [
+    "SAM2 usage is capped deterministically and never exceeds configured limits.",
+    "Telemetry includes counts (windows, frames, ROI crops) and time spent.",
+    "Low cost mode enforces stricter caps than speed mode."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-SAM2-BUDGET-TELEMETRY-MVP-001-001",
+      "title": "SAM2 budgeting config and telemetry emission",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/sam2/budget.py",
+        "pipeline/src/fusbal_pipeline/run_telemetry.py"
+      ],
+      "acceptance": [
+        "Budget module enforces caps and records usage counters.",
+        "Telemetry includes SAM2 usage summary deterministically."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-SAM2-BUDGET-TELEMETRY-MVP-001-001",
+      "title": "Implement budget enforcement and telemetry counters.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_SAM2_BUDGET_TELEMETRY_001.SUB_001",
+      "done_when": [
+        "sam2/budget.py exists and enforces caps deterministically.",
+        "run_telemetry includes SAM2 usage counters."
+      ]
+    }
+  ]
+}
+

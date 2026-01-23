@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-LOCAL-CLI-RUNNER-MVP-001",
+  "intent_id": "INT-078",
+  "title": "Local laptop runner: local video path → local bundle directory",
+  "status": "todo",
+  "scope": [
+    "Provide a CLI command that runs the MVP pipeline on a local laptop.",
+    "Inputs are local file paths; outputs are written to a local bundle directory.",
+    "Runner produces deterministic manifests and validates outputs."
+  ],
+  "acceptance": [
+    "CLI accepts `--video` local path and `--out` local bundle dir and completes successfully on a sample clip.",
+    "Outputs conform to the bundle contract and validate passes.",
+    "Failure modes are explicit and actionable (missing ffmpeg, missing model weights)."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-LOCAL-CLI-RUNNER-MVP-001-001",
+      "title": "Local runner command implementation",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/cli.py",
+        "pipeline/src/fusbal_pipeline/video/ingest.py"
+      ],
+      "acceptance": [
+        "Runner command exists and emits a contract-valid bundle locally.",
+        "Ingest errors have explicit exit codes and actionable messages."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-LOCAL-CLI-RUNNER-MVP-001-001",
+      "title": "Add local runner CLI entry and validate outputs.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_LOCAL_CLI_RUNNER_001.SUB_001",
+      "done_when": [
+        "CLI supports a local run that writes overlay/tracks/report outputs.",
+        "validate passes on the output bundle."
+      ]
+    }
+  ]
+}
+

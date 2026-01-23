@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-TEAM-BIBS-MVP-001",
+  "intent_id": "INT-071",
+  "title": "Team assignment from bib colors (A/B) with confidence + smoothing",
+  "status": "todo",
+  "scope": [
+    "Derive Team A/B from bib colors for each tracked player with a confidence score.",
+    "Apply temporal smoothing and hysteresis to prevent flicker.",
+    "When uncertain, handle low-confidence internally without silently guessing."
+  ],
+  "acceptance": [
+    "Each player present record includes team and team_confidence (A/B output policy).",
+    "Smoothing reduces flicker; configuration is explicit and deterministic.",
+    "Diagnostics include evidence and smoothing state for auditability."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-TEAM-BIBS-MVP-001-001",
+      "title": "Bib-based team assignment module",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/team/colors.py",
+        "pipeline/src/fusbal_pipeline/team/assignment.py"
+      ],
+      "acceptance": [
+        "Team assignment produces A/B decisions with confidence and stable smoothing.",
+        "Diagnostics are stable and documented."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-TEAM-BIBS-MVP-001-001",
+      "title": "Implement bib evidence extraction and smoothing policy.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_TEAM_BIBS_001.SUB_001",
+      "done_when": [
+        "Team A/B assignment is emitted with confidence on player present records.",
+        "Low-confidence handling is explicit in diagnostics."
+      ]
+    }
+  ]
+}
+

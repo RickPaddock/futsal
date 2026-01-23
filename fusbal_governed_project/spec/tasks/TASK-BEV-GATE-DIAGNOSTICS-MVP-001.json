@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-BEV-GATE-DIAGNOSTICS-MVP-001",
+  "intent_id": "INT-073",
+  "title": "Deterministic BEV gating + missing reasons in diagnostics/report",
+  "status": "todo",
+  "scope": [
+    "Implement deterministic BEV gating thresholds based on calibration metrics.",
+    "Write gate decision and reasons into diagnostics and report surfaces.",
+    "When gated-off, mark BEV artifacts missing with explicit missing_reason."
+  ],
+  "acceptance": [
+    "Gating thresholds are encoded in code and emitted in diagnostics.",
+    "When gated-off, bev.mp4 is not produced and missing_reason is explicit.",
+    "When gated-on, downstream BEV projection is enabled."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-BEV-GATE-DIAGNOSTICS-MVP-001-001",
+      "title": "BEV gating implementation and diagnostics",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/calibration/gating.py",
+        "pipeline/src/fusbal_pipeline/calibration/diagnostics.py"
+      ],
+      "acceptance": [
+        "Gating emits pass/fail with reasons and thresholds deterministically.",
+        "Diagnostics are consumed by report surfaces."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-BEV-GATE-DIAGNOSTICS-MVP-001-001",
+      "title": "Implement gating decision output and integrate into report metadata.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_BEV_GATE_DIAGNOSTICS_001.SUB_001",
+      "done_when": [
+        "BEV gate decision is written to diagnostics/quality_summary.json.",
+        "Bundles mark bev.mp4 missing with explicit reason when gated-off."
+      ]
+    }
+  ]
+}
+

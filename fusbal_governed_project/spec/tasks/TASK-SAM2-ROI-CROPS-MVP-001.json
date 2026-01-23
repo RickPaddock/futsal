@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-SAM2-ROI-CROPS-MVP-001",
+  "intent_id": "INT-077",
+  "title": "SAM2 ROI crops (reduce cost) and deterministic stitching",
+  "status": "todo",
+  "scope": [
+    "Prefer running SAM2 on ROI crops around overlap clusters instead of whole-frame segmentation.",
+    "Implement deterministic ROI selection and coordinate mapping back to full frame.",
+    "Provide a fallback to whole-frame in a bounded way when ROI approach is insufficient."
+  ],
+  "acceptance": [
+    "ROI selection is deterministic for fixed inputs and recorded in diagnostics.",
+    "Recovered boxes/masks map back correctly to full-frame coordinates.",
+    "Total SAM2 work per match is bounded by caps."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-SAM2-ROI-CROPS-MVP-001-001",
+      "title": "ROI crop planner and mapper",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/sam2/roi.py"
+      ],
+      "acceptance": [
+        "ROI planner selects deterministic crops and maps outputs back to image_px coordinates.",
+        "Planner includes caps and fallback behavior."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-SAM2-ROI-CROPS-MVP-001-001",
+      "title": "Implement ROI crop planning and mapping to full-frame outputs.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_SAM2_ROI_CROPS_001.SUB_001",
+      "done_when": [
+        "sam2/roi.py exists with deterministic ROI selection.",
+        "Diagnostics include ROI boxes and mapping metadata."
+      ]
+    }
+  ]
+}
+

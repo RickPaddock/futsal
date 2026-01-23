@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-EVAL-REGRESSION-GATES-MVP-001",
+  "intent_id": "INT-076",
+  "title": "Regression gates for trust metrics (swap=0, quality floors)",
+  "status": "todo",
+  "scope": [
+    "Encode regression thresholds for MVP trust metrics (swap=0, break rate floor, coverage floor).",
+    "Fail CI/guardrails when thresholds are violated on fixtures/golden runs.",
+    "Keep thresholds explicit and adjustable in one place."
+  ],
+  "acceptance": [
+    "A regression gate script fails builds when swap count > 0 on evaluation fixture.",
+    "Thresholds are configured centrally and referenced by the evaluation runner.",
+    "Gate outputs are actionable (which metric failed, what value, what threshold)."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-EVAL-REGRESSION-GATES-MVP-001-001",
+      "title": "Regression gate script",
+      "paths": [
+        "scripts/guardrails/eval_regression_gate.mjs"
+      ],
+      "acceptance": [
+        "Script reads eval_report.json and enforces thresholds deterministically.",
+        "Script prints stable, searchable failure messages."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-EVAL-REGRESSION-GATES-MVP-001-001",
+      "title": "Implement regression gate and wire into npm run guardrails.",
+      "status": "todo",
+      "area": "scripts",
+      "provenance_prefix": "FUSBAL.MVP.TASK_EVAL_REGRESSION_GATES_001.SUB_001",
+      "done_when": [
+        "eval_regression_gate.mjs exists and enforces thresholds.",
+        "Guardrails run includes evaluation gate step."
+      ]
+    }
+  ]
+}
+

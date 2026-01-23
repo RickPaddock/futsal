@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-GCP-ORCHESTRATION-001",
+  "intent_id": "INT-070",
+  "title": "Orchestrate batch runs on GCP with retries and timeouts",
+  "status": "todo",
+  "scope": [
+    "Choose and implement a GCP execution primitive for batch jobs (Cloud Run Jobs / GCE Batch / Vertex custom jobs).",
+    "Add retry policy and hard timeouts to avoid runaway cost.",
+    "Ensure logs and run summaries are discoverable for portal/ops."
+  ],
+  "acceptance": [
+    "A documented command or script submits a job spec to GCP and runs the worker container.",
+    "Timeouts and retries are configured and tested on a failing job.",
+    "Run outputs are written to status/audit evidence for at least one sample run."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-GCP-ORCHESTRATION-001-001",
+      "title": "GCP job submission script and docs",
+      "paths": [
+        "scripts/workflows/gcp_submit_job.mjs",
+        "tools/gcp/README_orchestration.md"
+      ],
+      "acceptance": [
+        "Job submission script validates job spec and submits a run.",
+        "Docs explain required GCP resources and recommended settings."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-GCP-ORCHESTRATION-001-001",
+      "title": "Implement job submission script and basic retry/timeout config.",
+      "status": "todo",
+      "area": "scripts",
+      "provenance_prefix": "FUSBAL.MVP.TASK_GCP_ORCHESTRATION_001.SUB_001",
+      "done_when": [
+        "gcp_submit_job.mjs exists and submits a job using the runner image.",
+        "Timeout and retry settings are configurable per mode."
+      ]
+    }
+  ]
+}
+

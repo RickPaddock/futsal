@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-BEV-RENDER-MVP-001",
+  "intent_id": "INT-073",
+  "title": "Render bev.mp4 when calibration gate passes",
+  "status": "todo",
+  "scope": [
+    "When BEV gating passes, project player/ball tracks into pitch meters and render a BEV video.",
+    "Keep rendering deterministic and include missing-state semantics.",
+    "Persist BEV render diagnostics for audits."
+  ],
+  "acceptance": [
+    "bev.mp4 is produced when gated-on and absent/explicitly missing when gated-off.",
+    "BEV render includes players and ball when available, and indicates missing/unknown states.",
+    "Diagnostics include BEV render parameters and gating decision."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-BEV-RENDER-MVP-001-001",
+      "title": "BEV renderer module and CLI wiring",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/bev/render.py",
+        "pipeline/src/fusbal_pipeline/cli.py"
+      ],
+      "acceptance": [
+        "Renderer produces a playable bev.mp4 under the bundle layout.",
+        "BEV rendering is enabled only when gating passes."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-BEV-RENDER-MVP-001-001",
+      "title": "Implement BEV renderer and integrate gating.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_BEV_RENDER_001.SUB_001",
+      "done_when": [
+        "bev/render.py exists and writes bev.mp4 deterministically.",
+        "CLI runner writes bev.mp4 only when gated-on."
+      ]
+    }
+  ]
+}
+

@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-PLAYER-E2E-RUNNER-MVP-001",
+  "intent_id": "INT-071",
+  "title": "Runnable MVP-0 path: local video → real bundle with player tracks",
+  "status": "todo",
+  "scope": [
+    "Wire player detection + tracking + team assignment into a runnable CLI path for a local video.",
+    "Produce a non-placeholder bundle layout (tracks + overlay + report placeholders allowed only for fixtures, not real runs).",
+    "Keep the run deterministic and provide actionable failures for missing deps."
+  ],
+  "acceptance": [
+    "CLI run produces a bundle directory with manifest + tracks.jsonl containing player records.",
+    "validate passes on the produced bundle (non-strict initially).",
+    "The run prints stable logging prefixes and emits a machine-readable validation_report.json."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-PLAYER-E2E-RUNNER-MVP-001-001",
+      "title": "CLI wiring for MVP-0 player pipeline",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/cli.py",
+        "pipeline/src/fusbal_pipeline/bundle.py"
+      ],
+      "acceptance": [
+        "Runner writes real player tracks into tracks.jsonl and updates report.json counts.",
+        "Runner does not rely on placeholder overlay for real runs."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-PLAYER-E2E-RUNNER-MVP-001-001",
+      "title": "Add runner wiring and ensure validate passes.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_PLAYER_E2E_RUNNER_001.SUB_001",
+      "done_when": [
+        "Runner emits tracks.jsonl with player records and deterministic sorting.",
+        "validation_report.json is written and errors are actionable."
+      ]
+    }
+  ]
+}
+

@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-PLAYER-TRACKS-JSONL-MVP-001",
+  "intent_id": "INT-071",
+  "title": "Emit contract-valid player tracks.jsonl records (segments + diagnostics)",
+  "status": "todo",
+  "scope": [
+    "Emit player TrackRecordV1 records in tracks.jsonl with required fields and deterministic ordering.",
+    "Include segment_id and break_reason semantics for trust-first behavior.",
+    "Include diagnostics keys needed for audits (frame_index, gating reasons, association scores)."
+  ],
+  "acceptance": [
+    "tracks.jsonl includes player records with required schema fields and explicit pos_state.",
+    "Records are sorted deterministically by the contract’s stable ordering rules.",
+    "validate passes for player tracks on a fixture and on a local video run."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-PLAYER-TRACKS-JSONL-MVP-001-001",
+      "title": "Tracks emitter and validation hardening for player records",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/contract.py",
+        "pipeline/src/fusbal_pipeline/cli.py"
+      ],
+      "acceptance": [
+        "Contract validation enforces player segment/break semantics.",
+        "CLI runner writes deterministically ordered tracks.jsonl."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-PLAYER-TRACKS-JSONL-MVP-001-001",
+      "title": "Tighten TrackRecordV1 validation for player segment/break semantics.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_PLAYER_TRACKS_JSONL_001.SUB_001",
+      "done_when": [
+        "validate rejects invalid break_reason/segment_id combinations for player records.",
+        "Player records include diagnostics.frame_index deterministically."
+      ]
+    }
+  ]
+}
+

@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-SAM2-CHECKPOINT-LOADING-MVP-001",
+  "intent_id": "INT-077",
+  "title": "SAM2 checkpoint loading (portable, explicit backend checks)",
+  "status": "todo",
+  "scope": [
+    "Add SAM2 checkpoint/config loading without machine-specific absolute paths.",
+    "Fail explicitly and actionably when checkpoint or runtime deps are missing.",
+    "Record SAM2 version/config details in diagnostics when enabled."
+  ],
+  "acceptance": [
+    "SAM2 can be enabled via config with a portable checkpoint path/reference.",
+    "Missing checkpoint produces an actionable error (not silent disable).",
+    "Diagnostics record SAM2 model type, checkpoint ref, and device."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-SAM2-CHECKPOINT-LOADING-MVP-001-001",
+      "title": "SAM2 integration wrapper and config",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/sam2/loader.py",
+        "pipeline/src/fusbal_pipeline/sam2/config.py"
+      ],
+      "acceptance": [
+        "Loader validates checkpoint refs and initializes SAM2 predictably.",
+        "Config is explicit and portable."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-SAM2-CHECKPOINT-LOADING-MVP-001-001",
+      "title": "Implement SAM2 loader with explicit checks and diagnostics.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_SAM2_CHECKPOINT_LOADING_001.SUB_001",
+      "done_when": [
+        "sam2/loader.py exists with explicit error handling.",
+        "sam2/config.py defines portable checkpoint references."
+      ]
+    }
+  ]
+}
+

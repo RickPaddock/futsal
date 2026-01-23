@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-BUNDLE-NO-PLACEHOLDER-MVP-001",
+  "intent_id": "INT-072",
+  "title": "Stop using placeholder overlay/report for real MVP runs",
+  "status": "todo",
+  "scope": [
+    "Ensure real runs produce real overlay.mp4 and report.html instead of empty placeholder files.",
+    "Keep placeholder scaffolding only for init/fixture/testing paths where explicitly requested.",
+    "Make missing artifacts explicit via manifest status/missing_reason where applicable."
+  ],
+  "acceptance": [
+    "Real run bundles do not contain empty overlay.mp4 files unless explicitly marked missing with reason.",
+    "report.html is always non-placeholder for real runs.",
+    "Bundle validation remains deterministic and actionable."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-BUNDLE-NO-PLACEHOLDER-MVP-001-001",
+      "title": "Bundle writer behavior update",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/bundle.py",
+        "pipeline/src/fusbal_pipeline/cli.py"
+      ],
+      "acceptance": [
+        "Placeholder outputs are only created by explicit placeholder paths.",
+        "Real runs produce real artifacts or explicit missing reasons."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-BUNDLE-NO-PLACEHOLDER-MVP-001-001",
+      "title": "Split placeholder scaffolding from real-run artifact generation.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_BUNDLE_NO_PLACEHOLDER_001.SUB_001",
+      "done_when": [
+        "ensure_placeholder_outputs_v1 is only used for fixture/init placeholders.",
+        "Runner writes real overlay/report outputs (or explicit missing reasons)."
+      ]
+    }
+  ]
+}
+

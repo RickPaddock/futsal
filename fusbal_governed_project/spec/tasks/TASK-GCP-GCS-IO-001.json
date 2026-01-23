@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-GCP-GCS-IO-001",
+  "intent_id": "INT-070",
+  "title": "GCS I/O: download video and upload bundle atomically",
+  "status": "todo",
+  "scope": [
+    "Implement GCS download of input videos to a local working directory on the worker.",
+    "Upload the output bundle to a GCS prefix with atomic/consistent layout (no partial bundles).",
+    "Persist a small machine-readable run summary for portal ingestion."
+  ],
+  "acceptance": [
+    "Worker can download `gs://...` video URI to a local path for processing.",
+    "Bundle upload writes to a temporary prefix then promotes/renames to final prefix (or equivalent atomic pattern).",
+    "A run summary JSON is written alongside outputs with ok/error and artifact paths."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-GCP-GCS-IO-001-001",
+      "title": "GCS I/O helpers and run summary writer",
+      "paths": [
+        "tools/gcp/gcs_io.py",
+        "tools/gcp/run_summary.py"
+      ],
+      "acceptance": [
+        "GCS download/upload operations are encapsulated and error messages are actionable.",
+        "Run summary JSON includes mode, timestamps, and artifact locations."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-GCP-GCS-IO-001-001",
+      "title": "Implement download/upload helpers and atomic publish pattern.",
+      "status": "todo",
+      "area": "tools",
+      "provenance_prefix": "FUSBAL.MVP.TASK_GCP_GCS_IO_001.SUB_001",
+      "done_when": [
+        "gcs_io.py supports download of a single video object.",
+        "Upload publishes a complete bundle layout without partial visibility."
+      ]
+    }
+  ]
+}
+

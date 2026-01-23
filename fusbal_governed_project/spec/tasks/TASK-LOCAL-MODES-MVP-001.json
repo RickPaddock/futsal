@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-LOCAL-MODES-MVP-001",
+  "intent_id": "INT-078",
+  "title": "Explicit deployment mode selection (GCP Speed / GCP Low Cost / Local Laptop)",
+  "status": "todo",
+  "scope": [
+    "Introduce an explicit mode enum for runs: gcp_speed, gcp_low_cost, local_laptop.",
+    "Centralize default knobs per mode (fps, decode width, model selection, SAM2 caps).",
+    "Persist the selected mode in run telemetry and report outputs."
+  ],
+  "acceptance": [
+    "Runner accepts a mode flag and applies deterministic defaults per mode.",
+    "Selected mode is recorded in diagnostics and report outputs.",
+    "Local laptop mode is explicitly a real local run (not a cloud emulation)."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-LOCAL-MODES-MVP-001-001",
+      "title": "Mode config and defaults module",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/config/modes.py",
+        "pipeline/src/fusbal_pipeline/run_telemetry.py"
+      ],
+      "acceptance": [
+        "modes.py defines mode defaults deterministically.",
+        "Telemetry records mode and effective knobs."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-LOCAL-MODES-MVP-001-001",
+      "title": "Define mode defaults and wire into runner.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_LOCAL_MODES_001.SUB_001",
+      "done_when": [
+        "config/modes.py exists and is used by the runner.",
+        "Telemetry includes mode and effective parameters."
+      ]
+    }
+  ]
+}
+

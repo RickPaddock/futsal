@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-EVAL-DATASET-SPEC-MVP-001",
+  "intent_id": "INT-076",
+  "title": "Define MVP evaluation dataset spec (lightweight labels)",
+  "status": "todo",
+  "scope": [
+    "Define a compact dataset format for evaluation (frame ranges, player IDs for a few sequences, ball visibility windows, goal timestamps).",
+    "Keep it lightweight so it can be maintained without a labeling platform.",
+    "Provide at least one synthetic/fixture dataset to run in CI."
+  ],
+  "acceptance": [
+    "A schema and example dataset file exist under pipeline fixtures.",
+    "Dataset supports identity swap checks and break rate evaluation for selected windows.",
+    "Dataset is deterministic and does not require committing real video."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-EVAL-DATASET-SPEC-MVP-001-001",
+      "title": "Evaluation dataset schema and fixture",
+      "paths": [
+        "pipeline/fixtures/eval/mvp_eval.schema.json",
+        "pipeline/fixtures/eval/mvp_eval_fixture.json"
+      ],
+      "acceptance": [
+        "Fixture is small, deterministic, and supports swap/break evaluation logic.",
+        "Schema validates the fixture format."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-EVAL-DATASET-SPEC-MVP-001-001",
+      "title": "Add schema + fixture dataset for CI evaluation.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_EVAL_DATASET_SPEC_001.SUB_001",
+      "done_when": [
+        "mvp_eval.schema.json exists and validates the fixture.",
+        "mvp_eval_fixture.json exists and is used by evaluation code."
+      ]
+    }
+  ]
+}
+

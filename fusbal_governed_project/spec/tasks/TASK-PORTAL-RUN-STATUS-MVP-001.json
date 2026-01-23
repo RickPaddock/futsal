@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-PORTAL-RUN-STATUS-MVP-001",
+  "intent_id": "INT-079",
+  "title": "Portal: run status and mode summary (local vs GCP speed/low cost)",
+  "status": "todo",
+  "scope": [
+    "Show a clear run status model (queued/running/succeeded/failed) for MVP runs.",
+    "Display which deployment mode produced the bundle (gcp_speed, gcp_low_cost, local_laptop).",
+    "Surface failure reasons and telemetry highlights (runtime, frames, SAM budget)."
+  ],
+  "acceptance": [
+    "Portal displays run status and mode prominently on run detail pages.",
+    "Failure reasons are actionable and link to logs/evidence when available.",
+    "Telemetry summary is shown without requiring deep log inspection."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-PORTAL-RUN-STATUS-MVP-001-001",
+      "title": "Portal run detail status/telemetry surface",
+      "paths": [
+        "apps/portal/pages/internal/runs/[runId].js",
+        "apps/portal/lib/run_telemetry.js"
+      ],
+      "acceptance": [
+        "Run detail page shows status/mode/telemetry and links to artifacts.",
+        "Telemetry parsing is safe and deterministic."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-PORTAL-RUN-STATUS-MVP-001-001",
+      "title": "Implement run detail page and telemetry extraction.",
+      "status": "todo",
+      "area": "portal",
+      "provenance_prefix": "FUSBAL.MVP.TASK_PORTAL_RUN_STATUS_001.SUB_001",
+      "done_when": [
+        "runs/[runId].js exists and renders status/mode/telemetry.",
+        "run_telemetry.js extracts a compact summary safely."
+      ]
+    }
+  ]
+}
+

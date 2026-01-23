@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-SAM2-WINDOWING-MVP-001",
+  "intent_id": "INT-077",
+  "title": "SAM2 trigger windowing (only when needed)",
+  "status": "todo",
+  "scope": [
+    "Trigger SAM2 only on failure windows (player count drop, overlap spikes).",
+    "Keep trigger rules deterministic and recorded in diagnostics.",
+    "Avoid running segmentation on every frame."
+  ],
+  "acceptance": [
+    "SAM2 calls occur only when trigger conditions are met (unit-tested on fixtures).",
+    "Trigger windows are recorded (start/end frames, reason).",
+    "Behavior is deterministic for fixed inputs."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-SAM2-WINDOWING-MVP-001-001",
+      "title": "SAM2 windowing policy module",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/sam2/windowing.py"
+      ],
+      "acceptance": [
+        "Windowing policy returns deterministic windows and reasons.",
+        "Policy exposes caps suitable for cost control."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-SAM2-WINDOWING-MVP-001-001",
+      "title": "Implement trigger rules and window recording.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_SAM2_WINDOWING_001.SUB_001",
+      "done_when": [
+        "sam2/windowing.py exists and emits windows deterministically.",
+        "Diagnostics record window start/end and trigger reason."
+      ]
+    }
+  ]
+}
+

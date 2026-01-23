@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-GCP-JOBSPEC-001",
+  "intent_id": "INT-070",
+  "title": "Define GCP batch job spec for MVP runs",
+  "status": "todo",
+  "scope": [
+    "Define a minimal, stable job spec for running the MVP pipeline in GCP (inputs, outputs, mode, config, model refs).",
+    "Include deterministic identifiers (match_id/run_id) and explicit timeouts.",
+    "Keep the spec portable (no machine-specific absolute paths)."
+  ],
+  "acceptance": [
+    "A JSON schema exists for the job spec and is used by tooling (validation).",
+    "Job spec includes GCS input URI, GCS output prefix, mode (gcp_speed|gcp_low_cost), and match_id.",
+    "Spec forbids embedding local absolute paths; only portable refs are allowed."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-GCP-JOBSPEC-001-001",
+      "title": "Job spec schema and parser",
+      "paths": [
+        "tools/gcp/job_spec.schema.json",
+        "tools/gcp/job_spec.py"
+      ],
+      "acceptance": [
+        "Schema validates required fields and rejects machine-specific paths.",
+        "Parser loads spec deterministically and normalizes defaults."
+      ],
+      "evidence": [
+        "A sample job spec validates and is used in a local dry-run command."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-GCP-JOBSPEC-001-001",
+      "title": "Draft job spec schema and defaults.",
+      "status": "todo",
+      "area": "tools",
+      "provenance_prefix": "FUSBAL.MVP.TASK_GCP_JOBSPEC_001.SUB_001",
+      "done_when": [
+        "job_spec.schema.json exists with required fields for inputs/outputs/mode.",
+        "job_spec.py validates and normalizes a spec deterministically."
+      ]
+    }
+  ]
+}
+

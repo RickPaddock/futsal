@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-OVERLAY-PLAYERS-MVP-001",
+  "intent_id": "INT-072",
+  "title": "Overlay rendering: draw players + team labels + confidence cues",
+  "status": "todo",
+  "scope": [
+    "Render player overlays from contract-valid tracks.jsonl (image_px bboxes) into overlay.mp4.",
+    "Draw team A/B label and confidence cues; visually indicate breaks/low-confidence.",
+    "Keep rendering trust-first: draw only from evidence-backed present records."
+  ],
+  "acceptance": [
+    "overlay.mp4 includes player bboxes/IDs on frames where player present records exist.",
+    "Overlay includes team label and team_confidence when present in tracks.",
+    "Deterministic command construction is unit-tested."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-OVERLAY-PLAYERS-MVP-001-001",
+      "title": "Player overlay renderer",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py",
+        "pipeline/src/fusbal_pipeline/cli.py"
+      ],
+      "acceptance": [
+        "Renderer draws player overlays deterministically from tracks.jsonl evidence.",
+        "CLI exposes flags to control max_ops/timeouts."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-OVERLAY-PLAYERS-MVP-001-002",
+      "title": "Unit tests for player overlay determinism",
+      "paths": [
+        "pipeline/tests/test_overlay_players_render.py"
+      ],
+      "acceptance": [
+        "Tests validate deterministic filter/command generation for player overlays."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-OVERLAY-PLAYERS-MVP-001-001",
+      "title": "Extend overlay renderer to support player records.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_OVERLAY_PLAYERS_001.SUB_001",
+      "done_when": [
+        "Renderer draws player bboxes/IDs from player present records.",
+        "Team label/confidence rendering is deterministic."
+      ]
+    }
+  ]
+}
+

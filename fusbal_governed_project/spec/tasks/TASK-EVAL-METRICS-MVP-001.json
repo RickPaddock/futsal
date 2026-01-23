@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-EVAL-METRICS-MVP-001",
+  "intent_id": "INT-076",
+  "title": "Implement MVP evaluation metrics (swaps, breaks, coverage, BEV gate)",
+  "status": "todo",
+  "scope": [
+    "Implement evaluation metrics for identity swaps (severity-1), break rate, coverage, and BEV gate pass rate.",
+    "Emit a machine-readable evaluation report JSON.",
+    "Make evaluation deterministic and runnable in CI with fixtures."
+  ],
+  "acceptance": [
+    "A CLI or script runs evaluation and emits eval_report.json deterministically.",
+    "Swap detection is explicit and fails builds when swaps are detected on fixture windows.",
+    "Metrics are documented in code and report output."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-EVAL-METRICS-MVP-001-001",
+      "title": "Evaluation runner and metrics implementation",
+      "paths": [
+        "tools/eval/run_eval.mjs",
+        "tools/eval/metrics.py"
+      ],
+      "acceptance": [
+        "Runner reads a bundle + evaluation fixture and emits eval_report.json.",
+        "Metrics include swap count, break rate, and coverage summaries."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-EVAL-METRICS-MVP-001-001",
+      "title": "Implement evaluation report generation and swap detection.",
+      "status": "todo",
+      "area": "tools",
+      "provenance_prefix": "FUSBAL.MVP.TASK_EVAL_METRICS_001.SUB_001",
+      "done_when": [
+        "run_eval.mjs exists and produces eval_report.json deterministically.",
+        "metrics.py flags identity swaps explicitly."
+      ]
+    }
+  ]
+}
+

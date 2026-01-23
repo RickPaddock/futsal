@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-STATS-METERS-MVP-001",
+  "intent_id": "INT-073",
+  "title": "Meters-based running stats (distance/speed/heatmaps) gated on BEV",
+  "status": "todo",
+  "scope": [
+    "Compute distance and speed from pitch-frame tracks when BEV gating passes.",
+    "Compute basic heatmaps from pitch positions.",
+    "When BEV is gated-off, omit meters-based stats and explain why in the report."
+  ],
+  "acceptance": [
+    "report.json includes distance/speed aggregates when BEV is gated-on.",
+    "Heatmap artifacts are produced (or embedded) deterministically when gated-on.",
+    "When gated-off, stats are withheld and the report explains gating reasons."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-STATS-METERS-MVP-001-001",
+      "title": "Stats computation module",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/stats/metrics.py",
+        "pipeline/src/fusbal_pipeline/cli.py"
+      ],
+      "acceptance": [
+        "Stats are computed from pitch-frame tracks only when BEV is enabled.",
+        "Outputs are deterministic and include confidence notes."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-STATS-METERS-MVP-001-001",
+      "title": "Implement gated meters-based stats and report integration.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_STATS_METERS_001.SUB_001",
+      "done_when": [
+        "stats/metrics.py computes distance/speed and basic heatmaps deterministically.",
+        "report.json includes stats only when BEV is gated-on."
+      ]
+    }
+  ]
+}
+

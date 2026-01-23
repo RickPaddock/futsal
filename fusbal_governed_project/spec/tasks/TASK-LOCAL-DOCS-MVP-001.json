@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-LOCAL-DOCS-MVP-001",
+  "intent_id": "INT-078",
+  "title": "Docs templates updated for local laptop execution",
+  "status": "todo",
+  "scope": [
+    "Update quick reference and runbooks to clearly define the three deployment modes.",
+    "Document local laptop prerequisites (ffmpeg, python env, model weights, optional GPU).",
+    "Ensure docs remain generated-only (edit templates, regenerate)."
+  ],
+  "acceptance": [
+    "Generated quick reference includes local laptop run commands and prerequisites.",
+    "Docs clearly distinguish Local Laptop vs GCP modes.",
+    "Guardrails pass after regeneration."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-LOCAL-DOCS-MVP-001-001",
+      "title": "Updated docs templates for deployment modes",
+      "paths": [
+        "spec/md/docs/LLM_QUICK_REFERENCE.mdt",
+        "spec/md/docs/delivery/HL_DELIVERY_PLAN.mdt"
+      ],
+      "acceptance": [
+        "Templates mention the three deployment modes and local laptop prerequisites.",
+        "Generated docs reflect the updated content after npm run generate."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-LOCAL-DOCS-MVP-001-001",
+      "title": "Update templates and regenerate docs.",
+      "status": "todo",
+      "area": "spec",
+      "provenance_prefix": "FUSBAL.MVP.TASK_LOCAL_DOCS_001.SUB_001",
+      "done_when": [
+        "Templates updated and npm run generate produces updated docs.",
+        "Guardrails pass."
+      ]
+    }
+  ]
+}
+

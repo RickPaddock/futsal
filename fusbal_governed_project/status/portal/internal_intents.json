@@ -672,7 +672,33 @@
           "tracking_implementation": "done"
         }
       ],
-      "tasks": []
+      "tasks": [
+        {
+          "task_id": "TASK-GCP-CONTAINER-001",
+          "title": "Containerize MVP runner with pinned dependencies",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-GCP-GCS-IO-001",
+          "title": "GCS I/O: download video and upload bundle atomically",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-GCP-JOBSPEC-001",
+          "title": "Define GCP batch job spec for MVP runs",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-GCP-ORCHESTRATION-001",
+          "title": "Orchestrate batch runs on GCP with retries and timeouts",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-GCP-RUN-TELEMETRY-001",
+          "title": "Telemetry: runtime + cost-oriented diagnostics for GCP runs",
+          "status": "todo"
+        }
+      ]
     },
     {
       "intent_id": "INT-071",
@@ -712,7 +738,33 @@
           "tracking_implementation": "done"
         }
       ],
-      "tasks": []
+      "tasks": [
+        {
+          "task_id": "TASK-PLAYER-DET-YOLO-001",
+          "title": "Player detection backend: YOLO checkpoint inference",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-PLAYER-E2E-RUNNER-MVP-001",
+          "title": "Runnable MVP-0 path: local video → real bundle with player tracks",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-PLAYER-MOT-MVP-001",
+          "title": "Player MOT: swap-avoidant tracking and segmentation",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-PLAYER-TRACKS-JSONL-MVP-001",
+          "title": "Emit contract-valid player tracks.jsonl records (segments + diagnostics)",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-TEAM-BIBS-MVP-001",
+          "title": "Team assignment from bib colors (A/B) with confidence + smoothing",
+          "status": "todo"
+        }
+      ]
     },
     {
       "intent_id": "INT-072",
@@ -746,7 +798,28 @@
           "tracking_implementation": "done"
         }
       ],
-      "tasks": []
+      "tasks": [
+        {
+          "task_id": "TASK-BUNDLE-NO-PLACEHOLDER-MVP-001",
+          "title": "Stop using placeholder overlay/report for real MVP runs",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-OVERLAY-BACKEND-ROBUSTNESS-MVP-001",
+          "title": "Overlay backend robustness (text rendering and fallbacks)",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-OVERLAY-PLAYERS-MVP-001",
+          "title": "Overlay rendering: draw players + team labels + confidence cues",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-REPORT-HTML-MVP-001",
+          "title": "Generate non-placeholder report.html for MVP runs",
+          "status": "todo"
+        }
+      ]
     },
     {
       "intent_id": "INT-073",
@@ -786,7 +859,33 @@
           "tracking_implementation": "done"
         }
       ],
-      "tasks": []
+      "tasks": [
+        {
+          "task_id": "TASK-BEV-GATE-DIAGNOSTICS-MVP-001",
+          "title": "Deterministic BEV gating + missing reasons in diagnostics/report",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-BEV-RENDER-MVP-001",
+          "title": "Render bev.mp4 when calibration gate passes",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-CAL-AUTO-MVP-001",
+          "title": "Auto-first calibration for single static camera (emit metrics)",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-CAL-MANUAL-CLICK-MVP-001",
+          "title": "Manual calibration fallback (click points) with persisted artifact",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-STATS-METERS-MVP-001",
+          "title": "Meters-based running stats (distance/speed/heatmaps) gated on BEV",
+          "status": "todo"
+        }
+      ]
     },
     {
       "intent_id": "INT-074",
@@ -820,7 +919,23 @@
           "tracking_implementation": "done"
         }
       ],
-      "tasks": []
+      "tasks": [
+        {
+          "task_id": "TASK-BALL-CONTRACT-INTEGRATION-MVP-001",
+          "title": "Contract + validators updated for learned ball detector integration",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-BALL-DET-LEARNED-MVP-001",
+          "title": "Learned ball detector backend (checkpoint-driven)",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-BALL-TRACK-MVP-001",
+          "title": "Ball tracking (learned detector input) with explicit missing/unknown semantics",
+          "status": "todo"
+        }
+      ]
     },
     {
       "intent_id": "INT-075",
@@ -854,7 +969,23 @@
           "tracking_implementation": "done"
         }
       ],
-      "tasks": []
+      "tasks": [
+        {
+          "task_id": "TASK-EVENTS-REPORTING-MVP-001",
+          "title": "Surface events/highlights in report.html/report.json",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-EVENTS-SHOTS-GOALS-MVP-001",
+          "title": "Conservative shots/goals inference for MVP (candidate/unknown only)",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-HIGHLIGHTS-CLIPS-MVP-001",
+          "title": "Export highlight clips for shot/goal candidates",
+          "status": "todo"
+        }
+      ]
     },
     {
       "intent_id": "INT-076",
@@ -888,7 +1019,28 @@
           "tracking_implementation": "done"
         }
       ],
-      "tasks": []
+      "tasks": [
+        {
+          "task_id": "TASK-EVAL-DATASET-SPEC-MVP-001",
+          "title": "Define MVP evaluation dataset spec (lightweight labels)",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-EVAL-GOLDEN-RUNS-MVP-001",
+          "title": "Golden evidence runs for MVP quality baselines",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-EVAL-METRICS-MVP-001",
+          "title": "Implement MVP evaluation metrics (swaps, breaks, coverage, BEV gate)",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-EVAL-REGRESSION-GATES-MVP-001",
+          "title": "Regression gates for trust metrics (swap=0, quality floors)",
+          "status": "todo"
+        }
+      ]
     },
     {
       "intent_id": "INT-077",
@@ -922,7 +1074,28 @@
           "tracking_implementation": "done"
         }
       ],
-      "tasks": []
+      "tasks": [
+        {
+          "task_id": "TASK-SAM2-BUDGET-TELEMETRY-MVP-001",
+          "title": "SAM2 usage budgeting + telemetry (per-run caps)",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-SAM2-CHECKPOINT-LOADING-MVP-001",
+          "title": "SAM2 checkpoint loading (portable, explicit backend checks)",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-SAM2-ROI-CROPS-MVP-001",
+          "title": "SAM2 ROI crops (reduce cost) and deterministic stitching",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-SAM2-WINDOWING-MVP-001",
+          "title": "SAM2 trigger windowing (only when needed)",
+          "status": "todo"
+        }
+      ]
     },
     {
       "intent_id": "INT-078",
@@ -962,7 +1135,23 @@
           "tracking_implementation": "done"
         }
       ],
-      "tasks": []
+      "tasks": [
+        {
+          "task_id": "TASK-LOCAL-CLI-RUNNER-MVP-001",
+          "title": "Local laptop runner: local video path → local bundle directory",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-LOCAL-DOCS-MVP-001",
+          "title": "Docs templates updated for local laptop execution",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-LOCAL-MODES-MVP-001",
+          "title": "Explicit deployment mode selection (GCP Speed / GCP Low Cost / Local Laptop)",
+          "status": "todo"
+        }
+      ]
     },
     {
       "intent_id": "INT-079",
@@ -996,7 +1185,23 @@
           "tracking_implementation": "done"
         }
       ],
-      "tasks": []
+      "tasks": [
+        {
+          "task_id": "TASK-PORTAL-ARTIFACTS-MVP-001",
+          "title": "Portal: artifact links for overlay/report/bev with missing reasons",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-PORTAL-JOB-LIST-MVP-001",
+          "title": "Portal: list MVP runs/jobs with filters (intent, mode, status)",
+          "status": "todo"
+        },
+        {
+          "task_id": "TASK-PORTAL-RUN-STATUS-MVP-001",
+          "title": "Portal: run status and mode summary (local vs GCP speed/low cost)",
+          "status": "todo"
+        }
+      ]
     }
   ]
 }

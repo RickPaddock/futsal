@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-PLAYER-DET-YOLO-001",
+  "intent_id": "INT-071",
+  "title": "Player detection backend: YOLO checkpoint inference",
+  "status": "todo",
+  "scope": [
+    "Add a YOLO-based player detector backend that can load a local checkpoint path and run inference on frames.",
+    "Support a primary custom checkpoint and a fallback model for robustness.",
+    "Emit deterministic per-frame detection candidates with confidence and diagnostics."
+  ],
+  "acceptance": [
+    "A detector implementation exists and can be enabled via CLI/config.",
+    "Detections are deterministic for a fixed input frame sequence (within backend determinism constraints).",
+    "Detection candidates include bbox + confidence and are filtered to sane bounds."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-PLAYER-DET-YOLO-001-001",
+      "title": "YOLO player detector backend",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/player/yolo_detector.py",
+        "pipeline/src/fusbal_pipeline/player/detector.py"
+      ],
+      "acceptance": [
+        "YOLO detector can be selected and emits RawPlayerDetection candidates.",
+        "Detector has explicit failure behavior (missing model, missing deps)."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-PLAYER-DET-YOLO-001-002",
+      "title": "Unit tests for deterministic detection shaping",
+      "paths": [
+        "pipeline/tests/test_player_yolo_detector.py"
+      ],
+      "acceptance": [
+        "Tests validate output normalization (bbox validity, confidence clamping) and stable sorting."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-PLAYER-DET-YOLO-001-001",
+      "title": "Implement YOLO detector wrapper and dependency checks.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_PLAYER_DET_YOLO_001.SUB_001",
+      "done_when": [
+        "yolo_detector.py exists and can load a checkpoint path.",
+        "Missing dependency/model errors are actionable."
+      ]
+    },
+    {
+      "subtask_id": "SUB-TASK-PLAYER-DET-YOLO-001-002",
+      "title": "Add unit tests for record shaping and sorting.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_PLAYER_DET_YOLO_001.SUB_002",
+      "done_when": [
+        "test_player_yolo_detector.py exists and passes.",
+        "Tests cover bbox normalization and deterministic ordering."
+      ]
+    }
+  ]
+}
+

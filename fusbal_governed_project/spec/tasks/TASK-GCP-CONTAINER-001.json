@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-GCP-CONTAINER-001",
+  "intent_id": "INT-070",
+  "title": "Containerize MVP runner with pinned dependencies",
+  "status": "todo",
+  "scope": [
+    "Create a container build for the MVP runner suitable for GCP batch execution.",
+    "Pin dependencies to avoid drift and record versions in diagnostics.",
+    "Support GPU and CPU variants (build-time or run-time selection)."
+  ],
+  "acceptance": [
+    "A Dockerfile exists that builds the runner image deterministically.",
+    "The container can run a smoke command and print tool versions (ffmpeg/ffprobe/python).",
+    "Image does not bake machine-specific paths; configuration is passed via env/job spec."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-GCP-CONTAINER-001-001",
+      "title": "Runner container build artifacts",
+      "paths": [
+        "tools/gcp/Dockerfile.runner",
+        "tools/gcp/README_container.md"
+      ],
+      "acceptance": [
+        "Dockerfile builds successfully with pinned deps.",
+        "README documents how to build and run the image locally."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-GCP-CONTAINER-001-001",
+      "title": "Add Dockerfile and local build/run docs.",
+      "status": "todo",
+      "area": "tools",
+      "provenance_prefix": "FUSBAL.MVP.TASK_GCP_CONTAINER_001.SUB_001",
+      "done_when": [
+        "Dockerfile.runner exists and builds.",
+        "Container can execute the runner entrypoint in a smoke mode."
+      ]
+    }
+  ]
+}
+

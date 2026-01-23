@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-OVERLAY-BACKEND-ROBUSTNESS-MVP-001",
+  "intent_id": "INT-072",
+  "title": "Overlay backend robustness (text rendering and fallbacks)",
+  "status": "todo",
+  "scope": [
+    "Ensure overlay rendering can reliably render text labels (IDs/confidence) across environments.",
+    "Provide a deterministic fallback when ffmpeg drawtext is unavailable (e.g., OpenCV-based renderer).",
+    "Record backend choice and version info in overlay_render_report.json."
+  ],
+  "acceptance": [
+    "Overlay renderer detects missing ffmpeg filters and falls back deterministically.",
+    "overlay_render_report.json includes backend mode and tool versions.",
+    "Fallback output remains playable and contains essential overlays."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-OVERLAY-BACKEND-ROBUSTNESS-MVP-001-001",
+      "title": "Overlay backend selection and fallback implementation",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/overlay/render.py",
+        "pipeline/src/fusbal_pipeline/overlay/opencv_render.py"
+      ],
+      "acceptance": [
+        "Renderer selects ffmpeg when drawtext available; otherwise uses OpenCV fallback.",
+        "Backend selection is reported in overlay_render_report.json."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-OVERLAY-BACKEND-ROBUSTNESS-MVP-001-001",
+      "title": "Implement OpenCV fallback renderer and report backend selection.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_OVERLAY_BACKEND_ROBUSTNESS_001.SUB_001",
+      "done_when": [
+        "opencv_render.py exists and can render overlays with text.",
+        "render.py records backend mode and versions."
+      ]
+    }
+  ]
+}
+

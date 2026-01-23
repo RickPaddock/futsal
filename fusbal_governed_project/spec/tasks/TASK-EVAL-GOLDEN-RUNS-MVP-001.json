@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-EVAL-GOLDEN-RUNS-MVP-001",
+  "intent_id": "INT-076",
+  "title": "Golden evidence runs for MVP quality baselines",
+  "status": "todo",
+  "scope": [
+    "Define and record a small set of golden runs under status/audit for key scenarios (player-only, ball-enabled, BEV-gated).",
+    "Store run.json evidence and compact summaries.",
+    "Keep evidence retention practical (latest N runs)."
+  ],
+  "acceptance": [
+    "At least one golden run exists for MVP-0 player-only and is referenced from docs/portal surfaces.",
+    "Evidence includes run.json with command, exit code, and timestamps.",
+    "Golden summaries are deterministic and comparable across runs."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-EVAL-GOLDEN-RUNS-MVP-001-001",
+      "title": "Golden run recording script and example evidence layout",
+      "paths": [
+        "tools/evidence/record_run.mjs",
+        "docs/ops/audit_retention_policy.md"
+      ],
+      "acceptance": [
+        "record_run.mjs is used to capture golden run evidence.",
+        "Retention policy remains documented and actionable."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-EVAL-GOLDEN-RUNS-MVP-001-001",
+      "title": "Record a golden run for MVP-0 and store under status/audit.",
+      "status": "todo",
+      "area": "ops",
+      "provenance_prefix": "FUSBAL.MVP.TASK_EVAL_GOLDEN_RUNS_001.SUB_001",
+      "done_when": [
+        "A status/audit/INT-076/runs/<run_id>/run.json exists for a golden scenario.",
+        "A compact summary JSON exists for portal display."
+      ]
+    }
+  ]
+}
+

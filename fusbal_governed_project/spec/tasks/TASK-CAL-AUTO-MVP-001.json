@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-CAL-AUTO-MVP-001",
+  "intent_id": "INT-073",
+  "title": "Auto-first calibration for single static camera (emit metrics)",
+  "status": "todo",
+  "scope": [
+    "Implement an auto-first calibration flow that attempts to fit pitch mapping from markings observations.",
+    "Emit calibration metrics required for deterministic gating.",
+    "Fail explicitly and preserve trust-first semantics (no guessing)."
+  ],
+  "acceptance": [
+    "Calibration outputs a non-placeholder diagnostics/calibration.json with metrics.",
+    "Calibration returns explicit failure reasons when auto-fit is insufficient.",
+    "Metrics are stable/deterministic for a fixed fixture input."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-CAL-AUTO-MVP-001-001",
+      "title": "Auto-fit calibration implementation and diagnostics",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/calibration/auto_fit.py",
+        "pipeline/src/fusbal_pipeline/calibration/diagnostics.py"
+      ],
+      "acceptance": [
+        "Auto-fit emits metrics and failure reasons deterministically.",
+        "Diagnostics are contract-compatible and audit-friendly."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-CAL-AUTO-MVP-001-001",
+      "title": "Harden auto-fit and ensure required metrics are emitted.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_CAL_AUTO_001.SUB_001",
+      "done_when": [
+        "diagnostics/calibration.json includes required metrics for gating.",
+        "Auto-fit failure reasons are explicit and actionable."
+      ]
+    }
+  ]
+}
+

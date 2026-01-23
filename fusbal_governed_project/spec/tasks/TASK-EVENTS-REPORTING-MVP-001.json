@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-EVENTS-REPORTING-MVP-001",
+  "intent_id": "INT-075",
+  "title": "Surface events/highlights in report.html/report.json",
+  "status": "todo",
+  "scope": [
+    "Update report.json to include an events/highlights section with counts and links.",
+    "Update report.html to display events and highlight clip links (when present).",
+    "Explain confidence and missing-ball limitations clearly."
+  ],
+  "acceptance": [
+    "Report surfaces list candidate shots/goals with timestamps and confidence.",
+    "When highlight clips exist, report links them using relative bundle paths.",
+    "Report remains deterministic and does not claim certainty when confidence is low."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-EVENTS-REPORTING-MVP-001-001",
+      "title": "Report integration for events and highlights",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/report/html_report.py",
+        "pipeline/src/fusbal_pipeline/report/report_types.py"
+      ],
+      "acceptance": [
+        "Report types include events/highlights section.",
+        "HTML report renders events and highlight links deterministically."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-EVENTS-REPORTING-MVP-001-001",
+      "title": "Add events/highlights section to report outputs.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_EVENTS_REPORTING_001.SUB_001",
+      "done_when": [
+        "report_types.py defines a stable events/highlights schema.",
+        "html_report.py renders events/highlights with confidence."
+      ]
+    }
+  ]
+}
+

@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-REPORT-HTML-MVP-001",
+  "intent_id": "INT-072",
+  "title": "Generate non-placeholder report.html for MVP runs",
+  "status": "todo",
+  "scope": [
+    "Generate a minimal but truthful HTML report for each bundle run.",
+    "Report must include: counts, confidence summary, and known gaps/failure reasons.",
+    "Report must link to diagnostics artifacts when present."
+  ],
+  "acceptance": [
+    "report.html is not the placeholder scaffold for real runs.",
+    "report.html contains counts for players/ball (when present) and a confidence/gaps section.",
+    "report.json and report.html are consistent and deterministic."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-REPORT-HTML-MVP-001-001",
+      "title": "Report generator",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/report/html_report.py",
+        "pipeline/src/fusbal_pipeline/cli.py"
+      ],
+      "acceptance": [
+        "HTML report generator produces deterministic output from report.json + diagnostics.",
+        "CLI writes report.html for run bundles."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-REPORT-HTML-MVP-001-001",
+      "title": "Implement minimal HTML report generator and wire into runner.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_REPORT_HTML_001.SUB_001",
+      "done_when": [
+        "html_report.py exists and renders deterministic HTML.",
+        "Runner writes report.html for non-placeholder runs."
+      ]
+    }
+  ]
+}
+

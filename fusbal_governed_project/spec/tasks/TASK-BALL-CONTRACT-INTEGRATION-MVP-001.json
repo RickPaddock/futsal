@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-BALL-CONTRACT-INTEGRATION-MVP-001",
+  "intent_id": "INT-074",
+  "title": "Contract + validators updated for learned ball detector integration",
+  "status": "todo",
+  "scope": [
+    "Ensure learned ball records comply with TrackRecordV1 schema and validation rules.",
+    "Add regression tests covering explicit missing/unknown semantics and frame_index requirements.",
+    "Update contract template if needed for ball-specific diagnostics keys."
+  ],
+  "acceptance": [
+    "validate passes on learned-ball bundles without manual edits.",
+    "Tests cover negative cases (no present when detector disabled, missing/unknown required).",
+    "Contract template remains aligned with implementation."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-BALL-CONTRACT-INTEGRATION-MVP-001-001",
+      "title": "Validation + contract alignment",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/contract.py",
+        "pipeline/tests/test_ball_learned_integration.py"
+      ],
+      "acceptance": [
+        "Validation rules enforce required diagnostics keys for ball records.",
+        "Tests assert explicit missing/unknown records behavior."
+      ]
+    },
+    {
+      "deliverable_id": "DELIV-TASK-BALL-CONTRACT-INTEGRATION-MVP-001-002",
+      "title": "Contract template updates (if required)",
+      "paths": [
+        "spec/md/docs/data/OUTPUT_CONTRACT.mdt"
+      ],
+      "acceptance": [
+        "Ball learned-detector semantics and diagnostics keys are documented."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-BALL-CONTRACT-INTEGRATION-MVP-001-001",
+      "title": "Add tests and validation checks for learned-ball semantics.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_BALL_CONTRACT_INTEGRATION_001.SUB_001",
+      "done_when": [
+        "test_ball_learned_integration.py exists and covers required semantics.",
+        "contract.py enforces missing/unknown reason keys for ball records."
+      ]
+    }
+  ]
+}
+

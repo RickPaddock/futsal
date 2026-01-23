@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-BALL-TRACK-MVP-001",
+  "intent_id": "INT-074",
+  "title": "Ball tracking (learned detector input) with explicit missing/unknown semantics",
+  "status": "todo",
+  "scope": [
+    "Track the ball conservatively using learned detector candidates as input.",
+    "Emit explicit per-frame pos_state semantics (present/missing/unknown), no hallucination.",
+    "Emit quality metrics used by events/highlights."
+  ],
+  "acceptance": [
+    "tracks.jsonl contains ball records for every frame with explicit pos_state.",
+    "present ball records require gated evidence; missing/unknown include reasons.",
+    "Diagnostics/quality_summary includes ball visibility and missing-run metrics."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-BALL-TRACK-MVP-001-001",
+      "title": "Ball tracker integration and quality metrics",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/ball/tracker.py",
+        "pipeline/src/fusbal_pipeline/ball/track_types.py"
+      ],
+      "acceptance": [
+        "Tracker emits explicit missing/unknown semantics per frame.",
+        "Quality metrics are deterministic and surfaced in diagnostics."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-BALL-TRACK-MVP-001-001",
+      "title": "Integrate learned detector candidates into the tracker and harden semantics.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_BALL_TRACK_001.SUB_001",
+      "done_when": [
+        "tracker.py accepts learned detections and emits explicit pos_state per frame.",
+        "Missing/unknown reasons are stable and validated."
+      ]
+    }
+  ]
+}
+

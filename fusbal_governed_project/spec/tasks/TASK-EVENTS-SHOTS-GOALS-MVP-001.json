@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-EVENTS-SHOTS-GOALS-MVP-001",
+  "intent_id": "INT-075",
+  "title": "Conservative shots/goals inference for MVP (candidate/unknown only)",
+  "status": "todo",
+  "scope": [
+    "Infer shots and goals conservatively using ball track evidence (high precision).",
+    "Emit candidate/unknown events only until a confirmed policy is explicitly defined.",
+    "Add deterministic negative tests to prevent false positives."
+  ],
+  "acceptance": [
+    "events.json is deterministic and includes evidence pointers to tracks.jsonl windows.",
+    "Negative scenarios emit no events (unit-tested).",
+    "No event_state=confirmed is emitted in MVP mode."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-EVENTS-SHOTS-GOALS-MVP-001-001",
+      "title": "Events inference implementation + tests",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/events/shots_goals.py",
+        "pipeline/tests/test_events_mvp_negative.py"
+      ],
+      "acceptance": [
+        "Inference emits only candidate/unknown and is deterministic.",
+        "Negative tests prevent false positives regressions."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-EVENTS-SHOTS-GOALS-MVP-001-001",
+      "title": "Add negative tests and enforce candidate/unknown policy for MVP.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_EVENTS_SHOTS_GOALS_001.SUB_001",
+      "done_when": [
+        "test_events_mvp_negative.py exists and asserts no events on negative tracks.",
+        "shots_goals.py does not emit confirmed events under MVP config."
+      ]
+    }
+  ]
+}
+

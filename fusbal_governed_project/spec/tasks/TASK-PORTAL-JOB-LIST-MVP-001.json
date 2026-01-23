@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-PORTAL-JOB-LIST-MVP-001",
+  "intent_id": "INT-079",
+  "title": "Portal: list MVP runs/jobs with filters (intent, mode, status)",
+  "status": "todo",
+  "scope": [
+    "Add portal UX to list MVP runs across intents with filters for mode and status.",
+    "Support both local evidence runs (status/audit) and cloud job runs (GCS-backed references).",
+    "Keep listing deterministic and cache-friendly."
+  ],
+  "acceptance": [
+    "Portal shows a run list with columns: intent_id, run_id, mode, status, timestamp.",
+    "Runs link to the intent page and to available artifacts.",
+    "Errors are actionable and do not expose arbitrary file read."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-PORTAL-JOB-LIST-MVP-001-001",
+      "title": "Portal run list UI and data loader",
+      "paths": [
+        "apps/portal/pages/internal/runs/index.js",
+        "apps/portal/lib/runs.js"
+      ],
+      "acceptance": [
+        "Run list page renders structured runs and supports filtering.",
+        "Loader reads from approved sources only (status/audit summaries)."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-PORTAL-JOB-LIST-MVP-001-001",
+      "title": "Implement run listing UI and safe loader.",
+      "status": "todo",
+      "area": "portal",
+      "provenance_prefix": "FUSBAL.MVP.TASK_PORTAL_JOB_LIST_001.SUB_001",
+      "done_when": [
+        "runs/index.js exists and lists runs with filters.",
+        "runs.js loads summaries safely and deterministically."
+      ]
+    }
+  ]
+}
+

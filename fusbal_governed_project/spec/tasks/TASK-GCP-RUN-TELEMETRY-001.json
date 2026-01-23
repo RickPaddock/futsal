@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "TASK-GCP-RUN-TELEMETRY-001",
+  "intent_id": "INT-070",
+  "title": "Telemetry: runtime + cost-oriented diagnostics for GCP runs",
+  "status": "todo",
+  "scope": [
+    "Emit stable telemetry into diagnostics/report for each run (frames processed, decode width, fps, SAM2 usage, wall time).",
+    "Ensure logs include stable prefixes for ops (searchable).",
+    "Make telemetry portable across local and cloud runs."
+  ],
+  "acceptance": [
+    "A diagnostics JSON includes wall-time, frames processed, and mode (gcp_speed|gcp_low_cost).",
+    "Telemetry includes heavy-model usage (SAM2 windows/calls) when enabled.",
+    "Portal can display a compact run summary without parsing raw logs."
+  ],
+  "deliverables": [
+    {
+      "deliverable_id": "DELIV-TASK-GCP-RUN-TELEMETRY-001-001",
+      "title": "Run telemetry schema and emitter",
+      "paths": [
+        "pipeline/src/fusbal_pipeline/run_telemetry.py",
+        "pipeline/src/fusbal_pipeline/diagnostics_keys.py"
+      ],
+      "acceptance": [
+        "Telemetry emitter writes deterministic JSON summaries to the bundle diagnostics dir.",
+        "Diagnostics keys are centralized and reused across modules."
+      ]
+    }
+  ],
+  "subtasks": [
+    {
+      "subtask_id": "SUB-TASK-GCP-RUN-TELEMETRY-001-001",
+      "title": "Add telemetry emitter and stable diagnostics keys.",
+      "status": "todo",
+      "area": "pipeline",
+      "provenance_prefix": "FUSBAL.MVP.TASK_GCP_RUN_TELEMETRY_001.SUB_001",
+      "done_when": [
+        "run_telemetry.py exists and writes a deterministic summary.",
+        "diagnostics_keys.py includes keys for mode and wall_time_ms."
+      ]
+    }
+  ]
+}
+
