@@ -1,0 +1,74 @@
+{
+  "intent_id": "INT-076",
+  "title": "MVP: evaluation harness + regression gates",
+  "status": "todo",
+  "created_date": "2026-01-23",
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
+  "paths_allowed": [
+    "spec/",
+    "scripts/",
+    "tools/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
+  "close_gate": [
+    "npm run generate",
+    "npm run guardrails",
+    "npm run audit:intent -- --intent-id INT-076"
+  ],
+  "summary": [
+    "Define how we measure MVP quality (identity swaps, break rate, coverage, ball visible recall, BEV gating).",
+    "Add repeatable evaluation runs and regression gates so improvements do not silently break trust."
+  ],
+  "non_goals": [
+    "A full labeling platform; MVP uses a lightweight dataset format.",
+    "Publishing datasets publicly.",
+    "Optimizing for leaderboard metrics over product trust."
+  ],
+  "success_criteria": [
+    "A deterministic evaluation command exists and produces a machine-readable evaluation report.",
+    "Regression thresholds are encoded so CI/guardrails can fail on swap regressions or quality collapse.",
+    "Evidence runs are recorded under status/audit with stable summaries."
+  ],
+  "requirements_in_scope": [
+    "GREENFIELD-EVIDENCE-001",
+    "GREENFIELD-OPS-001",
+    "FUSBAL-V1-TRUST-001",
+    "SYS-ARCH-15"
+  ],
+  "task_ids_planned": [
+    "TASK-EVAL-DATASET-SPEC-MVP-001",
+    "TASK-EVAL-METRICS-MVP-001",
+    "TASK-EVAL-GOLDEN-RUNS-MVP-001",
+    "TASK-EVAL-REGRESSION-GATES-MVP-001"
+  ],
+  "work_packages": [
+    {
+      "work_package_id": "INT-076-001",
+      "title": "Dataset + metrics",
+      "items": [
+        "TASK-EVAL-DATASET-SPEC-MVP-001 Define a compact evaluation dataset format and fixtures.",
+        "TASK-EVAL-METRICS-MVP-001 Implement evaluation metrics for swaps/breaks/coverage/BEV gate."
+      ]
+    },
+    {
+      "work_package_id": "INT-076-002",
+      "title": "Regression + evidence",
+      "items": [
+        "TASK-EVAL-GOLDEN-RUNS-MVP-001 Create golden evidence runs and store summaries under status/audit.",
+        "TASK-EVAL-REGRESSION-GATES-MVP-001 Add regression thresholds/gates that fail builds on trust regressions."
+      ]
+    }
+  ]
+}
+

@@ -1,0 +1,40 @@
+{
+  "intent_id": "INT-072",
+  "title": "MVP-0: bundle outputs (overlay + non-placeholder report)",
+  "requirements_in_scope": [
+    "FUSBAL-V1-OUT-001",
+    "FUSBAL-V1-TRUST-001",
+    "GREENFIELD-OPS-001",
+    "SYS-ARCH-15"
+  ],
+  "task_ids_planned": [
+    "TASK-OVERLAY-PLAYERS-MVP-001",
+    "TASK-REPORT-HTML-MVP-001",
+    "TASK-BUNDLE-NO-PLACEHOLDER-MVP-001",
+    "TASK-OVERLAY-BACKEND-ROBUSTNESS-MVP-001"
+  ],
+  "paths_allowed": [
+    "spec/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
+  "close_gate": {
+    "commands": [
+      "npm run generate",
+      "npm run guardrails",
+      "npm run audit:intent -- --intent-id INT-072"
+    ],
+    "evidence_out_root": "status/audit/INT-072/runs"
+  }
+}

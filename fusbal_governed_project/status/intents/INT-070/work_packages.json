@@ -1,0 +1,28 @@
+{
+  "intent_id": "INT-070",
+  "work_packages": [
+    {
+      "work_package_id": "INT-070-001",
+      "title": "Job spec + storage I/O",
+      "primary_task_ids": [
+        "TASK-GCP-JOBSPEC-001",
+        "TASK-GCP-GCS-IO-001"
+      ]
+    },
+    {
+      "work_package_id": "INT-070-002",
+      "title": "Container + orchestration",
+      "primary_task_ids": [
+        "TASK-GCP-CONTAINER-001",
+        "TASK-GCP-ORCHESTRATION-001"
+      ]
+    },
+    {
+      "work_package_id": "INT-070-003",
+      "title": "Telemetry + reporting",
+      "primary_task_ids": [
+        "TASK-GCP-RUN-TELEMETRY-001"
+      ]
+    }
+  ]
+}

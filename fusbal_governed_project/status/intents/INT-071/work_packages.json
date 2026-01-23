@@ -1,0 +1,28 @@
+{
+  "intent_id": "INT-071",
+  "work_packages": [
+    {
+      "work_package_id": "INT-071-001",
+      "title": "Detection + tracking core",
+      "primary_task_ids": [
+        "TASK-PLAYER-DET-YOLO-001",
+        "TASK-PLAYER-MOT-MVP-001"
+      ]
+    },
+    {
+      "work_package_id": "INT-071-002",
+      "title": "Contract outputs + team assignment",
+      "primary_task_ids": [
+        "TASK-PLAYER-TRACKS-JSONL-MVP-001",
+        "TASK-TEAM-BIBS-MVP-001"
+      ]
+    },
+    {
+      "work_package_id": "INT-071-003",
+      "title": "Runnable path",
+      "primary_task_ids": [
+        "TASK-PLAYER-E2E-RUNNER-MVP-001"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "intent_id": "INT-077",
+  "title": "MVP: SAM2 occlusion recovery (budgeted, evidence-backed)",
+  "requirements_in_scope": [
+    "FUSBAL-V1-PLAYER-001",
+    "FUSBAL-V1-TRUST-001",
+    "GREENFIELD-OPS-001",
+    "SYS-ARCH-15"
+  ],
+  "task_ids_planned": [
+    "TASK-SAM2-CHECKPOINT-LOADING-MVP-001",
+    "TASK-SAM2-WINDOWING-MVP-001",
+    "TASK-SAM2-ROI-CROPS-MVP-001",
+    "TASK-SAM2-BUDGET-TELEMETRY-MVP-001"
+  ],
+  "paths_allowed": [
+    "spec/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
+  "close_gate": {
+    "commands": [
+      "npm run generate",
+      "npm run guardrails",
+      "npm run audit:intent -- --intent-id INT-077"
+    ],
+    "evidence_out_root": "status/audit/INT-077/runs"
+  }
+}

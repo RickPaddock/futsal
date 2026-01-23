@@ -1,6 +1,8 @@
-# Futsal Tracking — High-Level Design (V1 → Premium)
+# Futsal Tracking — High-Level Design (MVP → Premium)
 
 This document defines a complete, implementation-ready high-level design for an offline (post-processed) futsal analysis system that produces **trustworthy** player + ball tracking, conservative events, and a bird’s-eye tactical view. It is written to be specific enough that another LLM (or engineer) can implement the system end-to-end.
+
+MVP scope and sequencing are defined in `docs/mvp_plan.md` (single camera + bibs; passes in V2; BEV gated).
 
 ## 0) Product framing (trust-first)
 
@@ -8,49 +10,48 @@ This document defines a complete, implementation-ready high-level design for an 
 - Venue owners/operators and regular players of **outdoor futsal** who want automated match stats and replays with minimal setup.
 
 ### Core promise
-- Upload (or ingest) match video from **venue-installed cameras** (1–4 supported; **2 recommended**) and receive:
+- Upload (or ingest) match video and receive:
   - An **overlay video** with player tracks/IDs and ball tracking when visible.
-  - A **bird’s-eye view (BEV)** reconstruction with movement and conservative events (shots/goals v1).
+  - A **bird’s-eye view (BEV)** reconstruction with movement and conservative events (shots/goals in MVP).
   - A **report** (stats + confidence + “what we’re unsure about”).
 
-### Non-negotiables (V1)
+### Non-negotiables (MVP)
 - **Accuracy and trust > features.** The system must avoid hallucinating the ball/events and avoid identity swaps.
 - **Low friction onboarding.**
-  - Venue install is a **one-time calibration**, with periodic health checks and quick re-calibration if bumped.
-  - Bib colors are allowed/required to improve team separation.
+  - Static camera installs use a **one-time calibration**, with periodic health checks and quick re-calibration if bumped.
+  - MVP requires two bib colors to improve team separation.
 - **No special hardware required for baseline.**
   - Sensors (UWB/GNSS/wearables) are *optional upsells* and must never be required for a sellable output.
   - Future sensor contract is defined in `docs/sensor_integration.md`.
 
-## 1) V1 definition (concrete)
+## 1) MVP definition (concrete)
 
-### V1 environment assumptions
+### MVP environment assumptions (locked)
 - Outdoor futsal.
-- Venue camera mounts up to ~3m height, **not overhead**.
-- Cameras are fixed during a match (minor shake acceptable; no handheld).
-- Venue provides two distinct **bib colors**; all players wear one of the two bib colors.
-- Cloud batch processing is allowed; compute cost should be minimized by design.
+- **Single static wide-angle sideline camera** (minor shake acceptable; no handheld).
+- Two distinct **bib colors**; all players wear one of the two bib colors (Team A/B).
+- Cloud batch processing is allowed (target: GCP); compute cost should be minimized by design.
 
-### V1 required outputs
+### MVP required outputs
 Deliver a bundle per match:
 1) `overlay.mp4`
    - Player boxes + **track IDs** (IDs may break; swaps are unacceptable).
-   - Team color label (A/B/Unknown) + confidence.
+   - Team label (A/B) + confidence (internally allow low-confidence handling; do not guess silently).
    - Ball marker when tracked + confidence; explicit “ball missing” state.
 2) `bev.mp4` (bird’s-eye animation)
    - Player positions projected into pitch coordinates.
    - Ball position when available.
 3) `tracks.jsonl` (canonical time series; one record per entity per time sample)
-4) `events.json` (shots + goals only in v1, conservative)
+4) `events.json` (shots + goals only in MVP, conservative)
 5) `report.json` + `report.html` (stats + confidence + diagnostics)
 
-### V1 acceptability / error modes (trust-preserving)
+### MVP acceptability / error modes (trust-preserving)
 - **Ball tracking:** may be missing for long periods. Must not hallucinate. Prefer “unknown” over wrong.
 - **Player identities:** prefer **ID breaks** over swaps. Track continuity is secondary to correctness.
 - **Events:** high precision, low recall is OK. If uncertain, omit or mark as “candidate”.
 - **Calibration:** if pitch mapping is weak, still deliver overlay and non-BEV stats; BEV outputs may be disabled with clear reason.
 
-### Explicitly out-of-scope for V1
+### Explicitly out-of-scope for MVP
 - Passes/possession attribution (requires robust ball track + possession model).
 - Jersey number OCR as a requirement.
 - Tactical formations / press metrics / networks.
@@ -90,7 +91,7 @@ Sensors and their integration contracts are future work; the architecture must t
 5) **Team assignment**
    - Use bib color models + temporal smoothing; output A/B/Unknown.
 6) **Event inference**
-   - Shots/goals in v1, conservative confidence thresholds.
+   - Shots/goals in MVP, conservative confidence thresholds.
 7) **Rendering + reporting**
    - Overlay + BEV videos, JSON outputs, HTML report with diagnostics.
 
@@ -183,7 +184,7 @@ Otherwise, user camera is ignored and the system still produces the venue-camera
 ### Steps
 1) **Lens handling**
    - If lens intrinsics are known (camera model), undistort fisheye/wide-angle.
-   - Otherwise, do not overcomplicate v1: rely on robust line fitting + homography; treat residual distortion as uncertainty.
+   - Otherwise, do not overcomplicate MVP: rely on robust line fitting + homography; treat residual distortion as uncertainty.
 2) **Auto pitch feature detection**
    - Detect: touchlines, goal lines, penalty box lines, center circle arc if visible.
    - Use edge + line detection + semantic segmentation for field markings as needed.
@@ -247,7 +248,7 @@ Otherwise, user camera is ignored and the system still produces the venue-camera
 
 ### Purpose
 - Re-acquire players after occlusions or leaving/entering frame.
-- Support cross-camera association later (optional; pitch-space fusion can often avoid cross-camera ReID for v1).
+- Support cross-camera association later (optional; pitch-space fusion can often avoid cross-camera ReID for MVP).
 
 ### Usage policy
 - Compute embeddings:
@@ -270,11 +271,11 @@ Otherwise, user camera is ignored and the system still produces the venue-camera
 ### Manual override
 - Provide a lightweight override (e.g., swap cluster labels; mark a track as team A/B).
 
-## 11) Ball detection & tracking (best-effort in v1)
+## 11) Ball detection & tracking (best-effort in MVP)
 
 ### Problem reality
 - Ball is small, fast, frequently occluded, and visually ambiguous.
-- V1 must avoid hallucinating the ball.
+- MVP must avoid hallucinating the ball.
 
 ### Strategy
 - Dedicated small-object ball detector.
@@ -296,7 +297,7 @@ Otherwise, user camera is ignored and the system still produces the venue-camera
 - Per-camera ball tracks in pitch coordinates.
 
 ### Time sync
-V1 requirements:
+MVP requirements:
 - Cameras are “close enough” synced, or we can estimate offsets.
 Strategies:
 - Use audio correlation (crowd/kicks/whistle) to estimate offset.
@@ -311,12 +312,12 @@ Strategies:
     - Keep provenance (which cameras contributed).
   - Maintain fused tracks over time with a separate pitch-space tracker.
 
-### Cross-camera identity (v1 policy)
+### Cross-camera identity (MVP policy)
 - Default: treat fusion as “multiple noisy measurements of the same physical players” without trying to preserve a single global ID across cameras unless confidence is very high.
-- If you do global IDs in v1, enforce the “no swaps” policy:
+- If you do global IDs in MVP, enforce the “no swaps” policy:
   - Prefer splitting IDs rather than incorrectly merging.
 
-## 13) Event inference (v1: shots + goals only)
+## 13) Event inference (MVP: shots + goals only)
 
 ### Inputs
 - Ball track with confidence.
@@ -339,7 +340,7 @@ Strategies:
   - `confidence`
   - `supporting_evidence` (ball quality stats, contributing cameras)
 
-### V1 non-goals
+### MVP non-goals
 - Do not infer passes/possession unless ball tracking is robust enough to meet a precision target.
 
 ## 14) Rendering
@@ -364,7 +365,7 @@ The report is as important as accuracy: it communicates uncertainty.
 - Calibration quality per camera (pass/warn/fail) and why.
 - Tracking quality metrics (e.g., track fragmentation rate; time with “unknown” ball).
 - Stats:
-  - Per team: possession is v2; in v1 only ball-visible stats.
+  - Per team: possession is v2; in MVP only ball-visible stats.
   - Per player: distance, speed percentiles, heatmaps.
 - Events list with confidence and replay timestamps.
 
@@ -470,4 +471,3 @@ Design requirement:
 - Treat GNSS as a low-rate, noisy prior unless proven otherwise; never let it degrade the baseline camera-only output.
 
 See `docs/sensor_integration.md` for the integration contract.
-

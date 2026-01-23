@@ -1,0 +1,91 @@
+{
+  "artifacts": [
+    {
+      "artifact_id": "bev_mp4",
+      "description": "Best-effort birds-eye-view render (only when calibration passes).",
+      "kind": "file",
+      "rel_path": "bev.mp4",
+      "requirement": "optional"
+    },
+    {
+      "artifact_id": "diagnostics_calibration_json",
+      "description": "Calibration diagnostics JSON.",
+      "kind": "file",
+      "rel_path": "diagnostics/calibration.json",
+      "requirement": "required"
+    },
+    {
+      "artifact_id": "diagnostics_dir",
+      "description": "Diagnostics directory (calibration/sync/quality summaries).",
+      "kind": "dir",
+      "rel_path": "diagnostics",
+      "requirement": "required"
+    },
+    {
+      "artifact_id": "diagnostics_quality_summary_json",
+      "description": "Quality summary diagnostics JSON.",
+      "kind": "file",
+      "rel_path": "diagnostics/quality_summary.json",
+      "requirement": "required"
+    },
+    {
+      "artifact_id": "diagnostics_sync_json",
+      "description": "Sync diagnostics JSON (required when sensors/multicam are used).",
+      "kind": "file",
+      "rel_path": "diagnostics/sync.json",
+      "requirement": "required_if_sensors_present"
+    },
+    {
+      "artifact_id": "events_json",
+      "description": "Canonical events list (JSON).",
+      "kind": "file",
+      "rel_path": "events.json",
+      "requirement": "required"
+    },
+    {
+      "artifact_id": "manifest_json",
+      "description": "Bundle manifest (schema + inputs + expected artifacts).",
+      "kind": "file",
+      "rel_path": "manifest.json",
+      "requirement": "required"
+    },
+    {
+      "artifact_id": "overlay_mp4",
+      "description": "Rendered video overlay with boxes/IDs/labels.",
+      "kind": "file",
+      "rel_path": "overlay.mp4",
+      "requirement": "required"
+    },
+    {
+      "artifact_id": "report_html",
+      "description": "Rendered human report (HTML).",
+      "kind": "file",
+      "rel_path": "report.html",
+      "requirement": "required"
+    },
+    {
+      "artifact_id": "report_json",
+      "description": "Report summary and diagnostics (JSON).",
+      "kind": "file",
+      "rel_path": "report.json",
+      "requirement": "required"
+    },
+    {
+      "artifact_id": "tracks_jsonl",
+      "description": "Canonical track records (JSON Lines).",
+      "kind": "file",
+      "rel_path": "tracks.jsonl",
+      "requirement": "required"
+    }
+  ],
+  "bundle_layout_version": 1,
+  "inputs": {
+    "sensor_paths": [],
+    "video_paths": [
+      "GoPro_Futsal_part2_trimmed_100mb.mp4"
+    ]
+  },
+  "match_id": "INT050_DEMO",
+  "notes": "run-video (INT-050)",
+  "schema_version": 1
+}

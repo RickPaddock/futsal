@@ -1,0 +1,44 @@
+{
+  "intent_id": "INT-070",
+  "title": "MVP deployment: GCP batch runner (Speed + Low Cost)",
+  "requirements_in_scope": [
+    "FUSBAL-V1-OUT-001",
+    "REQ-V1-VIDEO-RUNNER-001",
+    "GREENFIELD-OPS-001",
+    "GREENFIELD-OPS-002",
+    "SYS-ARCH-15"
+  ],
+  "task_ids_planned": [
+    "TASK-GCP-JOBSPEC-001",
+    "TASK-GCP-CONTAINER-001",
+    "TASK-GCP-GCS-IO-001",
+    "TASK-GCP-ORCHESTRATION-001",
+    "TASK-GCP-RUN-TELEMETRY-001"
+  ],
+  "paths_allowed": [
+    "spec/",
+    "scripts/",
+    "tools/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
+  "close_gate": {
+    "commands": [
+      "npm run generate",
+      "npm run guardrails",
+      "npm run audit:intent -- --intent-id INT-070"
+    ],
+    "evidence_out_root": "status/audit/INT-070/runs"
+  }
+}

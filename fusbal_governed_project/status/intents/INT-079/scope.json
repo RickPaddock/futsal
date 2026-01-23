@@ -1,0 +1,40 @@
+{
+  "intent_id": "INT-079",
+  "title": "Portal: MVP job runs and artifact surfacing",
+  "requirements_in_scope": [
+    "GREENFIELD-OPS-001",
+    "GREENFIELD-PORTAL-001",
+    "GREENFIELD-PORTAL-002",
+    "SYS-ARCH-15"
+  ],
+  "task_ids_planned": [
+    "TASK-PORTAL-JOB-LIST-MVP-001",
+    "TASK-PORTAL-ARTIFACTS-MVP-001",
+    "TASK-PORTAL-RUN-STATUS-MVP-001"
+  ],
+  "paths_allowed": [
+    "spec/",
+    "apps/portal/",
+    "status/audit/",
+    "tools/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
+  "close_gate": {
+    "commands": [
+      "npm run generate",
+      "npm run guardrails",
+      "npm run audit:intent -- --intent-id INT-079"
+    ],
+    "evidence_out_root": "status/audit/INT-079/runs"
+  }
+}

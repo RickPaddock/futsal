@@ -1,0 +1,72 @@
+{
+  "intent_id": "INT-072",
+  "title": "MVP-0: bundle outputs (overlay + non-placeholder report)",
+  "status": "todo",
+  "created_date": "2026-01-23",
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
+  "paths_allowed": [
+    "spec/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
+  "close_gate": [
+    "npm run generate",
+    "npm run guardrails",
+    "npm run audit:intent -- --intent-id INT-072"
+  ],
+  "summary": [
+    "Produce a real, human-useful overlay.mp4 for MVP-0 (players + teams + confidence) inside the output bundle.",
+    "Replace placeholder report.html with a minimal but truthful report explaining confidence and known gaps."
+  ],
+  "non_goals": [
+    "BEV video generation (separate intent).",
+    "Ball overlays and highlights (separate intents).",
+    "Production-grade design system; MVP report is utilitarian."
+  ],
+  "success_criteria": [
+    "A bundle run produces a playable overlay.mp4 with player tracks and team labels when evidence exists.",
+    "report.html is non-placeholder and includes at minimum: counts, confidence summary, and diagnostics pointers.",
+    "Overlay/report rendering remains deterministic and trust-first (no fabricated markers)."
+  ],
+  "requirements_in_scope": [
+    "FUSBAL-V1-OUT-001",
+    "FUSBAL-V1-TRUST-001",
+    "GREENFIELD-OPS-001",
+    "SYS-ARCH-15"
+  ],
+  "task_ids_planned": [
+    "TASK-OVERLAY-PLAYERS-MVP-001",
+    "TASK-REPORT-HTML-MVP-001",
+    "TASK-BUNDLE-NO-PLACEHOLDER-MVP-001",
+    "TASK-OVERLAY-BACKEND-ROBUSTNESS-MVP-001"
+  ],
+  "work_packages": [
+    {
+      "work_package_id": "INT-072-001",
+      "title": "Overlay",
+      "items": [
+        "TASK-OVERLAY-PLAYERS-MVP-001 Extend overlay rendering to include players + team + confidence cues.",
+        "TASK-OVERLAY-BACKEND-ROBUSTNESS-MVP-001 Ensure overlay can render text reliably across backends."
+      ]
+    },
+    {
+      "work_package_id": "INT-072-002",
+      "title": "Reports and placeholders",
+      "items": [
+        "TASK-REPORT-HTML-MVP-001 Generate a minimal non-placeholder report.html explaining confidence and gaps.",
+        "TASK-BUNDLE-NO-PLACEHOLDER-MVP-001 Stop shipping placeholder overlay/report for real runs."
+      ]
+    }
+  ]
+}
+

@@ -1,0 +1,75 @@
+{
+  "intent_id": "INT-073",
+  "title": "MVP-2: calibration + BEV (quality-gated) + running stats",
+  "status": "todo",
+  "created_date": "2026-01-23",
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
+  "paths_allowed": [
+    "spec/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
+  "close_gate": [
+    "npm run generate",
+    "npm run guardrails",
+    "npm run audit:intent -- --intent-id INT-073"
+  ],
+  "summary": [
+    "Add one-time calibration (auto-first with manual fallback) for a static single camera.",
+    "Enable BEV outputs and meters-based stats only when calibration quality passes deterministic gates."
+  ],
+  "non_goals": [
+    "Fisheye/undistortion perfection in MVP (defer; do not emit wrong meters).",
+    "Multi-camera fusion (V2).",
+    "Passes/possession (V2)."
+  ],
+  "success_criteria": [
+    "Calibration outputs real diagnostics (not placeholders) and produces a deterministic gate decision.",
+    "When calibration passes, BEV tracks + bev.mp4 are produced; when it fails, BEV is disabled with explicit reasons.",
+    "Distance/speed/heatmaps are computed only when BEV is gated-on and are excluded otherwise."
+  ],
+  "requirements_in_scope": [
+    "FUSBAL-V1-CAL-001",
+    "FUSBAL-V1-BEV-001",
+    "FUSBAL-V1-OUT-001",
+    "FUSBAL-V1-TRUST-001",
+    "SYS-ARCH-15"
+  ],
+  "task_ids_planned": [
+    "TASK-CAL-AUTO-MVP-001",
+    "TASK-CAL-MANUAL-CLICK-MVP-001",
+    "TASK-BEV-GATE-DIAGNOSTICS-MVP-001",
+    "TASK-BEV-RENDER-MVP-001",
+    "TASK-STATS-METERS-MVP-001"
+  ],
+  "work_packages": [
+    {
+      "work_package_id": "INT-073-001",
+      "title": "Calibration",
+      "items": [
+        "TASK-CAL-AUTO-MVP-001 Implement auto-first calibration flow and emit metrics.",
+        "TASK-CAL-MANUAL-CLICK-MVP-001 Implement a minimal manual click fallback and persisted artifact."
+      ]
+    },
+    {
+      "work_package_id": "INT-073-002",
+      "title": "BEV + stats",
+      "items": [
+        "TASK-BEV-GATE-DIAGNOSTICS-MVP-001 Implement deterministic gating and diagnostic reasons.",
+        "TASK-BEV-RENDER-MVP-001 Render bev.mp4 when gated-on and ensure outputs are deterministic.",
+        "TASK-STATS-METERS-MVP-001 Compute meters-based stats only when gated-on."
+      ]
+    }
+  ]
+}
+

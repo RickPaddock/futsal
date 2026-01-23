@@ -1,0 +1,72 @@
+{
+  "intent_id": "INT-078",
+  "title": "MVP deployment: Local Laptop runner (offline bundle)",
+  "status": "todo",
+  "created_date": "2026-01-23",
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
+  "paths_allowed": [
+    "spec/",
+    "spec/md/docs/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
+  "close_gate": [
+    "npm run generate",
+    "npm run guardrails",
+    "npm run audit:intent -- --intent-id INT-078"
+  ],
+  "summary": [
+    "Provide a true local-laptop execution mode: read a local video path and write a bundle to local disk.",
+    "Keep outputs contract-valid and deterministic; provide clear guidance on prerequisites (ffmpeg, CUDA, etc.)."
+  ],
+  "non_goals": [
+    "Running jobs controlled by GCP but executed on a user laptop (no hybrid agent model in MVP).",
+    "Multi-camera runs (V2).",
+    "A GUI app for local runs (CLI-first)."
+  ],
+  "success_criteria": [
+    "A local CLI command can run end-to-end and write a contract-valid bundle to disk.",
+    "Local runner supports the same three deployment modes conceptually (local laptop is a separate mode from cloud).",
+    "Failure modes are explicit and actionable (missing ffmpeg, missing model weights, etc.)."
+  ],
+  "requirements_in_scope": [
+    "REQ-V1-VIDEO-INGEST-001",
+    "REQ-V1-VIDEO-RUNNER-001",
+    "FUSBAL-V1-OUT-001",
+    "GREENFIELD-OPS-001",
+    "SYS-ARCH-15"
+  ],
+  "task_ids_planned": [
+    "TASK-LOCAL-CLI-RUNNER-MVP-001",
+    "TASK-LOCAL-MODES-MVP-001",
+    "TASK-LOCAL-DOCS-MVP-001"
+  ],
+  "work_packages": [
+    {
+      "work_package_id": "INT-078-001",
+      "title": "Runner",
+      "items": [
+        "TASK-LOCAL-CLI-RUNNER-MVP-001 Add/extend a local CLI command that produces a real bundle.",
+        "TASK-LOCAL-MODES-MVP-001 Add explicit mode selection (local laptop vs cloud profiles) in config."
+      ]
+    },
+    {
+      "work_package_id": "INT-078-002",
+      "title": "Docs",
+      "items": [
+        "TASK-LOCAL-DOCS-MVP-001 Update quick reference docs templates for local-laptop execution."
+      ]
+    }
+  ]
+}
+

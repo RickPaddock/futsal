@@ -1,0 +1,20 @@
+{
+  "intent_id": "INT-074",
+  "work_packages": [
+    {
+      "work_package_id": "INT-074-001",
+      "title": "Detector + tracker",
+      "primary_task_ids": [
+        "TASK-BALL-DET-LEARNED-MVP-001",
+        "TASK-BALL-TRACK-MVP-001"
+      ]
+    },
+    {
+      "work_package_id": "INT-074-002",
+      "title": "Contract integration",
+      "primary_task_ids": [
+        "TASK-BALL-CONTRACT-INTEGRATION-MVP-001"
+      ]
+    }
+  ]
+}

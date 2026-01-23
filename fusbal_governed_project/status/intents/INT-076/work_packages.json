@@ -1,0 +1,21 @@
+{
+  "intent_id": "INT-076",
+  "work_packages": [
+    {
+      "work_package_id": "INT-076-001",
+      "title": "Dataset + metrics",
+      "primary_task_ids": [
+        "TASK-EVAL-DATASET-SPEC-MVP-001",
+        "TASK-EVAL-METRICS-MVP-001"
+      ]
+    },
+    {
+      "work_package_id": "INT-076-002",
+      "title": "Regression + evidence",
+      "primary_task_ids": [
+        "TASK-EVAL-GOLDEN-RUNS-MVP-001",
+        "TASK-EVAL-REGRESSION-GATES-MVP-001"
+      ]
+    }
+  ]
+}

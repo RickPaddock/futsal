@@ -1,0 +1,70 @@
+{
+  "intent_id": "INT-075",
+  "title": "MVP-1: events + highlights (shots/goals only, conservative)",
+  "status": "todo",
+  "created_date": "2026-01-23",
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
+  "paths_allowed": [
+    "spec/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
+  "close_gate": [
+    "npm run generate",
+    "npm run guardrails",
+    "npm run audit:intent -- --intent-id INT-075"
+  ],
+  "summary": [
+    "Infer shots/goals conservatively and export highlights suitable for selling value to tracked players.",
+    "Keep event semantics high precision; candidate/unknown allowed; never emit confirmed without a strict bar."
+  ],
+  "non_goals": [
+    "Passes/possession (V2).",
+    "Full tactical event taxonomy (V2+).",
+    "Guaranteed highlights when ball is missing for long spans."
+  ],
+  "success_criteria": [
+    "events.json contains conservative shot/goal candidates with evidence pointers into tracks.jsonl.",
+    "A highlight export path exists for candidate shots/goals (clip windows) and is deterministic.",
+    "report.html surfaces events/highlights and explains confidence and failure modes."
+  ],
+  "requirements_in_scope": [
+    "FUSBAL-V1-EVENT-001",
+    "FUSBAL-V1-OUT-001",
+    "FUSBAL-V1-TRUST-001",
+    "SYS-ARCH-15"
+  ],
+  "task_ids_planned": [
+    "TASK-EVENTS-SHOTS-GOALS-MVP-001",
+    "TASK-HIGHLIGHTS-CLIPS-MVP-001",
+    "TASK-EVENTS-REPORTING-MVP-001"
+  ],
+  "work_packages": [
+    {
+      "work_package_id": "INT-075-001",
+      "title": "Events",
+      "items": [
+        "TASK-EVENTS-SHOTS-GOALS-MVP-001 Implement conservative shot/goal inference suitable for MVP."
+      ]
+    },
+    {
+      "work_package_id": "INT-075-002",
+      "title": "Highlights + reporting",
+      "items": [
+        "TASK-HIGHLIGHTS-CLIPS-MVP-001 Export highlight clips for candidate shots/goals.",
+        "TASK-EVENTS-REPORTING-MVP-001 Surface events/highlights and confidence in report.html/report.json."
+      ]
+    }
+  ]
+}
+

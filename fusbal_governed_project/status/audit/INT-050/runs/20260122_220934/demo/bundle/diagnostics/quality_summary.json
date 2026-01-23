@@ -1,0 +1,30 @@
+{
+  "ball": {
+    "max_missing_run_records": 469,
+    "max_unknown_run_records": 0,
+    "missing_reason_counts": {
+      "detector_missing": 438,
+      "jump_rejected": 718,
+      "low_confidence": 0
+    },
+    "missing_runs": 27,
+    "pos_state_counts": {
+      "missing": 1156,
+      "present": 43,
+      "unknown": 0
+    },
+    "present_confidence": {
+      "max": 0.8308496732026144,
+      "mean": 0.7763035683949825,
+      "min": 0.7544790465205691
+    },
+    "schema_version": 1,
+    "thresholds": {
+      "max_center_jump_px": 120.0,
+      "min_detection_confidence": 0.6
+    },
+    "total_records": 1199,
+    "unknown_runs": 0
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,81 @@
+{
+  "intent_id": "INT-071",
+  "title": "MVP-0: player detection + tracking (YOLO + MOT, trust-first)",
+  "status": "todo",
+  "created_date": "2026-01-23",
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
+  "paths_allowed": [
+    "spec/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
+  "close_gate": [
+    "npm run generate",
+    "npm run guardrails",
+    "npm run audit:intent -- --intent-id INT-071"
+  ],
+  "summary": [
+    "Integrate a real player detector (YOLO checkpoint) and MOT to produce player tracks on real video.",
+    "Enforce the MVP identity policy: no swaps; breaks allowed; confidence-first outputs."
+  ],
+  "non_goals": [
+    "Passes/possession (V2).",
+    "Cross-match player re-identification (V2+).",
+    "SAM2 occlusion recovery (separate intent once checkpoint is available)."
+  ],
+  "success_criteria": [
+    "A local video run produces contract-valid player records in tracks.jsonl (image_px) with explicit break semantics.",
+    "Identity swaps are prevented by design (gating) and validated by tests/fixtures.",
+    "Team A/B is assigned from bib colors with confidence (internally allow low-confidence handling)."
+  ],
+  "requirements_in_scope": [
+    "FUSBAL-V1-PLAYER-001",
+    "FUSBAL-V1-TEAM-001",
+    "FUSBAL-V1-DATA-001",
+    "FUSBAL-V1-TRUST-001",
+    "SYS-ARCH-15"
+  ],
+  "task_ids_planned": [
+    "TASK-PLAYER-DET-YOLO-001",
+    "TASK-PLAYER-MOT-MVP-001",
+    "TASK-PLAYER-TRACKS-JSONL-MVP-001",
+    "TASK-TEAM-BIBS-MVP-001",
+    "TASK-PLAYER-E2E-RUNNER-MVP-001"
+  ],
+  "work_packages": [
+    {
+      "work_package_id": "INT-071-001",
+      "title": "Detection + tracking core",
+      "items": [
+        "TASK-PLAYER-DET-YOLO-001 Integrate YOLO player detector backend (checkpoint-driven).",
+        "TASK-PLAYER-MOT-MVP-001 Implement MOT and swap-avoidant association policy."
+      ]
+    },
+    {
+      "work_package_id": "INT-071-002",
+      "title": "Contract outputs + team assignment",
+      "items": [
+        "TASK-PLAYER-TRACKS-JSONL-MVP-001 Emit contract-valid player records (segments, breaks, diagnostics).",
+        "TASK-TEAM-BIBS-MVP-001 Assign Team A/B from bib colors with confidence and smoothing."
+      ]
+    },
+    {
+      "work_package_id": "INT-071-003",
+      "title": "Runnable path",
+      "items": [
+        "TASK-PLAYER-E2E-RUNNER-MVP-001 Wire the player pipeline into a runnable CLI path that writes a real bundle."
+      ]
+    }
+  ]
+}
+

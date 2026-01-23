@@ -1,0 +1,72 @@
+{
+  "intent_id": "INT-077",
+  "title": "MVP: SAM2 occlusion recovery (budgeted, evidence-backed)",
+  "status": "todo",
+  "created_date": "2026-01-23",
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
+  "paths_allowed": [
+    "spec/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
+  "close_gate": [
+    "npm run generate",
+    "npm run guardrails",
+    "npm run audit:intent -- --intent-id INT-077"
+  ],
+  "summary": [
+    "Integrate SAM2 as an occlusion-recovery fallback for player tracking once a checkpoint is available.",
+    "Keep it budgeted (windowed, capped) and trust-first (no fabricated truth positions)."
+  ],
+  "non_goals": [
+    "Running segmentation on every frame.",
+    "Using SAM2 to invent player positions without evidence (no T3-style hallucinated truth).",
+    "Replacing the core detector/tracker; SAM2 is additive."
+  ],
+  "success_criteria": [
+    "SAM2 can be enabled via config and is loaded via portable paths (no machine-specific absolute paths).",
+    "SAM2 runs only in triggered windows and reports its usage/cost footprint in diagnostics.",
+    "Recovered outputs are clearly annotated in diagnostics; missing remains explicit when recovery fails."
+  ],
+  "requirements_in_scope": [
+    "FUSBAL-V1-PLAYER-001",
+    "FUSBAL-V1-TRUST-001",
+    "GREENFIELD-OPS-001",
+    "SYS-ARCH-15"
+  ],
+  "task_ids_planned": [
+    "TASK-SAM2-CHECKPOINT-LOADING-MVP-001",
+    "TASK-SAM2-WINDOWING-MVP-001",
+    "TASK-SAM2-ROI-CROPS-MVP-001",
+    "TASK-SAM2-BUDGET-TELEMETRY-MVP-001"
+  ],
+  "work_packages": [
+    {
+      "work_package_id": "INT-077-001",
+      "title": "Integration",
+      "items": [
+        "TASK-SAM2-CHECKPOINT-LOADING-MVP-001 Add portable SAM2 checkpoint/config loading and backend checks."
+      ]
+    },
+    {
+      "work_package_id": "INT-077-002",
+      "title": "Budgeting + ROI",
+      "items": [
+        "TASK-SAM2-WINDOWING-MVP-001 Trigger SAM2 only on failure windows (count drop/overlap).",
+        "TASK-SAM2-ROI-CROPS-MVP-001 Prefer ROI crops and cap work per match.",
+        "TASK-SAM2-BUDGET-TELEMETRY-MVP-001 Record SAM2 usage in diagnostics/report for cost control."
+      ]
+    }
+  ]
+}
+

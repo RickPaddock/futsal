@@ -1,0 +1,70 @@
+{
+  "intent_id": "INT-074",
+  "title": "MVP-1: learned ball model integration (checkpoint-driven)",
+  "status": "todo",
+  "created_date": "2026-01-23",
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
+  "paths_allowed": [
+    "spec/",
+    "pipeline/",
+    "status/audit/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
+  "close_gate": [
+    "npm run generate",
+    "npm run guardrails",
+    "npm run audit:intent -- --intent-id INT-074"
+  ],
+  "summary": [
+    "Replace/augment the baseline ball detector with a learned checkpoint-driven detector once it is available.",
+    "Preserve trust-first semantics: explicit missing/unknown; no hallucination; quality metrics drive downstream gating."
+  ],
+  "non_goals": [
+    "Guaranteeing ball present on every frame.",
+    "Passes/possession (V2).",
+    "Ball sensor fusion (V2)."
+  ],
+  "success_criteria": [
+    "A bundle run can use a learned ball checkpoint to emit non-empty present ball records on a deterministic UAT clip.",
+    "Ball missing/unknown semantics remain explicit and contract-valid.",
+    "Ball quality metrics are exposed for event/highlight gating."
+  ],
+  "requirements_in_scope": [
+    "FUSBAL-V1-BALL-001",
+    "FUSBAL-V1-DATA-001",
+    "FUSBAL-V1-TRUST-001",
+    "SYS-ARCH-15"
+  ],
+  "task_ids_planned": [
+    "TASK-BALL-DET-LEARNED-MVP-001",
+    "TASK-BALL-TRACK-MVP-001",
+    "TASK-BALL-CONTRACT-INTEGRATION-MVP-001"
+  ],
+  "work_packages": [
+    {
+      "work_package_id": "INT-074-001",
+      "title": "Detector + tracker",
+      "items": [
+        "TASK-BALL-DET-LEARNED-MVP-001 Integrate a learned ball detector backend with checkpoint selection.",
+        "TASK-BALL-TRACK-MVP-001 Track the ball conservatively with explicit missing/unknown per frame."
+      ]
+    },
+    {
+      "work_package_id": "INT-074-002",
+      "title": "Contract integration",
+      "items": [
+        "TASK-BALL-CONTRACT-INTEGRATION-MVP-001 Ensure learned ball outputs conform to the contract and validators."
+      ]
+    }
+  ]
+}
+

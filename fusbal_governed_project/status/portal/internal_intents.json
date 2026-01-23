@@ -633,6 +633,370 @@
           "status": "done"
         }
       ]
+    },
+    {
+      "intent_id": "INT-070",
+      "title": "MVP deployment: GCP batch runner (Speed + Low Cost)",
+      "status": "todo",
+      "created_date": "2026-01-23",
+      "closed_date": "",
+      "requirements_in_scope": [
+        {
+          "id": "FUSBAL-V1-OUT-001",
+          "title": "Produce a deterministic per-match output bundle (overlay, BEV, tracks, events, report) with diagnostics.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "GREENFIELD-OPS-001",
+          "title": "Logging and error surfacing are usable for audits and operators.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "GREENFIELD-OPS-002",
+          "title": "Starting the internal portal clears common dev ports and starts reliably.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "REQ-V1-VIDEO-RUNNER-001",
+          "title": "End-to-end runner: ingest a video and export a valid V1 output bundle with tracks/events under `output/<match_id>/` (plumbing-first, deterministic).",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "SYS-ARCH-15",
+          "title": "All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        }
+      ],
+      "tasks": []
+    },
+    {
+      "intent_id": "INT-071",
+      "title": "MVP-0: player detection + tracking (YOLO + MOT, trust-first)",
+      "status": "todo",
+      "created_date": "2026-01-23",
+      "closed_date": "",
+      "requirements_in_scope": [
+        {
+          "id": "FUSBAL-V1-DATA-001",
+          "title": "All sources emit a canonical track record format suitable for fusion and reporting.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-PLAYER-001",
+          "title": "Detect and track all players per match with conservative identity continuity.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-TEAM-001",
+          "title": "Assign players to Team A/B via bib colors (plus smoothing) with an Unknown state.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-TRUST-001",
+          "title": "Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "SYS-ARCH-15",
+          "title": "All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        }
+      ],
+      "tasks": []
+    },
+    {
+      "intent_id": "INT-072",
+      "title": "MVP-0: bundle outputs (overlay + non-placeholder report)",
+      "status": "todo",
+      "created_date": "2026-01-23",
+      "closed_date": "",
+      "requirements_in_scope": [
+        {
+          "id": "FUSBAL-V1-OUT-001",
+          "title": "Produce a deterministic per-match output bundle (overlay, BEV, tracks, events, report) with diagnostics.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-TRUST-001",
+          "title": "Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "GREENFIELD-OPS-001",
+          "title": "Logging and error surfacing are usable for audits and operators.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "SYS-ARCH-15",
+          "title": "All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        }
+      ],
+      "tasks": []
+    },
+    {
+      "intent_id": "INT-073",
+      "title": "MVP-2: calibration + BEV (quality-gated) + running stats",
+      "status": "todo",
+      "created_date": "2026-01-23",
+      "closed_date": "",
+      "requirements_in_scope": [
+        {
+          "id": "FUSBAL-V1-BEV-001",
+          "title": "When calibration quality is sufficient, generate bird’s-eye-view (BEV) tracks and video in pitch meters.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-CAL-001",
+          "title": "Calibration maps each camera to pitch coordinates with explicit quality gating and diagnostics.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-OUT-001",
+          "title": "Produce a deterministic per-match output bundle (overlay, BEV, tracks, events, report) with diagnostics.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-TRUST-001",
+          "title": "Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "SYS-ARCH-15",
+          "title": "All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        }
+      ],
+      "tasks": []
+    },
+    {
+      "intent_id": "INT-074",
+      "title": "MVP-1: learned ball model integration (checkpoint-driven)",
+      "status": "todo",
+      "created_date": "2026-01-23",
+      "closed_date": "",
+      "requirements_in_scope": [
+        {
+          "id": "FUSBAL-V1-BALL-001",
+          "title": "Track the ball when visible and explicitly represent missing/unknown spans without hallucination.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-DATA-001",
+          "title": "All sources emit a canonical track record format suitable for fusion and reporting.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-TRUST-001",
+          "title": "Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "SYS-ARCH-15",
+          "title": "All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        }
+      ],
+      "tasks": []
+    },
+    {
+      "intent_id": "INT-075",
+      "title": "MVP-1: events + highlights (shots/goals only, conservative)",
+      "status": "todo",
+      "created_date": "2026-01-23",
+      "closed_date": "",
+      "requirements_in_scope": [
+        {
+          "id": "FUSBAL-V1-EVENT-001",
+          "title": "Infer shots and goals conservatively in V1 (high precision) and emit confidence + evidence pointers.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-OUT-001",
+          "title": "Produce a deterministic per-match output bundle (overlay, BEV, tracks, events, report) with diagnostics.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-TRUST-001",
+          "title": "Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "SYS-ARCH-15",
+          "title": "All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        }
+      ],
+      "tasks": []
+    },
+    {
+      "intent_id": "INT-076",
+      "title": "MVP: evaluation harness + regression gates",
+      "status": "todo",
+      "created_date": "2026-01-23",
+      "closed_date": "",
+      "requirements_in_scope": [
+        {
+          "id": "FUSBAL-V1-TRUST-001",
+          "title": "Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "GREENFIELD-EVIDENCE-001",
+          "title": "Evidence recorder captures stdout/stderr for debugging failed runs.",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        },
+        {
+          "id": "GREENFIELD-OPS-001",
+          "title": "Logging and error surfacing are usable for audits and operators.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "SYS-ARCH-15",
+          "title": "All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        }
+      ],
+      "tasks": []
+    },
+    {
+      "intent_id": "INT-077",
+      "title": "MVP: SAM2 occlusion recovery (budgeted, evidence-backed)",
+      "status": "todo",
+      "created_date": "2026-01-23",
+      "closed_date": "",
+      "requirements_in_scope": [
+        {
+          "id": "FUSBAL-V1-PLAYER-001",
+          "title": "Detect and track all players per match with conservative identity continuity.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "FUSBAL-V1-TRUST-001",
+          "title": "Trust-first behavior: avoid identity swaps and ball/event hallucinations; prefer Unknown/missing over wrong.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "GREENFIELD-OPS-001",
+          "title": "Logging and error surfacing are usable for audits and operators.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "SYS-ARCH-15",
+          "title": "All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        }
+      ],
+      "tasks": []
+    },
+    {
+      "intent_id": "INT-078",
+      "title": "MVP deployment: Local Laptop runner (offline bundle)",
+      "status": "todo",
+      "created_date": "2026-01-23",
+      "closed_date": "",
+      "requirements_in_scope": [
+        {
+          "id": "FUSBAL-V1-OUT-001",
+          "title": "Produce a deterministic per-match output bundle (overlay, BEV, tracks, events, report) with diagnostics.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "GREENFIELD-OPS-001",
+          "title": "Logging and error surfacing are usable for audits and operators.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "REQ-V1-VIDEO-INGEST-001",
+          "title": "Video ingest: given a local single-camera match video, the pipeline can decode frames deterministically and produce a time-indexed stream for downstream detectors/trackers.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "REQ-V1-VIDEO-RUNNER-001",
+          "title": "End-to-end runner: ingest a video and export a valid V1 output bundle with tracks/events under `output/<match_id>/` (plumbing-first, deterministic).",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "SYS-ARCH-15",
+          "title": "All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        }
+      ],
+      "tasks": []
+    },
+    {
+      "intent_id": "INT-079",
+      "title": "Portal: MVP job runs and artifact surfacing",
+      "status": "todo",
+      "created_date": "2026-01-23",
+      "closed_date": "",
+      "requirements_in_scope": [
+        {
+          "id": "GREENFIELD-OPS-001",
+          "title": "Logging and error surfacing are usable for audits and operators.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "GREENFIELD-PORTAL-001",
+          "title": "Internal portal task pages are human-readable (not raw JSON).",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "GREENFIELD-PORTAL-002",
+          "title": "Internal portal provides copy-ready prompts for create/implement/audit/close flows.",
+          "status": "canonical",
+          "tracking_implementation": "todo"
+        },
+        {
+          "id": "SYS-ARCH-15",
+          "title": "All code units MUST be traceable to requirements; shared utilities map to SYS-ARCH-15.",
+          "status": "canonical",
+          "tracking_implementation": "done"
+        }
+      ],
+      "tasks": []
     }
   ]
 }

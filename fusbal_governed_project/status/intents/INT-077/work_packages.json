@@ -1,0 +1,21 @@
+{
+  "intent_id": "INT-077",
+  "work_packages": [
+    {
+      "work_package_id": "INT-077-001",
+      "title": "Integration",
+      "primary_task_ids": [
+        "TASK-SAM2-CHECKPOINT-LOADING-MVP-001"
+      ]
+    },
+    {
+      "work_package_id": "INT-077-002",
+      "title": "Budgeting + ROI",
+      "primary_task_ids": [
+        "TASK-SAM2-WINDOWING-MVP-001",
+        "TASK-SAM2-ROI-CROPS-MVP-001",
+        "TASK-SAM2-BUDGET-TELEMETRY-MVP-001"
+      ]
+    }
+  ]
+}

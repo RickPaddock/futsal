@@ -1,0 +1,22 @@
+{
+  "intent_id": "INT-073",
+  "work_packages": [
+    {
+      "work_package_id": "INT-073-001",
+      "title": "Calibration",
+      "primary_task_ids": [
+        "TASK-CAL-AUTO-MVP-001",
+        "TASK-CAL-MANUAL-CLICK-MVP-001"
+      ]
+    },
+    {
+      "work_package_id": "INT-073-002",
+      "title": "BEV + stats",
+      "primary_task_ids": [
+        "TASK-BEV-GATE-DIAGNOSTICS-MVP-001",
+        "TASK-BEV-RENDER-MVP-001",
+        "TASK-STATS-METERS-MVP-001"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "intent_id": "INT-079",
+  "title": "Portal: MVP job runs and artifact surfacing",
+  "status": "todo",
+  "created_date": "2026-01-23",
+  "runbooks": {
+    "decision": "none",
+    "paths_mdt": [],
+    "notes": "No runbook changes required for this intent."
+  },
+  "paths_allowed": [
+    "spec/",
+    "apps/portal/",
+    "status/audit/",
+    "tools/"
+  ],
+  "paths_excluded": [
+    "docs/",
+    "status/intents/",
+    "status/portal/",
+    "status/wizard/"
+  ],
+  "close_gate": [
+    "npm run generate",
+    "npm run guardrails",
+    "npm run audit:intent -- --intent-id INT-079"
+  ],
+  "summary": [
+    "Make the internal portal a practical operations surface for MVP runs across deployment modes.",
+    "Surface the latest bundles/artifacts (overlay, report, bev when present) and show clear run status."
+  ],
+  "non_goals": [
+    "Public product UI.",
+    "Real-time dashboards.",
+    "Building a full job scheduler UI (keep it minimal for MVP)."
+  ],
+  "success_criteria": [
+    "Portal shows MVP runs (local + GCP) with status, timestamps, and links to artifacts when present.",
+    "Portal clearly shows which deployment mode produced the bundle and any failure reasons.",
+    "Portal remains safe (no arbitrary file reads) and errors are actionable."
+  ],
+  "requirements_in_scope": [
+    "GREENFIELD-OPS-001",
+    "GREENFIELD-PORTAL-001",
+    "GREENFIELD-PORTAL-002",
+    "SYS-ARCH-15"
+  ],
+  "task_ids_planned": [
+    "TASK-PORTAL-JOB-LIST-MVP-001",
+    "TASK-PORTAL-ARTIFACTS-MVP-001",
+    "TASK-PORTAL-RUN-STATUS-MVP-001"
+  ],
+  "work_packages": [
+    {
+      "work_package_id": "INT-079-001",
+      "title": "Run list + status",
+      "items": [
+        "TASK-PORTAL-JOB-LIST-MVP-001 Add portal surfaces for listing MVP runs across intents/modes.",
+        "TASK-PORTAL-RUN-STATUS-MVP-001 Show run status, mode, timestamps, and failure reasons."
+      ]
+    },
+    {
+      "work_package_id": "INT-079-002",
+      "title": "Artifacts",
+      "items": [
+        "TASK-PORTAL-ARTIFACTS-MVP-001 Link to overlay/report/bev artifacts when present and show missing reasons."
+      ]
+    }
+  ]
+}
+

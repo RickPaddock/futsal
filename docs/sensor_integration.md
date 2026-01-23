@@ -1,6 +1,6 @@
 # Sensor Integration (Future-Proofing)
 
-This project’s v1 should be **sellable with venue cameras + bib colors only**. Sensors (GNSS balls, UWB tags, player GPS wearables) are **optional inputs** that must *only improve* outputs when present and healthy, and must never be required for a baseline result.
+This project’s MVP should be **sellable with venue cameras + bib colors only**. Sensors (GNSS balls, UWB tags, player GPS wearables) are **optional inputs** that must *only improve* outputs when present and healthy, and must never be required for a baseline result.
 
 ## Design principle
 Treat every input as a `TrackSource` that can emit time-stamped positions in a known coordinate frame with an uncertainty estimate. The core pipeline consumes a **canonical track format** and performs fusion/selection based on quality gates.
@@ -64,4 +64,3 @@ Always persist estimated offset and a sync quality score.
 - Do not require a specific vendor in the core design.
 - Do not block camera-only processing if sensor ingestion fails.
 - Do not assume indoor GNSS reliability (this repo targets outdoor futsal, but deployments may vary).
-

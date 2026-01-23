@@ -1,6 +1,7 @@
 ## PROJECT SPECIFIC ##
 videos/input/*.mp4
 videos/output/*.mp4
+models/
 models/*.pt
 .DS_Store
 

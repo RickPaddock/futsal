@@ -1,0 +1,20 @@
+{
+  "intent_id": "INT-078",
+  "work_packages": [
+    {
+      "work_package_id": "INT-078-001",
+      "title": "Runner",
+      "primary_task_ids": [
+        "TASK-LOCAL-CLI-RUNNER-MVP-001",
+        "TASK-LOCAL-MODES-MVP-001"
+      ]
+    },
+    {
+      "work_package_id": "INT-078-002",
+      "title": "Docs",
+      "primary_task_ids": [
+        "TASK-LOCAL-DOCS-MVP-001"
+      ]
+    }
+  ]
+}
