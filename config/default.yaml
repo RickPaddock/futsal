@@ -1,0 +1,147 @@
+# Futsal Player Tracking System - Default Configuration
+
+# Processing settings
+processing:
+  batch_size: 32             # Increase from 10 (test incrementally: 16, 24, 32)
+  device: "cuda"             # cuda or cpu
+  num_workers: 2             # Reduce from 4 (less CPU contention, let GPU lead)
+
+# Player detection
+player_detection:
+  # Local YOLO model (used if use_roboflow is false)
+  model: "models/best.pt"  # Model weights file
+  confidence_threshold: 0.3   # Detection confidence threshold (lowered to catch distant/slow players)
+  iou_threshold: 0.4          # NMS IoU threshold - lower = more aggressive duplicate suppression
+  max_detections: 12          # Maximum detections per frame (10 players + 2 goalies)
+  debug_low_threshold: 0.1    # Show detections below main threshold in debug output (dotted boxes)
+  classes: [0]                # COCO class 0 = person
+  input_scale: 0.33            # Further reduce: 0.5 = 1920x1080, 0.33 = 1280x720
+  # Roboflow model (used if use_roboflow is true)
+  use_roboflow: false
+  roboflow_model_id: "gopro_v1/2" # Roboflow Universe model
+
+# Player tracking (ByteTrack)
+tracking:
+  track_high_thresh: 0.3     # Detection threshold for first association
+  track_low_thresh: 0.1      # Detection threshold for second association
+  new_track_thresh: 0.25     # Threshold for initializing new track (lowered for distant players)
+  track_buffer: 60           # Frames to keep lost tracks (increased to handle occlusions)
+  match_thresh: 0.3          # IOU threshold for matching (lowered for close/overlapping players)
+  appearance_weight: 0.6     # Blend weight for color-histogram matching [0=IoU only, 1=appearance only]
+  max_center_distance: 100   # Max pixel distance for track-detection matching (prevents ID swaps when players cluster)
+  # Player track interpolation
+  interpolation_confidence: 0.4      # Confidence score for interpolated positions
+  interpolation_buffer_extension: 30 # Extra frames to keep interpolated tracks
+  min_players_enforce: 12            # Minimum player count (trigger fallback if below)
+
+# Team classification (K-Means on HSV)
+team_classification:
+  n_clusters: 2              # 2 teams (increase to 3 if referee detection needed)
+  histogram_bins: 32         # Bins per HSV channel
+  min_samples: 10            # Minimum detections before clustering
+
+# Jersey OCR (PaddleOCR)
+jersey_ocr:
+  lang: "en"
+  use_angle_cls: false
+  det_db_thresh: 0.3
+  rec_score_threshold: 0.6
+  vote_threshold: 5          # Confirmations needed for number assignment
+
+# Player Re-ID (numbered players only)
+player_reid:
+  embedding_model: "osnet_x1_0"
+  embedding_dim: 512
+  match_threshold: 0.7       # Cosine similarity threshold
+  gallery_update_interval: 30  # Frames between gallery updates
+
+# Fisheye correction
+fisheye:
+  enabled: false             # Enable when calibration available
+  # camera_matrix and dist_coeffs loaded from venue config
+
+# Homography - pixel to court coordinate mapping
+homography:
+  # Standard futsal court dimensions (meters)
+  court_length: 40.0
+  court_width: 20.0
+  goal_width: 3.0
+  output_pixel_scale: 15  # Pixels per meter for 2D pitch (600x300 output)
+
+  # Calibration points - pixel coordinates from video frame
+  source_points:
+    - [680, 595]    # 1. Far Left Corner
+    - [843, 638]    # 2. Left Red (PA Far Corner)
+    - [147, 1075]   # 3. Left Blue (PA Near Corner)
+    - [3136, 611]   # 4. Far Right Corner
+    - [2964, 650]   # 5. Right Red (PA Far Corner)
+    - [3644, 1100]  # 6. Right Blue (PA Near Corner)
+    - [1900, 530]   # 7. Center Black X (Far Touchline)
+    - [1888, 1592]  # 8. Center Black X (Near Touchline)
+    - [303, 772]    # 9. Left Purple (Goal Post Far)
+    - [128, 875]    # 10. Left Orange (Goal Post Near)
+    - [3511, 808]   # 11. Right Purple (Goal Post Far)
+    - [3692, 907]   # 12. Right Orange (Goal Post Near)
+    - [1891, 760]   # 13. Center Circle
+
+  # Real-world court coordinates in meters
+  dest_points:
+    - [0.0, 19.0]   # 1. Far Left Corner
+    - [3.5, 17.0]   # 2. Left Red (PA Far Corner) - 3.5m depth
+    - [3.5, 5.0]    # 3. Left Blue (PA Near Corner) - 3.5m depth
+    - [40.0, 19.0]  # 4. Far Right Corner
+    - [36.5, 17.0]  # 5. Right Red (PA Far Corner) - 3.5m depth
+    - [36.5, 5.0]   # 6. Right Blue (PA Near Corner) - 3.5m depth
+    - [20.0, 19.0]  # 7. Center Black X (Far Touchline)
+    - [20.0, 1.0]   # 8. Center Black X (Near Touchline)
+    - [0.0, 11.5]   # 9. Left Purple (Goal Post Far)
+    - [0.0, 8.5]    # 10. Left Orange (Goal Post Near)
+    - [40.0, 11.5]  # 11. Right Purple (Goal Post Far)
+    - [40.0, 8.5]   # 12. Right Orange (Goal Post Near)
+    - [20.0, 10.0]  # 13. Center Circle
+
+# Segmentation (optional, for close/overlapping players)
+# SAM2 is used for partial occlusions where the player is still visible but YOLO missed them.
+# For full occlusions (player completely behind another), "assume behind" logic is used.
+segmentation:
+  enabled: true               # Enable SAM2 for partial occlusion recovery
+  overlap_iou_threshold: 0.2   # Run segmentation when bbox IoU exceeds this (lowered to catch more overlaps)
+  max_pairs_per_frame: 6       # Safety cap to limit SAM2 calls per frame
+  pitch_top_y: 400             # Top Y boundary of pitch (pixels) - SAM only works in this region
+  pitch_bottom_y: 1600         # Bottom Y boundary of pitch (pixels) - SAM only works in this region
+  sam_downscale: 1           # Downscale factor for SAM (0.5 = half resolution, 2-4x faster)
+  sam2:
+    model_type: "hiera_small"  # SAM2 backbone (hiera_tiny, hiera_small, hiera_base_plus, hiera_large)
+    checkpoint_path: "C:/Users/rickp/Documents/GitRepos/futsal_notebooks/segment-anything-2-real-time/checkpoints/sam2.1_hiera_small.pt"  # Path to SAM2 weights
+    config_file: "C:/Users/rickp/Documents/GitRepos/futsal_notebooks/segment-anything-2-real-time/sam2/configs/sam2.1/sam2.1_hiera_s.yaml"  # Path to SAM2 model config
+
+# Event detection
+events:
+  possession:
+    proximity_threshold: 1.5  # Meters from ball
+    min_frames: 5             # Frames to confirm possession
+  pass_detection:
+    min_distance: 2.0         # Minimum ball travel (meters)
+    max_duration: 3.0         # Maximum time between possessions (seconds)
+  shot_detection:
+    min_velocity: 8.0         # Minimum ball velocity (m/s)
+    attacking_half_only: true
+  goal_detection:
+    goal_line_tolerance: 0.3  # Meters past goal line
+
+# Output
+output:
+  debug_scale: 0.5             # Scale factor for debug video (0.5 = 1920x1080 from 4K)
+  video:
+    fps: 30
+    codec: "h264"
+    draw_tracks: true
+    draw_ball: false
+    draw_team_colors: true
+    draw_jersey_numbers: true
+  tactical_view:
+    enabled: true
+    court_image: null         # Optional background image
+    scale: 20                 # Pixels per meter
+  reports:
+    format: "html"            # html or json

@@ -86,15 +86,19 @@ Video Input (11GB MP4)
 
 | Component | Technology | Source/Rationale |
 |-----------|------------|------------------|
-| Player Detection | YOLOv8x | Roboflow blog approach worked; YOLOv8x is current best |
+| Player Detection | YOLOv8x / Roboflow | Roboflow blog approach worked; YOLOv8x is current best |
 | **Ball Detection** | **TrackNetV3 + HSV ensemble** | User stated YOLO failed; ensemble for redundancy |
 | **Ball Tracking** | **Kalman + ROI prediction** | Search predicted region only; faster + fewer false positives |
-| Player Tracking | ByteTrack | Industry standard MOT; handles occlusions well |
-| Team Clustering | K-Means (HSV) | User confirmed "worked perfectly" in prior experiment |
+| Player Tracking | ByteTrack / supervision | Industry standard MOT; handles occlusions well |
+| **Team Classification** | **Roboflow Sports `TeamClassifier`** | https://github.com/roboflow/sports - purpose-built for sports analytics |
 | Jersey OCR | PaddleOCR | User's experiment: "accurate and persistent" |
 | Video I/O | PyAV (FFmpeg) | Handles 11GB files via streaming (from requirements.md constraint) |
+| **Court Mapping** | **Roboflow Sports `ViewTransformer`** | Homography with keypoint detection |
+| **Path Smoothing** | **Roboflow Sports `clean_paths`** | Reduces track jitter |
 | **Fisheye** | **Undistort points only** | Undistorting frames loses edges; math correction preserves all |
 | Calibration | Manual points | Existing [click_points.py](../utils/click_points.py) provides foundation |
+
+> **Note**: The [Roboflow Sports library](https://github.com/roboflow/sports) provides battle-tested implementations of `TeamClassifier`, `ViewTransformer`, `BallTracker`, and `clean_paths` that can replace custom implementations in Phase 2+.
 
 ---
 

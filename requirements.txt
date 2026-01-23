@@ -1,0 +1,60 @@
+# Core ML
+# Install PyTorch with CUDA separately:
+# For RTX 50-series (Blackwell) GPUs - use nightly with CUDA 12.8:
+# pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+#
+# For older GPUs (RTX 40-series and below) - use stable with CUDA 11.8:
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+ultralytics>=8.0.0
+# SAM2 (video segmentation)
+sam2>=0.4.1
+
+# Tracking
+numpy>=1.24.0
+scipy>=1.10.0
+filterpy>=1.4.5
+lap>=0.4.0
+
+# Computer Vision
+opencv-python>=4.8.0
+opencv-contrib-python>=4.8.0
+supervision>=0.19.0
+
+# OCR (Phase 2)
+# paddlepaddle-gpu>=2.5.0
+# paddleocr>=2.6.0
+
+# Video
+av>=10.0.0
+
+# Roboflow
+inference>=0.9.0
+python-dotenv>=1.0.0
+
+# Roboflow Sports (team classification, view transform, ball tracking utilities)
+# Install from GitHub: pip install git+https://github.com/roboflow/sports.git
+# sports  # Uncomment if published to PyPI
+
+# ONNX Runtime (GPU acceleration)
+# NOTE: Do NOT install both onnxruntime and onnxruntime-gpu - they conflict
+# If you have both installed, uninstall both and reinstall only onnxruntime-gpu
+onnxruntime-gpu>=1.17.0
+
+# Data & Utils
+pydantic>=2.0.0
+pandas>=2.0.0
+pyyaml>=6.0
+tqdm>=4.65.0
+click>=8.1.0
+
+# Visualization
+matplotlib>=3.7.0
+Pillow>=9.5.0
+
+# Segmentation (optional)
+# Install SAM and download a checkpoint to enable mask visualization for close players
+# segment-anything>=1.0.0
+
+# Reports (Phase 4)
+# jinja2>=3.1.0
+# weasyprint>=59.0

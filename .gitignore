@@ -1,7 +1,7 @@
 ## PROJECT SPECIFIC ##
-videos/input/*.mp4
-videos/output/*.mp4
-models/*.pt
+videos/input/*
+videos/output/*
+models/*
 
 ### Python ###
 # Byte-compiled / optimized / DLL files

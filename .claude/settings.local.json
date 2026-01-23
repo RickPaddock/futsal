@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(python:*)",
+      "Bash(dir /s /b \"C:\\\\Users\\\\rickp\\\\Documents\\\\GitRepos\\\\futsal\\\\models\\\\datasets\\\\*.yaml\")",
+      "Bash(dir \"C:\\\\Users\\\\rickp\\\\Documents\\\\GitRepos\\\\futsal_notebooks\\\\segment-anything-2-real-time\\\\sam2\\\\configs\" /s /b)",
+      "Bash(ls:*)"
+    ]
+  }
+}
