@@ -11,7 +11,7 @@
   ],
   "acceptance": [
     "Worker can download `gs://...` video URI to a local path for processing.",
-    "Bundle upload writes to a temporary prefix then promotes/renames to final prefix (or equivalent atomic pattern).",
+    "Bundle publish is defined as: upload all artifacts to a unique temp prefix, then write a single completion marker/manifest at the final prefix that is the only completeness signal for consumers (no partial bundle ingestion).",
     "A run summary JSON is written alongside outputs with ok/error and artifact paths."
   ],
   "deliverables": [
@@ -20,11 +20,13 @@
       "title": "GCS I/O helpers and run summary writer",
       "paths": [
         "tools/gcp/gcs_io.py",
-        "tools/gcp/run_summary.py"
+        "tools/gcp/run_summary.py",
+        "tools/gcp/bundle_publish.py"
       ],
       "acceptance": [
         "GCS download/upload operations are encapsulated and error messages are actionable.",
-        "Run summary JSON includes mode, timestamps, and artifact locations."
+        "Run summary JSON includes mode, timestamps, and artifact locations.",
+        "Publish helper writes a completion marker/manifest that downstream consumers can use as the completeness signal."
       ]
     }
   ],
@@ -42,4 +44,3 @@
     }
   ]
 }
-

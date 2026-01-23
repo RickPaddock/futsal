@@ -1,0 +1,91 @@
+{
+  "type": "intent_preflight_report",
+  "schema_version": 1,
+  "intent_id": "INT-071",
+  "run_id": "20260123_111802",
+  "timestamp": "2026-01-23T11:18:02Z",
+  "blockers_ranked": [
+    {
+      "roi_0_to_10": 9,
+      "effort": "S",
+      "risk": "high",
+      "issue": "Non-goals section lacks specific version boundaries and scope exclusions",
+      "why": "Ambiguous boundaries make it unclear what MVP-0 must NOT include, risking scope creep during implementation",
+      "exact_fix": "Add explicit scope boundaries: 'No SAM2 integration', 'No cross-match re-ID', 'No possession analysis', 'No ball detection integration'",
+      "override_option": "Accept that some boundary testing may be needed during implementation to clarify scope"
+    },
+    {
+      "roi_0_to_10": 8,
+      "effort": "M",
+      "risk": "medium", 
+      "issue": "Success criteria use vague terms 'contract-valid', 'explicit break semantics', 'prevented by design'",
+      "why": "Implementation team cannot objectively verify success without measurable criteria",
+      "exact_fix": "Define: 'contract-valid' = passes schema validation + test fixtures, 'explicit break semantics' = break_reason field populated, 'prevented by design' = gating thresholds specified",
+      "override_option": "Rely on existing contract validation tests to define 'contract-valid' without additional specification"
+    },
+    {
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "Team assignment 'confidence-first outputs' and 'low-confidence handling' undefined",
+      "why": "No threshold specified for what constitutes 'low confidence' or how it should be handled",
+      "exact_fix": "Specify confidence threshold (e.g., <0.7) and handling behavior (emit 'Unknown' team or explicit diagnostics)",
+      "override_option": "Let implementation choose reasonable defaults with diagnostic logging"
+    }
+  ],
+  "ambiguities": [
+    {
+      "ambiguous_text": "trust-first",
+      "risk": "Implementation team interprets differently, leading to inconsistent behavior",
+      "proposed_rewrite": "prefer breaks over swaps when track association confidence < 0.8; prefer Unknown over guessed values"
+    },
+    {
+      "ambiguous_text": "real video",
+      "risk": "Unclear distinction from test fixtures or what constitutes 'real'",
+      "proposed_rewrite": "non-fixture video input (user-provided .mp4 files)"
+    },
+    {
+      "ambiguous_text": "confidence-first outputs", 
+      "risk": "No threshold or behavior specification",
+      "proposed_rewrite": "emit confidence scores; when confidence < threshold, use Unknown state with diagnostic reason"
+    }
+  ],
+  "scope_alignment": {
+    "inferred_surfaces": [
+      "pipeline/src/fusbal_pipeline/player/",
+      "pipeline/src/fusbal_pipeline/team/", 
+      "pipeline/src/fusbal_pipeline/contract.py",
+      "pipeline/src/fusbal_pipeline/cli.py",
+      "pipeline/tests/test_player_*.py"
+    ],
+    "paths_allowed": ["spec/", "pipeline/", "status/audit/"],
+    "paths_excluded": ["docs/", "status/intents/", "status/portal/", "status/wizard/"],
+    "mismatches": [],
+    "recommended_edits": ["Add models/ to paths_excluded to prevent model checkpoint commits"]
+  },
+  "closeability": {
+    "tasks": {
+      "status": "PASS",
+      "notes": "All 5 planned tasks exist and are correctly spelled"
+    },
+    "work_packages": {
+      "status": "PASS", 
+      "notes": "All tasks assigned to work packages with clear titles"
+    },
+    "close_gates": {
+      "status": "PASS",
+      "notes": "Standard close gates defined: generate, guardrails, audit:intent"
+    },
+    "guardrail_plan": {
+      "status": "PASS",
+      "notes": "Requirements have defined guardrails; implementation tracking will be validated"
+    }
+  },
+  "minimum_next_steps": [
+    "Define 'contract-valid' measurably in success criteria",
+    "Specify confidence thresholds for team assignment and MOT",
+    "Add explicit scope boundaries to non_goals",
+    "Add models/ to paths_excluded",
+    "Define 'trust-first' behavior with specific thresholds"
+  ]
+}

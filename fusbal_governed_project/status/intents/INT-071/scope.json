@@ -22,6 +22,7 @@
   ],
   "paths_excluded": [
     "docs/",
+    "models/",
     "status/intents/",
     "status/portal/",
     "status/wizard/"

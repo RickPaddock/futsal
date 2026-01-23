@@ -12,6 +12,7 @@
   "acceptance": [
     "A diagnostics JSON includes wall-time, frames processed, and mode (gcp_speed|gcp_low_cost).",
     "Telemetry includes heavy-model usage (SAM2 windows/calls) when enabled.",
+    "Run summary includes the executor/resource config needed to interpret cost/performance (executor, machine type, GPU type/count if any, and spot/preemptible flag).",
     "Portal can display a compact run summary without parsing raw logs."
   ],
   "deliverables": [
@@ -42,4 +43,3 @@
     }
   ]
 }
-

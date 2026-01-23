@@ -15,6 +15,7 @@
   ],
   "paths_excluded": [
     "docs/",
+    "models/",
     "status/intents/",
     "status/portal/",
     "status/wizard/"
@@ -26,17 +27,19 @@
   ],
   "summary": [
     "Integrate a real player detector (YOLO checkpoint) and MOT to produce player tracks on real video.",
-    "Enforce the MVP identity policy: no swaps; breaks allowed; confidence-first outputs."
+    "Enforce trust-first identity: break over swap when association confidence is low or ambiguous; emit Unknown rather than guessing."
   ],
   "non_goals": [
     "Passes/possession (V2).",
     "Cross-match player re-identification (V2+).",
-    "SAM2 occlusion recovery (separate intent once checkpoint is available)."
+    "SAM2 occlusion recovery (separate intent once checkpoint is available).",
+    "Ball detection/tracking and ball-player interaction logic (separate intent).",
+    "Event inference (shots/goals) beyond emitting player tracks (separate intent)."
   ],
   "success_criteria": [
-    "A local video run produces contract-valid player records in tracks.jsonl (image_px) with explicit break semantics.",
-    "Identity swaps are prevented by design (gating) and validated by tests/fixtures.",
-    "Team A/B is assigned from bib colors with confidence (internally allow low-confidence handling)."
+    "A local (non-fixture) video run produces a bundle whose tracks.jsonl contains player TrackRecordV1 records and passes contract validation.",
+    "Player identity continuity is trust-first: ambiguous association ends a segment with break_reason (break over swap) and this behavior is validated by tests/fixtures.",
+    "Team assignment outputs team ∈ {A,B,Unknown} and team_confidence ∈ [0,1]; when confidence is below an explicit threshold, team is Unknown (no silent guessing)."
   ],
   "requirements_in_scope": [
     "FUSBAL-V1-PLAYER-001",
@@ -51,6 +54,40 @@
     "TASK-PLAYER-TRACKS-JSONL-MVP-001",
     "TASK-TEAM-BIBS-MVP-001",
     "TASK-PLAYER-E2E-RUNNER-MVP-001"
+  ],
+  "quality_areas": [
+    {
+      "area_id": "functional",
+      "title": "Functional objectives",
+      "task_ids": [
+        "TASK-PLAYER-DET-YOLO-001",
+        "TASK-PLAYER-MOT-MVP-001",
+        "TASK-TEAM-BIBS-MVP-001"
+      ],
+      "objectives": [
+        "Detect players on frames (YOLO) and track them with swap-avoidant MOT (break over swap).",
+        "Assign team (A/B/Unknown) from bib colors with confidence and smoothing."
+      ]
+    },
+    {
+      "area_id": "nonfunctional",
+      "title": "Non-functional objectives",
+      "categories_required": [
+        "correctness_safety",
+        "performance",
+        "security",
+        "maintainability"
+      ],
+      "task_ids": [
+        "TASK-PLAYER-TRACKS-JSONL-MVP-001",
+        "TASK-PLAYER-E2E-RUNNER-MVP-001"
+      ],
+      "objectives": [
+        "Deterministic outputs and stable ordering for fixed inputs.",
+        "Actionable failures when optional dependencies or checkpoints are missing.",
+        "Keep model checkpoints out of the repository; record paths and versions in diagnostics."
+      ]
+    }
   ],
   "work_packages": [
     {

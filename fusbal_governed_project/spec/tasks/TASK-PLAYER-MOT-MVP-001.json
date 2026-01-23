@@ -6,11 +6,13 @@
   "status": "todo",
   "scope": [
     "Implement/extend multi-object tracking for players with a swap-avoidant policy (break over swap).",
+    "Define an explicit ambiguity rule (threshold-based) that triggers a break when association confidence is low or ambiguous.",
     "Bound state and enforce deterministic ordering.",
     "Emit explicit break_reason when segments end due to ambiguity."
   ],
   "acceptance": [
     "Tracker produces track segments and ends segments on ambiguous association (no swaps).",
+    "Ambiguity threshold(s) are explicit (configurable with documented defaults) and exercised by tests.",
     "Tracker is deterministic for fixed inputs (stable ordering and IDs as defined).",
     "Contract validation enforces segment/break semantics."
   ],

@@ -654,12 +654,6 @@
           "tracking_implementation": "todo"
         },
         {
-          "id": "GREENFIELD-OPS-002",
-          "title": "Starting the internal portal clears common dev ports and starts reliably.",
-          "status": "canonical",
-          "tracking_implementation": "todo"
-        },
-        {
           "id": "REQ-V1-VIDEO-RUNNER-001",
           "title": "End-to-end runner: ingest a video and export a valid V1 output bundle with tracks/events under `output/<match_id>/` (plumbing-first, deterministic).",
           "status": "canonical",

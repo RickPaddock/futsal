@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/intents/INT-070.json
-source_sha256: sha256:3617f91fdad8b07c1994add3dff42ef6dad505a6d8f3530fb4a2dd8cf7564d3b
+source_sha256: sha256:1328065837a259482b2ad9cc82048a2c9b86a84ded8ef8a7a70364ee8f29671b
 intent_id: INT-070
 title: MVP deployment: GCP batch runner (Speed + Low Cost)
 status: todo
@@ -14,7 +14,7 @@ close_gate:
 
 # Intent: INT-070
 
-- Run the MVP pipeline as a deterministic batch job on GCP and write a contract-valid bundle to GCS.
+- Run the MVP pipeline as a batch job on GCP using a deterministically-normalized job spec and write a contract-valid bundle to GCS (deterministic layout + manifest/metadata; encoder bytes may vary).
 - Support two cloud deployment modes: GCP Speed (GPU-first) and GCP Low Cost (budget-first).
 
 ## Work packages

@@ -27,7 +27,7 @@
     "npm run audit:intent -- --intent-id INT-070"
   ],
   "summary": [
-    "Run the MVP pipeline as a deterministic batch job on GCP and write a contract-valid bundle to GCS.",
+    "Run the MVP pipeline as a batch job on GCP using a deterministically-normalized job spec and write a contract-valid bundle to GCS (deterministic layout + manifest/metadata; encoder bytes may vary).",
     "Support two cloud deployment modes: GCP Speed (GPU-first) and GCP Low Cost (budget-first)."
   ],
   "non_goals": [
@@ -36,7 +36,7 @@
     "Building a public-facing upload UI (portal/internal ops only)."
   ],
   "success_criteria": [
-    "A job spec exists that can be created by the portal/ops tooling and executed deterministically on GCP.",
+    "A job spec exists (including match_id + run_id) that can be created by the portal/ops tooling and executed on GCP to produce a contract-valid bundle.",
     "A GCP job can read a video from GCS and write a complete bundle back to GCS with clear success/failure reporting.",
     "Jobs enforce timeouts/retries and emit actionable logs and a machine-readable run summary."
   ],
@@ -44,8 +44,38 @@
     "FUSBAL-V1-OUT-001",
     "REQ-V1-VIDEO-RUNNER-001",
     "GREENFIELD-OPS-001",
-    "GREENFIELD-OPS-002",
     "SYS-ARCH-15"
+  ],
+  "quality_areas": [
+    {
+      "area_id": "functional",
+      "title": "Functional objectives",
+      "task_ids": [
+        "TASK-GCP-JOBSPEC-001",
+        "TASK-GCP-GCS-IO-001",
+        "TASK-GCP-ORCHESTRATION-001"
+      ],
+      "objectives": [
+        "A job spec can be executed on GCP to produce a contract-valid bundle in GCS with complete publish semantics."
+      ]
+    },
+    {
+      "area_id": "nonfunctional",
+      "title": "Non-functional objectives",
+      "categories_required": [
+        "correctness_safety",
+        "performance",
+        "security",
+        "maintainability"
+      ],
+      "task_ids": [
+        "TASK-GCP-CONTAINER-001",
+        "TASK-GCP-RUN-TELEMETRY-001"
+      ],
+      "objectives": [
+        "The runner is portable, pinned, observable, and cost-bounded across GCP modes."
+      ]
+    }
   ],
   "task_ids_planned": [
     "TASK-GCP-JOBSPEC-001",
@@ -80,4 +110,3 @@
     }
   ]
 }
-

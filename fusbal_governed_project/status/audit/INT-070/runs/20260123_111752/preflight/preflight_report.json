@@ -1,0 +1,150 @@
+{
+  "type": "intent_preflight_report",
+  "schema_version": 1,
+  "intent_id": "INT-070",
+  "run_id": "20260123_111752",
+  "timestamp": "2026-01-23T11:18:54Z",
+  "blockers_ranked": [
+    {
+      "roi_0_to_10": 10,
+      "effort": "S",
+      "risk": "high",
+      "issue": "INT-070 is not closeable as written because `quality_areas` is missing, but the close gate includes `npm run audit:intent -- --intent-id INT-070` which requires valid quality areas.",
+      "why": "Without `quality_areas`, `audit:intent` will fail and INT-070 cannot be closed via the required close gate path.",
+      "exact_fix": "Edit `spec/intents/INT-070.json` to add `quality_areas` with a complete partition of `task_ids_planned` into `functional` and `nonfunctional` (with required NFR categories)."
+    },
+    {
+      "roi_0_to_10": 8,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "Job spec requirements mention deterministic identifiers (match_id/run_id), but TASK-GCP-JOBSPEC-001 acceptance only requires `match_id` and does not require `run_id`.",
+      "why": "Without a required `run_id`, retries and reruns can collide in output prefixes and create ambiguous or overwritten artifacts.",
+      "exact_fix": "Update `spec/tasks/TASK-GCP-JOBSPEC-001.json` acceptance to require both `match_id` and `run_id` fields; update the schema deliverable to mark `run_id` required."
+    },
+    {
+      "roi_0_to_10": 8,
+      "effort": "M",
+      "risk": "high",
+      "issue": "TASK-GCP-GCS-IO-001 describes 'atomic' publish via rename/promote semantics, but GCS object renames are not atomic; partial bundle visibility is a real risk.",
+      "why": "Operators/portal may ingest incomplete bundles; retries may interleave uploads and corrupt the 'latest' output.",
+      "exact_fix": "Rewrite TASK-GCP-GCS-IO-001 to define 'atomic publish' as: upload to a unique temp prefix, then write a single small completion marker/manifest at the final prefix that consumers treat as the only completeness signal; ensure idempotency rules for retries are documented."
+    },
+    {
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "high",
+      "issue": "GCP execution primitive is not selected (Cloud Run Jobs vs Batch vs Vertex).",
+      "why": "Different primitives have different GPU support, timeout semantics, networking, IAM, and cost controls; leaving this vague risks building an unusable orchestration path.",
+      "exact_fix": "Tighten TASK-GCP-ORCHESTRATION-001 to pick one default primitive (recommended: GCP Batch) and list alternatives as explicit non-goals or a future follow-on intent.",
+      "override_option": "Keep it as a decision-point task by requiring an explicit 'executor' field in the job spec (cloud_run_jobs|batch|vertex_custom) and requiring a documented selection in tools/gcp/README_orchestration.md before implementation proceeds; this delays commitment but requires a human decision before code is written."
+    },
+    {
+      "roi_0_to_10": 7,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "The intent claims 'deterministic batch job' but does not define determinism boundaries (e.g., byte-for-byte mp4 determinism is unrealistic across encoders/builds).",
+      "why": "This can create uncloseable expectations and brittle tests; determinism needs to be scoped to stable configs, schema outputs, and reproducible decisions.",
+      "exact_fix": "Rewrite INT-070 summary/success_criteria to define determinism as deterministic job spec normalization + deterministic bundle layout + deterministic manifest/metadata and explicit tolerance for encoder variance in mp4 bytes (while keeping command construction deterministic)."
+    },
+    {
+      "roi_0_to_10": 6,
+      "effort": "S",
+      "risk": "medium",
+      "issue": "GREENFIELD-OPS-002 is in requirements_in_scope but is about starting the internal portal reliably; INT-070 scope explicitly excludes building portal functionality.",
+      "why": "This is a scope trap: the intent could be judged 'done' while still failing an in-scope requirement that it never intended to satisfy.",
+      "exact_fix": "Remove `GREENFIELD-OPS-002` from `spec/intents/INT-070.json` requirements_in_scope, or add explicit portal-related planned tasks (not recommended for INT-070)."
+    },
+    {
+      "roi_0_to_10": 6,
+      "effort": "M",
+      "risk": "medium",
+      "issue": "Retries/timeouts are required but idempotency rules are unspecified (where outputs live; what happens on retry; 'latest' semantics).",
+      "why": "Without idempotency, retries can overwrite or interleave artifacts; operators cannot reason about correctness.",
+      "exact_fix": "Add explicit idempotency rules to TASK-GCP-JOBSPEC-001 and TASK-GCP-GCS-IO-001: output path MUST include run_id; retries MUST either write to the same temp prefix and replace marker, or write to a new temp prefix and atomically switch marker to the latest successful bundle."
+    },
+    {
+      "roi_0_to_10": 5,
+      "effort": "M",
+      "risk": "medium",
+      "issue": "Telemetry requirements talk about 'cost-oriented' diagnostics but do not require capturing GCP resource configuration (machine type, GPU type, spot/preemptible) needed to interpret cost.",
+      "why": "Speed vs Low Cost mode cannot be evaluated or tuned without knowing what resources were used.",
+      "exact_fix": "Update TASK-GCP-RUN-TELEMETRY-001 acceptance to require resource identifiers in the telemetry summary (executor, machine type, gpu type/count, preemptible/spot flag, max_wall_time_s, retries)."
+    }
+  ],
+  "ambiguities": [
+    {
+      "ambiguous_text": "Run the MVP pipeline as a deterministic batch job on GCP",
+      "risk": "Interpreted as byte-for-byte identical artifacts across runs/builds (often impossible), or as requiring deterministic model outputs on GPU.",
+      "proposed_rewrite": "Run the MVP pipeline on GCP using a job spec that is normalized deterministically, producing a contract-valid bundle with a deterministic directory layout and deterministic metadata/manifest; mp4 byte output may vary by encoder build but command construction and input selection are deterministic."
+    },
+    {
+      "ambiguous_text": "Support two cloud deployment modes: GCP Speed (GPU-first) and GCP Low Cost (budget-first).",
+      "risk": "Unclear what differs (instance types, spot/preemptible, batching, resolution, model selection).",
+      "proposed_rewrite": "Support two job modes that select a fixed resource/config preset: `gcp_speed` uses GPU resources and highest-quality defaults; `gcp_low_cost` uses CPU or smaller GPU and/or spot/preemptible, with explicit caps on wall time and optional reduced resolution; both MUST produce contract-valid bundles."
+    },
+    {
+      "ambiguous_text": "Bundle upload writes to a temporary prefix then promotes/renames to final prefix (or equivalent atomic pattern).",
+      "risk": "Assumes atomic rename in GCS; leads to partial bundles being read.",
+      "proposed_rewrite": "Publish by uploading all bundle artifacts to a unique temp prefix and then writing a single completion marker (e.g. `bundle_complete.json`) at the final prefix that references the temp prefix; consumers MUST only treat bundles with a completion marker as complete."
+    },
+    {
+      "ambiguous_text": "Choose and implement a GCP execution primitive for batch jobs (Cloud Run Jobs / GCE Batch / Vertex custom jobs).",
+      "risk": "Team starts implementing one path while product assumptions require another; rework likely.",
+      "proposed_rewrite": "Select one primary execution primitive for MVP (recommended: GCP Batch) and implement only that; document why and list alternates as explicit non-goals for this intent."
+    }
+  ],
+  "scope_alignment": {
+    "inferred_surfaces": [
+      "tools/gcp/* (job spec schema, job spec parser, GCS I/O, run summary)",
+      "scripts/workflows/* (job submission orchestration helper)",
+      "pipeline/* (runner telemetry + diagnostics keys)",
+      "status/audit/INT-070/runs/* (evidence outputs only)"
+    ],
+    "paths_allowed": [
+      "spec/",
+      "scripts/",
+      "tools/",
+      "pipeline/",
+      "status/audit/"
+    ],
+    "paths_excluded": [
+      "docs/",
+      "status/intents/",
+      "status/portal/",
+      "status/wizard/"
+    ],
+    "mismatches": [
+      "Requirement GREENFIELD-OPS-002 is in scope but the intent does not include portal/dev-server work and excludes generated docs/portal surfaces."
+    ],
+    "recommended_edits": [
+      "Add `quality_areas` to INT-070 so `audit:intent` can pass.",
+      "Remove GREENFIELD-OPS-002 from requirements_in_scope (or move it to a portal-focused intent).",
+      "Tighten GCS atomic publish and determinism wording in intent + tasks to match GCS/GPU realities."
+    ]
+  },
+  "closeability": {
+    "tasks": {
+      "status": "PASS",
+      "notes": "All planned task IDs in INT-070 exist as spec/tasks/*.json and are correctly spelled."
+    },
+    "work_packages": {
+      "status": "PASS",
+      "notes": "All planned tasks are assigned to work packages in both spec and generated work_packages.json."
+    },
+    "close_gates": {
+      "status": "FAIL",
+      "notes": "`npm run audit:intent -- --intent-id INT-070` will fail because INT-070 lacks required `quality_areas`."
+    },
+    "guardrail_plan": {
+      "status": "FAIL",
+      "notes": "Guardrail outcomes are not yet fully specified: determinism scope, GCS 'atomic publish' semantics, and requirement scope alignment (GREENFIELD-OPS-002) need tightening to avoid closing a non-compliant intent."
+    }
+  },
+  "minimum_next_steps": [
+    "Edit spec/intents/INT-070.json to add valid quality_areas partitioning all task_ids_planned.",
+    "Edit spec/tasks/TASK-GCP-JOBSPEC-001.json to require run_id (and define idempotent output path rules).",
+    "Edit spec/tasks/TASK-GCP-GCS-IO-001.json to define an implementable 'atomic publish' pattern for GCS (completion marker/manifest).",
+    "Edit spec/tasks/TASK-GCP-ORCHESTRATION-001.json to either pick a single MVP executor or require a job-spec 'executor' decision before implementation.",
+    "Edit spec/intents/INT-070.json to tighten determinism wording and remove GREENFIELD-OPS-002 (or explicitly add portal tasks, not recommended)."
+  ]
+}

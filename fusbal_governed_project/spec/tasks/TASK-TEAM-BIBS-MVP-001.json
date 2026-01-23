@@ -7,10 +7,10 @@
   "scope": [
     "Derive Team A/B from bib colors for each tracked player with a confidence score.",
     "Apply temporal smoothing and hysteresis to prevent flicker.",
-    "When uncertain, handle low-confidence internally without silently guessing."
+    "When uncertain, handle low-confidence explicitly without silently guessing (emit Unknown + diagnostics)."
   ],
   "acceptance": [
-    "Each player present record includes team and team_confidence (A/B output policy).",
+    "Each player present record includes team ∈ {A,B,Unknown} and team_confidence ∈ [0,1] (Unknown when confidence is below an explicit threshold).",
     "Smoothing reduces flicker; configuration is explicit and deterministic.",
     "Diagnostics include evidence and smoothing state for auditability."
   ],

@@ -11,7 +11,7 @@
   ],
   "acceptance": [
     "A JSON schema exists for the job spec and is used by tooling (validation).",
-    "Job spec includes GCS input URI, GCS output prefix, mode (gcp_speed|gcp_low_cost), and match_id.",
+    "Job spec includes GCS input URI, GCS output prefix, mode (gcp_speed|gcp_low_cost), match_id, and run_id.",
     "Spec forbids embedding local absolute paths; only portable refs are allowed."
   ],
   "deliverables": [
@@ -23,7 +23,7 @@
         "tools/gcp/job_spec.py"
       ],
       "acceptance": [
-        "Schema validates required fields and rejects machine-specific paths.",
+        "Schema validates required fields (including match_id + run_id) and rejects machine-specific paths.",
         "Parser loads spec deterministically and normalizes defaults."
       ],
       "evidence": [
@@ -45,4 +45,3 @@
     }
   ]
 }
-

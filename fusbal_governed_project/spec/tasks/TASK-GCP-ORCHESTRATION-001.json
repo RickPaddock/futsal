@@ -5,7 +5,7 @@
   "title": "Orchestrate batch runs on GCP with retries and timeouts",
   "status": "todo",
   "scope": [
-    "Choose and implement a GCP execution primitive for batch jobs (Cloud Run Jobs / GCE Batch / Vertex custom jobs).",
+    "Implement GCP Batch as the MVP execution primitive for batch jobs (Cloud Run Jobs / Vertex custom jobs are out of scope for this intent).",
     "Add retry policy and hard timeouts to avoid runaway cost.",
     "Ensure logs and run summaries are discoverable for portal/ops."
   ],
@@ -42,4 +42,3 @@
     }
   ]
 }
-

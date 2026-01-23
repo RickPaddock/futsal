@@ -1,7 +1,7 @@
 ---
 generated: true
 source: spec/intents/INT-071.json
-source_sha256: sha256:59875954b351b172f567da159c2ac8af16296eb71b05de9914f0cc65e23b3537
+source_sha256: sha256:88bfde98b1aa998f56d09251a78d49d19f843e0a876ef194e57771e5a18d4a40
 intent_id: INT-071
 title: MVP-0: player detection + tracking (YOLO + MOT, trust-first)
 status: todo
@@ -15,7 +15,7 @@ close_gate:
 # Intent: INT-071
 
 - Integrate a real player detector (YOLO checkpoint) and MOT to produce player tracks on real video.
-- Enforce the MVP identity policy: no swaps; breaks allowed; confidence-first outputs.
+- Enforce trust-first identity: break over swap when association confidence is low or ambiguous; emit Unknown rather than guessing.
 
 ## Work packages
 
@@ -42,5 +42,5 @@ close_gate:
 ## Scope (paths)
 
 - Allowed: `spec/`, `pipeline/`, `status/audit/`
-- Excluded: `docs/`, `status/intents/`, `status/portal/`, `status/wizard/`
+- Excluded: `docs/`, `models/`, `status/intents/`, `status/portal/`, `status/wizard/`
 
