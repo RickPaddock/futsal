@@ -2,11 +2,12 @@
 Multi-object tracking module using ByteTrack.
 
 Implements ByteTrack algorithm for persistent player tracking across frames.
+Uses IoU + velocity consistency for association, with distance and team gating.
 Based on: https://github.com/ifzhang/ByteTrack
 """
 
-from typing import Optional
 import numpy as np
+from typing import Optional
 from dataclasses import dataclass, field
 
 try:
@@ -14,7 +15,7 @@ try:
 except ImportError:
     raise ImportError("SciPy is required. Install with: pip install scipy")
 
-from src.utils.data_models import BoundingBox, PlayerDetection, PlayerTrack
+from src.utils.data_models import BoundingBox, TeamID
 
 
 @dataclass
@@ -32,9 +33,6 @@ class STrack:
     # Kalman filter state
     mean: np.ndarray = field(default_factory=lambda: np.zeros(8))
     covariance: np.ndarray = field(default_factory=lambda: np.eye(8))
-    
-    # Appearance model (color histogram for re-ID)
-    color_histogram: Optional[np.ndarray] = None
 
     def __post_init__(self):
         if self.mean.sum() == 0:
@@ -61,15 +59,11 @@ class STrack:
         self.mean = F @ self.mean
         self.covariance = F @ self.covariance @ F.T + Q
 
-    def update(self, bbox: np.ndarray, score: float, frame_id: int, color_histogram: Optional[np.ndarray] = None):
+    def update(self, bbox: np.ndarray, score: float, frame_id: int):
         """Update track with new detection."""
         self.frame_id = frame_id
         self.tracklet_len += 1
         self.score = score
-
-        # Update appearance model
-        if color_histogram is not None:
-            self.color_histogram = color_histogram
 
         # Measurement
         cx = (bbox[0] + bbox[2]) / 2
@@ -80,7 +74,9 @@ class STrack:
 
         # Kalman update
         H = np.eye(4, 8, dtype=np.float32)  # Observation matrix
-        R = np.eye(4, dtype=np.float32) * 1.0  # Measurement noise
+        # Scale measurement noise by bbox size: larger boxes tolerate more pixel noise
+        noise_scale = max(w, h) / 100.0  # normalized to ~100px reference
+        R = np.diag(np.array([w, h, w, h], dtype=np.float32)) * noise_scale * 0.5
 
         y = z - H @ self.mean
         S = H @ self.covariance @ H.T + R
@@ -109,7 +105,7 @@ class ByteTracker:
 
     Implements the ByteTrack algorithm which associates both high and low
     confidence detections to maintain tracks through occlusions.
-    Incorporates color-histogram appearance matching to reduce ID swaps.
+    Uses IoU + velocity consistency + distance/team gating for matching.
     """
 
     def __init__(
@@ -119,7 +115,6 @@ class ByteTracker:
         new_track_thresh: float = 0.7,
         track_buffer: int = 30,
         match_thresh: float = 0.8,
-        appearance_weight: float = 0.5,
         max_center_distance: float = 100.0,
         velocity_weight: float = 0.3,
     ):
@@ -132,19 +127,16 @@ class ByteTracker:
             new_track_thresh: Threshold for initializing new tracks
             track_buffer: Frames to keep lost tracks
             match_thresh: IoU threshold for matching
-            appearance_weight: Blend weight for appearance [0-1], 0=IoU only, 1=appearance only
             max_center_distance: Maximum pixel distance between track and detection centers for matching.
                                  Prevents ID swaps when players are close together.
-            velocity_weight: Weight for velocity consistency cost [0-1]. Higher values penalize
-                           matches that deviate from predicted motion. Helps prevent ID swaps
-                           when players are close but moving in different directions.
+            velocity_weight: Weight for velocity consistency in cost [0-1]. Penalizes matches
+                           that deviate from predicted Kalman motion direction.
         """
         self.track_high_thresh = track_high_thresh
         self.track_low_thresh = track_low_thresh
         self.new_track_thresh = new_track_thresh
         self.track_buffer = track_buffer
         self.match_thresh = match_thresh
-        self.appearance_weight = appearance_weight
         self.max_center_distance = max_center_distance
         self.velocity_weight = velocity_weight
 
@@ -173,15 +165,17 @@ class ByteTracker:
         self,
         detections: np.ndarray,
         frame_id: int,
-        histograms: Optional[list[np.ndarray]] = None,
+        team_preds: Optional[list[Optional[TeamID]]] = None,
+        track_team_map: Optional[dict[int, TeamID]] = None,
     ) -> list[STrack]:
         """
-        Update tracker with new detections and optional appearance cues.
+        Update tracker with new detections.
 
         Args:
             detections: Array of shape (N, 5) with [x1, y1, x2, y2, score]
             frame_id: Current frame number
-            histograms: Optional list of color histograms per detection for appearance matching
+            team_preds: Optional list of team predictions per detection (aligned to detections)
+            track_team_map: Optional map of track_id -> locked TeamID for gating associations
 
         Returns:
             List of active tracks
@@ -202,80 +196,79 @@ class ByteTracker:
 
             detections_high = detections[high_mask]
             detections_low = detections[low_mask]
-            
-            # Split histograms accordingly
-            histograms_high = None
-            histograms_low = None
-            if histograms is not None:
-                histograms_high = [h for i, h in enumerate(histograms) if high_mask[i]]
-                histograms_low = [h for i, h in enumerate(histograms) if low_mask[i]]
+
+            team_preds_high = None
+            team_preds_low = None
+            if team_preds is not None:
+                team_preds_high = [p for i, p in enumerate(team_preds) if high_mask[i]]
+                team_preds_low = [p for i, p in enumerate(team_preds) if low_mask[i]]
         else:
             detections_high = np.empty((0, 5))
             detections_low = np.empty((0, 5))
-            histograms_high = None
-            histograms_low = None
+            team_preds_high = None
+            team_preds_low = None
 
         # First association: high confidence detections with tracked tracks
         unmatched_tracks = []
         unmatched_detections_high = []
 
         if len(detections_high) > 0 and len(self.tracked_stracks) > 0:
-            cost_matrix = self._compute_iou_matrix_with_appearance(
+            cost_matrix = self._compute_cost_matrix(
                 self.tracked_stracks,
                 detections_high[:, :4],
-                histograms_high,
+                det_team_preds=team_preds_high,
+                track_team_map=track_team_map,
             )
             matched_indices, unmatched_track_idx, unmatched_det_idx = self._linear_assignment(
                 cost_matrix, self.match_thresh
             )
 
             for track_idx, det_idx in matched_indices:
-                hist = histograms_high[det_idx] if histograms_high else None
                 self.tracked_stracks[track_idx].update(
                     detections_high[det_idx, :4],
                     detections_high[det_idx, 4],
                     frame_id,
-                    color_histogram=hist,
                 )
 
             unmatched_tracks = [self.tracked_stracks[i] for i in unmatched_track_idx]
             unmatched_detections_high = detections_high[unmatched_det_idx]
-            unmatched_histograms_high = [histograms_high[i] for i in unmatched_det_idx] if histograms_high else None
+            if team_preds_high is not None:
+                team_preds_high = [team_preds_high[i] for i in unmatched_det_idx]
         else:
             unmatched_tracks = self.tracked_stracks.copy()
             unmatched_detections_high = detections_high
-            unmatched_histograms_high = histograms_high
 
         # Second association: low confidence detections with remaining tracks
         if len(detections_low) > 0 and len(unmatched_tracks) > 0:
-            cost_matrix = self._compute_iou_matrix_with_appearance(
+            cost_matrix = self._compute_cost_matrix(
                 unmatched_tracks,
                 detections_low[:, :4],
-                histograms_low,
+                det_team_preds=team_preds_low,
+                track_team_map=track_team_map,
             )
             matched_indices, unmatched_track_idx, _ = self._linear_assignment(
                 cost_matrix, self.match_thresh
             )
 
             for track_idx, det_idx in matched_indices:
-                hist = histograms_low[det_idx] if histograms_low else None
                 unmatched_tracks[track_idx].update(
                     detections_low[det_idx, :4],
                     detections_low[det_idx, 4],
                     frame_id,
-                    color_histogram=hist,
                 )
 
             # Update unmatched tracks list
             unmatched_tracks = [unmatched_tracks[i] for i in unmatched_track_idx]
+            # Update team preds for remaining tracks/dets not needed here (tracks only)
 
         # Third association: remaining tracks with lost tracks
         # Use stricter distance threshold for lost track reactivation to prevent "teleporting"
         if len(unmatched_detections_high) > 0 and len(self.lost_stracks) > 0:
-            cost_matrix = self._compute_iou_matrix_with_appearance(
+            cost_matrix = self._compute_cost_matrix(
                 self.lost_stracks,
                 unmatched_detections_high[:, :4],
-                unmatched_histograms_high,
+                det_team_preds=team_preds_high,
+                track_team_map=track_team_map,
             )
             matched_indices, _, unmatched_det_idx = self._linear_assignment(
                 cost_matrix, self.match_thresh
@@ -307,12 +300,10 @@ class ByteTracker:
 
             for track_idx, det_idx in valid_matches:
                 track = self.lost_stracks[track_idx]
-                hist = unmatched_histograms_high[det_idx] if unmatched_histograms_high else None
                 track.update(
                     unmatched_detections_high[det_idx, :4],
                     unmatched_detections_high[det_idx, 4],
                     frame_id,
-                    color_histogram=hist,
                 )
                 track.state = "tracked"
                 self.tracked_stracks.append(track)
@@ -326,6 +317,8 @@ class ByteTracker:
             unmatched_det_idx = [i for i in range(len(unmatched_detections_high))
                                  if i not in valid_det_indices and i in set(unmatched_det_idx)]
             unmatched_detections_high = unmatched_detections_high[unmatched_det_idx] if unmatched_det_idx else np.empty((0, 5))
+            if team_preds_high is not None:
+                team_preds_high = [team_preds_high[i] for i in unmatched_det_idx] if unmatched_det_idx else []
 
         # Mark unmatched tracks as lost
         for track in unmatched_tracks:
@@ -390,32 +383,6 @@ class ByteTracker:
 
         return [t for t in self.tracked_stracks if t.is_activated]
 
-    def _compute_chi_square_distance(
-        self,
-        hist1: Optional[np.ndarray],
-        hist2: Optional[np.ndarray],
-    ) -> float:
-        """
-        Compute chi-square distance between two histograms (normalized).
-
-        Returns distance in [0, 1] where 0 = identical, 1 = completely different.
-        Returns 1.0 if either histogram is None.
-        """
-        if hist1 is None or hist2 is None:
-            return 1.0
-        
-        # Chi-square distance: sum((h1 - h2)^2 / (h1 + h2 + eps))
-        # Normalized to [0, 1]
-        eps = 1e-10
-        diff = (hist1 - hist2) ** 2
-        sum_hist = hist1 + hist2 + eps
-        chi2 = np.sum(diff / sum_hist)
-        
-        # Normalize: chi2 can be large, use sigmoid-like scaling
-        # Empirically, chi2 > 5 is quite different
-        similarity = np.exp(-chi2 / 2.0)  # Maps to [0, 1]
-        return 1.0 - similarity  # Distance = 1 - similarity
-
     def _compute_center_distance_matrix(
         self,
         tracks: list[STrack],
@@ -449,52 +416,112 @@ class ByteTracker:
 
         return distances
 
-    def _compute_iou_matrix_with_appearance(
+    def _compute_cost_matrix(
         self,
         tracks: list[STrack],
         detections: np.ndarray,
-        histograms: Optional[list[np.ndarray]] = None,
+        det_team_preds: Optional[list[Optional[TeamID]]] = None,
+        track_team_map: Optional[dict[int, TeamID]] = None,
     ) -> np.ndarray:
         """
-        Compute blended cost matrix: IoU + appearance, with distance gating.
+        Compute cost matrix: IoU + velocity consistency, with distance and team gating.
 
         Args:
             tracks: List of STrack objects
             detections: Detection array (N, 4) with [x1, y1, x2, y2]
-            histograms: Optional list of color histograms per detection
+            det_team_preds: Optional team predictions per detection
+            track_team_map: Optional map of track_id -> locked TeamID
 
         Returns:
-            Cost matrix (M, N) blending IoU and appearance distance.
-            Entries where center distance exceeds max_center_distance are set to 0
-            to prevent matching far-away detections (reduces ID swaps).
+            Cost matrix (M, N) blending IoU and velocity consistency.
+            Entries gated by distance or team mismatch are set to 0.
         """
         iou_matrix = self._compute_iou_matrix(
             [t.tlbr for t in tracks],
             detections,
         )
 
-        # Apply distance gating to prevent ID swaps between nearby players
+        # Apply perspective-scaled distance gating to prevent ID swaps
+        # Scale max_center_distance per track by bbox height relative to a reference
+        _REF_HEIGHT = 100.0  # typical mid-pitch player height in pixels
         if self.max_center_distance > 0 and len(tracks) > 0 and len(detections) > 0:
             distance_matrix = self._compute_center_distance_matrix(tracks, detections)
-            # Zero out IoU for pairs that are too far apart
-            too_far = distance_matrix > self.max_center_distance
-            iou_matrix[too_far] = 0.0
+            for i, track in enumerate(tracks):
+                bbox_h = max(track.mean[3], 1.0)  # Kalman state index 3 = height
+                scale = bbox_h / _REF_HEIGHT
+                scaled_gate = self.max_center_distance * scale
+                too_far = distance_matrix[i, :] > scaled_gate
+                iou_matrix[i, too_far] = 0.0
 
-        if histograms is None or len(histograms) == 0:
-            # No appearance info, use IoU only
-            return iou_matrix
+        # Team gating: zero out matches between different locked teams
+        if det_team_preds is not None and track_team_map is not None:
+            for i, track in enumerate(tracks):
+                locked_team = track_team_map.get(track.track_id)
+                if locked_team not in (TeamID.TEAM_A, TeamID.TEAM_B):
+                    continue
+                for j, team_pred in enumerate(det_team_preds):
+                    if team_pred in (TeamID.TEAM_A, TeamID.TEAM_B) and team_pred != locked_team:
+                        iou_matrix[i, j] = 0.0
 
-        # Compute appearance distance matrix
-        app_matrix = np.zeros_like(iou_matrix)
+        # Velocity consistency: penalize matches that contradict Kalman-predicted motion
+        if self.velocity_weight > 0 and len(tracks) > 0 and len(detections) > 0:
+            vel_matrix = self._compute_velocity_consistency(tracks, detections)
+            blended = (1.0 - self.velocity_weight) * iou_matrix + self.velocity_weight * vel_matrix
+            return blended
+
+        return iou_matrix
+
+    def _compute_velocity_consistency(
+        self,
+        tracks: list[STrack],
+        detections: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Compute velocity consistency score between tracks and detections.
+
+        For each (track, detection) pair, compare the displacement vector
+        (track predicted center -> detection center) against the Kalman velocity.
+        Score is in [0, 1] where 1 = perfect consistency, 0 = contradicts motion.
+
+        Tracks with near-zero velocity (stationary) get a neutral score of 0.5
+        so they don't dominate or penalize any direction.
+        """
+        n_tracks = len(tracks)
+        n_dets = len(detections)
+        vel_scores = np.full((n_tracks, n_dets), 0.5, dtype=np.float32)
+
+        # Detection centers
+        det_cx = (detections[:, 0] + detections[:, 2]) / 2  # (N,)
+        det_cy = (detections[:, 1] + detections[:, 3]) / 2  # (N,)
+
         for i, track in enumerate(tracks):
-            for j, hist in enumerate(histograms):
-                app_dist = self._compute_chi_square_distance(track.color_histogram, hist)
-                app_matrix[i, j] = app_dist
+            vx, vy = track.mean[4], track.mean[5]
+            speed = np.sqrt(vx * vx + vy * vy)
 
-        # Blend: higher weight on IoU (geometric is more reliable)
-        # appearance_weight controls: 0 = IoU only, 1 = appearance only, 0.5 = equal
-        blended = (1.0 - self.appearance_weight) * iou_matrix + self.appearance_weight * (1.0 - app_matrix)
-        return blended
+            # Skip stationary tracks -- no directional preference
+            if speed < 2.0:
+                continue
+
+            # Predicted center (before Kalman update, i.e. current mean after predict())
+            pred_cx, pred_cy = track.mean[0], track.mean[1]
+
+            # Displacement from predicted position to each detection
+            dx = det_cx - pred_cx  # (N,)
+            dy = det_cy - pred_cy  # (N,)
+            disp_speed = np.sqrt(dx * dx + dy * dy)
+
+            for j in range(n_dets):
+                if disp_speed[j] < 1.0:
+                    # Detection is right on top of prediction -- perfect match
+                    vel_scores[i, j] = 1.0
+                    continue
+
+                # Cosine similarity between velocity vector and displacement vector
+                cos_sim = (vx * dx[j] + vy * dy[j]) / (speed * disp_speed[j] + 1e-8)
+                # Map from [-1, 1] to [0, 1]: same direction = 1, opposite = 0
+                vel_scores[i, j] = (cos_sim + 1.0) / 2.0
+
+        return vel_scores
 
     def _compute_iou_matrix(
         self,

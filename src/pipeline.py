@@ -6,6 +6,7 @@ Orchestrates the detection, tracking, and output generation stages.
 
 from pathlib import Path
 from typing import Optional
+from collections import defaultdict, deque
 import sys
 import numpy as np
 from tqdm import tqdm
@@ -24,6 +25,8 @@ from src.detection.ball_detector import BallDetector
 from src.detection.tracking import ByteTracker, convert_stracks_to_player_tracks
 from src.detection.segmentation_sam2 import SamSegmenter2
 from src.geometry.homography import CourtHomography, create_homography_from_config
+from src.detection.team_clustering import TeamClustering
+from src.utils.visualization import TEAM_COLORS
 
 
 class Pipeline:
@@ -60,6 +63,8 @@ class Pipeline:
 
         # Match data storage
         self.match_data: Optional[MatchData] = None
+        # Runtime team palette (can be overridden by clustering or config)
+        self.team_colors = TEAM_COLORS.copy()
 
     @property
     def player_detector(self) -> PlayerDetector:
@@ -136,11 +141,9 @@ class Pipeline:
             new_track_thresh=cfg["new_track_thresh"],
             track_buffer=cfg["track_buffer"],
             match_thresh=cfg["match_thresh"],
-            appearance_weight=cfg.get("appearance_weight", 0.5),
             max_center_distance=cfg.get("max_center_distance", 100.0),
+            velocity_weight=cfg.get("velocity_weight", 0.3),
         )
-
-
 
     def run(
         self,
@@ -176,6 +179,45 @@ class Pipeline:
             width=reader.width,
             height=reader.height,
         )
+
+        # Team classification (per-run, optional)
+        team_cfg = self.config.get("team_classification", {})
+        team_enabled = team_cfg.get("enable", False)
+        expected_players = self.config["tracking"].get("min_players_enforce", 12)
+        team_bins = team_cfg.get("histogram_bins", 32)
+        team_min_samples = team_cfg.get("min_samples", 10)
+        team_max_samples = team_cfg.get("max_samples", 60)
+        team_vote_count = team_cfg.get("vote_count", 3)
+        team_recheck_interval = team_cfg.get("recheck_interval", 15)
+        team_recheck_votes = team_cfg.get("recheck_votes", 5)
+        team_recheck_near_px = team_cfg.get("recheck_near_px", 140)
+        team_recheck_far_px = team_cfg.get("recheck_far_px", 260)
+        team_recheck_min_interval = team_cfg.get("recheck_min_interval", 10)
+        team_recheck_max_interval = team_cfg.get("recheck_max_interval", 30)
+        team_cap = team_cfg.get("team_cap")
+        team_force_palette = team_cfg.get("force_team_colors", {})
+        team_sampling_stride = team_cfg.get("sampling_stride")
+        team_sample_full_video = team_cfg.get("sample_full_video", False)
+        sample_min_players = max(8, expected_players - 2)
+
+        team_classifier = TeamClustering(
+            bins=team_bins,
+            n_clusters=team_cfg.get("n_clusters", 2),
+            min_samples=team_min_samples,
+            max_samples=team_max_samples,
+            force_palette=team_force_palette,
+            save_crops=team_cfg.get("save_crops", False),
+            crops_dir=(self.output_dir / team_cfg.get("crops_output_dir", "team_crops")) if team_cfg.get("save_crops", False) else None,
+            vividify=team_cfg.get("vividify", True),
+        ) if team_enabled else None
+        team_votes: dict[int, dict[TeamID, int]] = defaultdict(lambda: defaultdict(int)) if team_enabled else {}
+        team_histories: dict[int, deque] = defaultdict(lambda: deque(maxlen=30)) if team_enabled else {}  # 30-frame window for robust rechecks
+        team_last_fit_count = 0
+        team_last_sample_log = -1
+        team_last_recheck_frame = start_frame - 1
+        self.team_colors = TEAM_COLORS.copy()
+        team_init_logged = False
+        t3_tracks_active: set[int] = set()
         
         # Pre-warm SAM2 if enabled (initialize it now to avoid first-frame lag)
         sam_available = False
@@ -211,7 +253,7 @@ class Pipeline:
         last_full_t1_state: dict[int, dict] = {}  # Reference state: {track_id: {bbox, detection}}
 
         # Expected player count is fixed per run
-        expected_players = self.config["tracking"].get("min_players_enforce", 12)
+        team_cap = team_cap if team_cap is not None else max(1, expected_players // 2)
 
         # =============================================================
         # DETECTION MODE STATE: All-or-nothing tier switching
@@ -255,12 +297,60 @@ class Pipeline:
                     f"sam_mode={sam_mode} sam_first={sam_first} prev_t1={prev_count}"
                 )
 
+        def min_pair_distance_px(state: dict[int, dict]) -> float:
+            """Compute minimum pairwise distance between bbox centers in the current frame."""
+            centers = [s['bbox'].center for s in state.values() if 'bbox' in s]
+            if len(centers) < 2:
+                return float('inf')
+            min_d = float('inf')
+            for i in range(len(centers)):
+                for j in range(i + 1, len(centers)):
+                    dx = centers[i][0] - centers[j][0]
+                    dy = centers[i][1] - centers[j][1]
+                    d = (dx * dx + dy * dy) ** 0.5
+                    if d < min_d:
+                        min_d = d
+            return min_d
+
         # Process frames
         if end_frame is None:
             end_frame = reader.total_frames
 
+        run_frame_count = max(1, end_frame - start_frame)
+        if team_enabled and (team_sampling_stride is None or team_sampling_stride <= 0):
+            team_sampling_stride = max(1, run_frame_count // max(team_max_samples, 1))
+
         total_frames = end_frame - start_frame
         print(f"\nProcessing frames {start_frame} to {end_frame}...")
+
+        # Optional full-video sampling for team colors (before main pass)
+        if team_enabled and team_sample_full_video and team_classifier is not None:
+            stride = max(1, reader.total_frames // max(team_max_samples, 1))
+            print(f"[TEAM] Pre-pass sampling full video with stride={stride} (max {team_max_samples})")
+            sampled = team_classifier.sample_full_video(
+                reader,
+                self.player_detector,
+                step=stride,
+                max_samples=team_max_samples,
+                expected_players=None,  # allow sampling even if fewer players are visible
+            )
+            print(f"[TEAM] Pre-pass collected {sampled} samples")
+            if team_classifier.ready:
+                team_classifier.fit()
+                self.team_colors = team_classifier.team_palette.copy()
+                team_last_fit_count = team_classifier.sample_count
+                print(f"[TEAM] pre-fit with {team_last_fit_count} samples | {team_classifier.describe_palette()}")
+                team_classifier.save_crops()
+            else:
+                print(f"[TEAM] pre-pass collected {sampled} samples but not enough to fit (min={team_classifier.min_samples})")
+
+        if team_enabled and not team_init_logged:
+            print(
+                f"[TEAM] Enabled | stride={team_sampling_stride} min={team_min_samples} max={team_max_samples} "
+                f"vote={team_vote_count} force={team_force_palette.get('enabled', False)} run_frames={run_frame_count} "
+                f"save_crops={team_cfg.get('save_crops', False)}"
+            )
+            team_init_logged = True
 
         with tqdm(total=total_frames, desc="Processing", unit="frame",
                   bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] {percentage:3.0f}%') as pbar:
@@ -303,16 +393,38 @@ class Pipeline:
                     if sam_available:
                         self.sam_segmenter.set_image(frame, frame_idx)
 
-                    # Extract color histograms for appearance matching
-                    histograms = []
+                    # Extract color histograms for team classification
+                    # Use team_classifier.extract_features (jersey-crop) to match training data,
+                    # fall back to full-bbox histogram if classifier not available
+                    det_team_preds = []
                     for det in detections:
-                        hist = extract_color_histogram(frame, det.bbox)
+                        if team_enabled and team_classifier is not None:
+                            hist, _, _ = team_classifier.extract_features(frame, det.bbox)
+                        else:
+                            hist = extract_color_histogram(frame, det.bbox)
                         det.color_histogram = hist
-                        histograms.append(hist)
+                        if team_enabled and team_classifier is not None and team_classifier.fitted:
+                            det_team_preds.append(team_classifier.predict(hist))
+                        else:
+                            det_team_preds.append(None)
 
-                    # Update tracker with appearance cues
+                    # Update tracker (IoU + velocity + gating, no appearance)
                     det_array = self.player_detector.get_detection_array(detections)
-                    active_tracks = self.tracker.update(det_array, frame_idx, histograms=histograms if histograms else None)
+
+                    # Build track-to-team map for ByteTrack gating (prevent cross-team swaps)
+                    track_team_map = None
+                    if team_enabled and team_classifier is not None and team_classifier.fitted:
+                        track_team_map = {}
+                        for tid, track in track_histories.items():
+                            if track.team in (TeamID.TEAM_A, TeamID.TEAM_B):
+                                track_team_map[tid] = track.team
+
+                    active_tracks = self.tracker.update(
+                        det_array,
+                        frame_idx,
+                        team_preds=det_team_preds if det_team_preds else None,
+                        track_team_map=track_team_map,
+                    )
 
                     # Convert active tracks to preliminary format (before tier decision)
                     yolo_track_results: dict[int, BoundingBox] = {}
@@ -720,13 +832,9 @@ class Pipeline:
                             last_bbox = prev_state['bbox']
                             frames_since_seen = frame_idx - prev_state['frame_idx']
 
-                            # Skip stale tracks (not seen in 6+ frames)
+                            # Skip ONLY if track is very stale (not seen in 6+ frames)
+                            # We MUST recover recently-seen players to maintain player count
                             if frames_since_seen > 6:
-                                continue
-
-                            # Check if player was near edge - they might have walked off
-                            if is_near_edge(last_bbox):
-                                # Don't hallucinate players who walked off camera
                                 continue
 
                             # Find the closest active player to where this player disappeared
@@ -757,8 +865,8 @@ class Pipeline:
 
                                     # Prefer occluders that are closer to camera (larger foot_y)
                                     active_foot_y = active_bbox.y1 + head_to_foot
-                                    if active_foot_y < prev_foot_y - 5:
-                                        continue  # occluder must be in front of (or very near) missing player
+                                    if active_foot_y < prev_foot_y - 30:
+                                        continue  # occluder must be in front of (or reasonably near) missing player
 
                                     dist = bbox_distance(last_bbox, active_bbox)
                                     if dist < closest_distance:
@@ -768,7 +876,7 @@ class Pipeline:
 
                             # If there's a player within reasonable distance, assume occlusion.
                             # Allow larger gap to avoid losing the anchor; if we have an anchor match, trust it.
-                            occlusion_distance_threshold = 220  # pixels
+                            occlusion_distance_threshold = 280  # pixels
                             if hasattr(self, '_t2_recovery_history') and track_id in self._t2_recovery_history:
                                 if frame_idx - self._t2_recovery_history[track_id] <= 2:
                                     occlusion_distance_threshold = 240
@@ -792,6 +900,8 @@ class Pipeline:
                                         'dx': dx_anchor,
                                         'dy': dy_anchor,
                                         'created_frame': frame_idx,
+                                        'last_occ_x': occ_center_x,
+                                        'last_occ_y': occ_foot_y,
                                     }
                                 else:
                                     dx_anchor = anchor.get('dx', 0)
@@ -800,13 +910,30 @@ class Pipeline:
                                 desired_foot_x = occ_center_x + dx_anchor
                                 desired_foot_y = occ_foot_y + dy_anchor
 
-                                # Smooth to avoid teleports: cap per-frame movement from last seen position
-                                prev_foot_x = prev_center_x
-                                max_step_px = 55
-                                step_x = max(-max_step_px, min(max_step_px, desired_foot_x - prev_foot_x))
-                                step_y = max(-max_step_px, min(max_step_px, desired_foot_y - prev_foot_y))
-                                foot_x = prev_foot_x + step_x
-                                foot_y = prev_foot_y + step_y
+                                # Prevent teleports: only limit movement if occluder itself moved too far
+                                # (someone else became the occluder). Track occluder's last position.
+                                last_occ_x = anchor.get('last_occ_x', occ_center_x)
+                                last_occ_y = anchor.get('last_occ_y', occ_foot_y)
+                                occ_movement = ((occ_center_x - last_occ_x)**2 + (occ_foot_y - last_occ_y)**2)**0.5
+                                
+                                # Only cap if occluder teleported (different player took over anchor)
+                                max_occluder_movement = 150  # reasonable single-frame movement for occluder
+                                if occ_movement > max_occluder_movement:
+                                    # Occluder teleported - likely switched to different player, smooth the transition
+                                    prev_foot_x = prev_center_x
+                                    max_step_px = 80
+                                    step_x = max(-max_step_px, min(max_step_px, desired_foot_x - prev_foot_x))
+                                    step_y = max(-max_step_px, min(max_step_px, desired_foot_y - prev_foot_y))
+                                    foot_x = prev_foot_x + step_x
+                                    foot_y = prev_foot_y + step_y
+                                else:
+                                    # Follow occluder directly - no smoothing
+                                    foot_x = desired_foot_x
+                                    foot_y = desired_foot_y
+                                
+                                # Update occluder's last position for next frame
+                                anchor['last_occ_x'] = occ_center_x
+                                anchor['last_occ_y'] = occ_foot_y
 
                                 occluded_width = closest_active.x2 - closest_active.x1
                                 half_w = occluded_width / 2
@@ -823,9 +950,19 @@ class Pipeline:
                                 )
 
                             else:
-                                # Fallback: no valid occluder found. Keep previous position to avoid vanishing.
-                                occluded_bbox = last_bbox
-                                anchor = prev_state.get('t3_anchor', None)
+                                # Fallback: no valid occluder found.
+                                # MUST still create a box to maintain player count - use last known position
+                                # Reduce height to indicate uncertainty
+                                occluded_width = last_bbox.x2 - last_bbox.x1
+                                occluded_height = (last_bbox.y2 - last_bbox.y1) * 0.4  # very short to indicate uncertainty
+                                occluded_bbox = BoundingBox(
+                                    x1=last_bbox.x1,
+                                    y1=last_bbox.y2 - occluded_height,
+                                    x2=last_bbox.x2,
+                                    y2=last_bbox.y2,
+                                    confidence=0.2,  # very low confidence
+                                )
+                                anchor = None  # no anchor since no occluder
 
                             det = PlayerDetection(
                                 frame_idx=frame_idx,
@@ -848,6 +985,10 @@ class Pipeline:
                                 'detection': det,
                                 't3_anchor': anchor,
                             }
+                            # Preserve team from track history if present
+                            if track_id in track_histories:
+                                det.team = track_histories[track_id].team
+                            t3_tracks_active.add(track_id)
                             active_track_ids.add(track_id)
 
                             boxes_added += 1
@@ -872,6 +1013,214 @@ class Pipeline:
 
                     log_frame_state(frame_idx, "T3 additions", t3_state)
                     log_frame_state(frame_idx, "end_state (carry to next)", current_frame_state)
+
+                    # =============================================================
+                    # TEAM CLASSIFICATION (optional, per-run)
+                    # =============================================================
+                    if team_enabled and team_classifier is not None:
+                        # Sample jersey colors across the video at a fixed stride (only when full roster is present)
+                        if (
+                            team_classifier.sample_count < team_max_samples
+                            and ((frame_idx - start_frame) % team_sampling_stride == 0)
+                            and (len(current_frame_state) >= sample_min_players or not team_classifier.ready)
+                        ):
+                            for track_id, state in current_frame_state.items():
+                                hist = team_classifier.add_sample(frame, state['bbox'], frame_idx=frame_idx, track_id=track_id)
+                                state['team_hist'] = hist
+                                team_histories[track_id].append(hist)
+
+                            if frame_idx != team_last_sample_log:
+                                print(f"[TEAM] frame={frame_idx} samples={team_classifier.sample_count}/{team_max_samples}")
+                                team_last_sample_log = frame_idx
+
+                        # Fit/re-fit when new samples arrive
+                        if team_classifier.ready and team_classifier.sample_count > team_last_fit_count:
+                            team_classifier.fit()
+                            self.team_colors = team_classifier.team_palette.copy()
+                            team_last_fit_count = team_classifier.sample_count
+                            print(f"[TEAM] fit with {team_last_fit_count} samples | {team_classifier.describe_palette()}")
+                            team_classifier.save_crops()
+
+                        # Constant recheck interval to prevent ID swaps when players are close
+                        if team_classifier.fitted and team_recheck_max_interval > 0:
+                            # Fixed 5-frame interval for robust team tracking
+                            effective_interval = 5
+
+                            if (frame_idx - team_last_recheck_frame) >= effective_interval:
+                                team_last_recheck_frame = frame_idx
+                                
+                                # Collect correction candidates: players whose histogram votes disagree with current team
+                                swap_candidates: dict[TeamID, list[tuple[int, TeamID, int, float, bool]]] = {
+                                    TeamID.TEAM_A: [],
+                                    TeamID.TEAM_B: [],
+                                }
+                                
+                                for track_id, hist_deque in team_histories.items():
+                                    if not hist_deque or track_id not in track_histories:
+                                        continue
+                                    
+                                    # Minimum sample gate: need at least 12 samples for reliable recheck
+                                    if len(hist_deque) < 12:
+                                        continue
+                                    
+                                    current_team = track_histories[track_id].team
+                                    if current_team not in (TeamID.TEAM_A, TeamID.TEAM_B):
+                                        continue
+                                    
+                                    # Weighted voting: 2x weight for recent 10 frames, 1x for older
+                                    vote_counts: dict[TeamID, float] = defaultdict(float)
+                                    hist_list = list(hist_deque)
+                                    recent_cutoff = max(0, len(hist_list) - 10)
+                                    
+                                    for i, h in enumerate(hist_list):
+                                        team_pred = team_classifier.predict(h)
+                                        if team_pred is not None:
+                                            weight = 2.0 if i >= recent_cutoff else 1.0
+                                            vote_counts[team_pred] += weight
+
+                                    if not vote_counts:
+                                        continue
+
+                                    majority_team = max(vote_counts.items(), key=lambda x: x[1])[0]
+                                    total_votes = sum(vote_counts.values())
+                                    confidence = vote_counts[majority_team] / total_votes if total_votes > 0 else 0
+                                    
+                                    # Strong evidence for different team than current assignment
+                                    # 4+ weighted votes OR 75%+ confidence
+                                    strong_evidence = (vote_counts[majority_team] >= 4 or confidence >= 0.75) and majority_team != current_team
+                                    
+                                    # Very strong evidence for hard reset: 85%+ confidence
+                                    very_strong = confidence >= 0.85 and majority_team != current_team
+                                    
+                                    if strong_evidence:
+                                        # Add to swap candidates: (track_id, should_be_team, vote_strength, confidence, very_strong)
+                                        swap_candidates[majority_team].append((track_id, majority_team, int(vote_counts[majority_team]), confidence, very_strong))
+                                
+                                # Execute swaps in pairs to maintain balance
+                                # Players on TEAM_A who should be TEAM_B <-> Players on TEAM_B who should be TEAM_A
+                                a_to_b = swap_candidates[TeamID.TEAM_B]  # Currently A, should be B
+                                b_to_a = swap_candidates[TeamID.TEAM_A]  # Currently B, should be A
+                                
+                                # Sort by confidence first, then vote strength
+                                a_to_b.sort(key=lambda x: (x[3], x[2]), reverse=True)
+                                b_to_a.sort(key=lambda x: (x[3], x[2]), reverse=True)
+                                
+                                # Pair up and swap
+                                swaps_made = 0
+                                hard_resets = 0
+                                for i in range(min(len(a_to_b), len(b_to_a))):
+                                    tid_a, new_team_a, _, _, very_strong_a = a_to_b[i]
+                                    tid_b, new_team_b, _, _, very_strong_b = b_to_a[i]
+                                    
+                                    # Swap teams
+                                    if tid_a in current_frame_state:
+                                        current_frame_state[tid_a]['detection'].team = new_team_a
+                                    if tid_a in track_histories:
+                                        track_histories[tid_a].team = new_team_a
+                                    team_votes[tid_a].clear()
+                                    team_votes[tid_a][new_team_a] = team_vote_count
+                                    if very_strong_a:
+                                        team_histories[tid_a].clear()  # Hard reset: clear history
+                                        hard_resets += 1
+                                    
+                                    if tid_b in current_frame_state:
+                                        current_frame_state[tid_b]['detection'].team = new_team_b
+                                    if tid_b in track_histories:
+                                        track_histories[tid_b].team = new_team_b
+                                    team_votes[tid_b].clear()
+                                    team_votes[tid_b][new_team_b] = team_vote_count
+                                    if very_strong_b:
+                                        team_histories[tid_b].clear()  # Hard reset: clear history
+                                        hard_resets += 1
+                                    
+                                    swaps_made += 1
+                                
+                                # Solo corrections: if high confidence (≥75%) and no swap partner, force correction
+                                # This handles off-screen or T3 cases
+                                unpaired_a_to_b = a_to_b[swaps_made:]
+                                unpaired_b_to_a = b_to_a[swaps_made:]
+                                solo_corrections = 0
+                                
+                                for tid, new_team, votes, conf, very_strong in unpaired_a_to_b:
+                                    if conf >= 0.75:  # Lowered threshold
+                                        if tid in current_frame_state:
+                                            current_frame_state[tid]['detection'].team = new_team
+                                        if tid in track_histories:
+                                            track_histories[tid].team = new_team
+                                        team_votes[tid].clear()
+                                        team_votes[tid][new_team] = team_vote_count
+                                        if very_strong:
+                                            team_histories[tid].clear()
+                                            hard_resets += 1
+                                        solo_corrections += 1
+                                
+                                for tid, new_team, votes, conf, very_strong in unpaired_b_to_a:
+                                    if conf >= 0.75:  # Lowered threshold
+                                        if tid in current_frame_state:
+                                            current_frame_state[tid]['detection'].team = new_team
+                                        if tid in track_histories:
+                                            track_histories[tid].team = new_team
+                                        team_votes[tid].clear()
+                                        team_votes[tid][new_team] = team_vote_count
+                                        if very_strong:
+                                            team_histories[tid].clear()
+                                            hard_resets += 1
+                                        solo_corrections += 1
+                                
+                                if swaps_made > 0 or solo_corrections > 0:
+                                    msg = f"[TEAM] Frame {frame_idx}: Swapped {swaps_made} pairs, {solo_corrections} solo"
+                                    if hard_resets > 0:
+                                        msg += f" ({hard_resets} hard resets)"
+                                    print(msg)
+
+                        # Assign teams per frame with votes and cap; natural voting only (no forced initial assignment)
+                        if team_classifier.fitted:
+                            frame_team_counts: dict[TeamID, int] = defaultdict(int)
+
+                            # Per-frame vote
+                            for track_id, state in current_frame_state.items():
+                                hist = state.get('team_hist') if isinstance(state, dict) else None
+                                if hist is None or (hasattr(hist, "size") and hist.size == 0):
+                                    hist = team_classifier.extract_features(frame, state['bbox'])[0]
+
+                                team = team_classifier.predict(hist) or TeamID.UNKNOWN
+
+                                votes = team_votes[track_id]
+                                votes[team] += 1
+
+                                # Use vote if it meets threshold; else keep per-frame prediction
+                                if votes[team] >= team_vote_count:
+                                    assigned_team = team
+                                else:
+                                    assigned_team = team
+
+                                # Enforce per-team cap
+                                cap_blocks = assigned_team in (TeamID.TEAM_A, TeamID.TEAM_B) and frame_team_counts[assigned_team] >= team_cap
+                                if cap_blocks:
+                                    assigned_team = TeamID.UNKNOWN
+
+                                state['detection'].team = assigned_team
+                                if assigned_team in (TeamID.TEAM_A, TeamID.TEAM_B):
+                                    frame_team_counts[assigned_team] += 1
+
+                                if track_id in track_histories:
+                                    track_histories[track_id].team = assigned_team
+
+                                team_histories[track_id].append(hist)
+
+                            # Hard cap cleanup: demote excess if any team exceeds cap
+                            for team_id, count in list(frame_team_counts.items()):
+                                if count <= team_cap:
+                                    continue
+                                overflow = count - team_cap
+                                for track_id, state in current_frame_state.items():
+                                    if overflow <= 0:
+                                        break
+                                    assigned = state['detection'].team if 'detection' in state else TeamID.UNKNOWN
+                                    if assigned == team_id:
+                                        state['detection'].team = TeamID.UNKNOWN
+                                        overflow -= 1
+                                        frame_team_counts[team_id] -= 1
                     
                     # Store ball detection if found (single ball per frame)
                     if ball_detections:
@@ -960,6 +1309,7 @@ class Pipeline:
                     pitch_bottom_y=pitch_bottom_y,
                     homography=self.homography,
                     ball_annotator=ball_annotator,
+                    team_colors=self.team_colors,
                 )
                 # Scale down for output
                 if scale != 1.0:

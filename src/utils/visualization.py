@@ -32,7 +32,6 @@ TEAM_COLORS = {
     TeamID.TEAM_A: (255, 100, 100),    # Blue-ish
     TeamID.TEAM_B: (100, 100, 255),    # Red-ish
     TeamID.UNKNOWN: (200, 200, 200),   # Gray
-    TeamID.REFEREE: (0, 255, 255),     # Yellow
 }
 
 BALL_COLOR = (0, 165, 255)  # Orange
@@ -280,6 +279,7 @@ def draw_frame_annotations(
     minimap_size: tuple[int, int] = (600, 300),
     homography: CourtHomography = None,
     ball_annotator: Optional[BallAnnotator] = None,
+    team_colors: Optional[dict[TeamID, tuple[int, int, int]]] = None,
 ) -> np.ndarray:
     """
     Draw all annotations for a frame.
@@ -303,17 +303,20 @@ def draw_frame_annotations(
     # Convert RGB to BGR for OpenCV
     frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
+    # Resolve palette (allows runtime override from pipeline)
+    palette = team_colors or TEAM_COLORS
+
     # Draw pitch boundary lines for SAM filtering (if provided)
-    if pitch_top_y is not None and pitch_bottom_y is not None:
-        frame_width = frame_bgr.shape[1]
-        # Draw top boundary in yellow
-        cv2.line(frame_bgr, (0, pitch_top_y), (frame_width, pitch_top_y), (0, 255, 255), 3)
-        cv2.putText(frame_bgr, f"SAM Top Y={pitch_top_y}", (10, pitch_top_y - 10), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        # Draw bottom boundary in yellow
-        cv2.line(frame_bgr, (0, pitch_bottom_y), (frame_width, pitch_bottom_y), (0, 255, 255), 3)
-        cv2.putText(frame_bgr, f"SAM Bottom Y={pitch_bottom_y}", (10, pitch_bottom_y + 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+    # if pitch_top_y is not None and pitch_bottom_y is not None:
+    #     frame_width = frame_bgr.shape[1]
+    #     # Draw top boundary in yellow
+    #     cv2.line(frame_bgr, (0, pitch_top_y), (frame_width, pitch_top_y), (0, 255, 255), 3)
+    #     cv2.putText(frame_bgr, f"SAM Top Y={pitch_top_y}", (10, pitch_top_y - 10), 
+    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+    #     # Draw bottom boundary in yellow
+    #     cv2.line(frame_bgr, (0, pitch_bottom_y), (frame_width, pitch_bottom_y), (0, 255, 255), 3)
+    #     cv2.putText(frame_bgr, f"SAM Bottom Y={pitch_bottom_y}", (10, pitch_bottom_y + 30), 
+    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
     # Draw low-confidence detections as dotted boxes (filtered out from tracking)
     if frame_idx in match_data.low_confidence_detections:
@@ -347,10 +350,11 @@ def draw_frame_annotations(
             is_interpolated = hasattr(det, 'is_interpolated') and det.is_interpolated
 
             # Get base color from team or track ID
+            player_color = get_track_color(track.track_id)
             if track.team != TeamID.UNKNOWN:
-                base_color = TEAM_COLORS[track.team]
+                team_color = palette.get(track.team, get_track_color(track.track_id))
             else:
-                base_color = get_track_color(track.track_id)
+                team_color = player_color
 
             # Build label with tier indicator
             label_parts = [f"#{track.track_id}"]
@@ -369,13 +373,13 @@ def draw_frame_annotations(
                 # T2: Partial occlusion - SAM recovered
                 # Use SAME color as T1 (base_color) so mask matches bbox color
                 tier = "T2"
-                color = base_color  # Same as T1 for color consistency
+                color = team_color  # Team border color
                 dotted = True  # Dotted box to indicate SAM recovery
                 t2_count += 1
             else:
                 # T1: Normal YOLO detection (best)
                 tier = "T1"
-                color = base_color
+                color = team_color
                 dotted = False
                 t1_count += 1
 
@@ -387,12 +391,13 @@ def draw_frame_annotations(
             else:
                 # T1: supervision ellipse annotator
                 _det = sv.Detections(xyxy=np.array([[det.bbox.x1, det.bbox.y1, det.bbox.x2, det.bbox.y2]]))
-                _color = sv.Color(color[2], color[1], color[0])  # BGR -> RGB
+                _color = sv.Color(color[2], color[1], color[0])  # Team ellipse color (BGR -> RGB)
+                _label_color = sv.Color(player_color[2], player_color[1], player_color[0])
                 frame_bgr = sv.EllipseAnnotator(
                     color=_color, thickness=2, color_lookup=sv.ColorLookup.INDEX
                 ).annotate(frame_bgr, _det)
                 frame_bgr = sv.LabelAnnotator(
-                    color=_color, text_color=sv.Color.WHITE, color_lookup=sv.ColorLookup.INDEX
+                    color=_label_color, text_color=sv.Color.WHITE, color_lookup=sv.ColorLookup.INDEX
                 ).annotate(frame_bgr, _det, labels=[label])
 
             # Draw mask for SAM detections - use same color as bbox for consistency
@@ -489,27 +494,28 @@ def draw_frame_annotations(
                 mini_y = max(8, min(mini_y, minimap_h - 8))
 
                 # Get color based on track
+                player_color = get_track_color(track.track_id)
                 if track.team != TeamID.UNKNOWN:
-                    dot_color = TEAM_COLORS[track.team]
+                    team_color = palette.get(track.team, player_color)
                 else:
-                    dot_color = get_track_color(track.track_id)
+                    team_color = player_color
 
                 # Determine if SAM/interpolated for visual distinction
                 is_sam = hasattr(det, 'is_sam_recovered') and det.is_sam_recovered
                 is_interp = hasattr(det, 'is_interpolated') and det.is_interpolated
 
                 # Draw player dot
-                radius = 12
+                radius = 14
+                inner_radius = max(4, radius - 6)
                 if is_interp:
-                    # T3: hollow circle (magenta)
-                    cv2.circle(minimap, (mini_x, mini_y), radius, (255, 0, 255), 2)
-                elif is_sam:
-                    # T2: filled with white border
-                    cv2.circle(minimap, (mini_x, mini_y), radius, dot_color, -1)
-                    cv2.circle(minimap, (mini_x, mini_y), radius, (255, 255, 255), 2)
+                    # T3: show team color with thin magenta outline to indicate interpolation
+                    cv2.circle(minimap, (mini_x, mini_y), radius, team_color, 4)  # Team ring
+                    cv2.circle(minimap, (mini_x, mini_y), inner_radius, player_color, -1)  # Player dot
+                    cv2.circle(minimap, (mini_x, mini_y), radius + 2, (255, 0, 255), 1)  # Thin magenta outline
                 else:
-                    # T1: solid filled
-                    cv2.circle(minimap, (mini_x, mini_y), radius, dot_color, -1)
+                    # Outer ring = team color, inner fill = player color
+                    cv2.circle(minimap, (mini_x, mini_y), radius, team_color, 4)
+                    cv2.circle(minimap, (mini_x, mini_y), inner_radius, player_color, -1)
 
                 # Draw track ID
                 cv2.putText(minimap, str(track.track_id), (mini_x - 6, mini_y + 4),
@@ -518,8 +524,7 @@ def draw_frame_annotations(
             # Draw ball on minimap
             for ball in match_data.ball_positions:
                 if ball.frame_idx == frame_idx:
-                    ball_cx = (ball.bbox.x1 + ball.bbox.x2) / 2
-                    ball_cy = (ball.bbox.y1 + ball.bbox.y2) / 2
+                    ball_cx, ball_cy = ball.bbox.bottom_center  # use ground contact point for homography
 
                     if homography is not None:
                         bx, by = homography.pixel_to_court(ball_cx, ball_cy)
@@ -745,6 +750,7 @@ def draw_tactical_view(
     ball_position: Optional[tuple[float, float]] = None,
     court_length: float = 40.0,
     court_width: float = 20.0,
+    team_colors: Optional[dict[TeamID, tuple[int, int, int]]] = None,
 ) -> np.ndarray:
     """
     Draw players and ball on tactical view.
@@ -772,30 +778,29 @@ def draw_tactical_view(
         py = int(margin + y_m * scale_y)
         return px, py
 
+    palette = team_colors or TEAM_COLORS
+
     # Draw players
     for track_id, x, y, team in player_positions:
         px, py = to_pixels(x, y)
-        color = TEAM_COLORS.get(team, TEAM_COLORS[TeamID.UNKNOWN])
+        player_color = get_track_color(track_id)
+        team_color = palette.get(team, player_color)
 
-        # Player circle
-        cv2.circle(frame, (px, py), 12, color, -1)
-        cv2.circle(frame, (px, py), 12, (0, 0, 0), 2)
+        # Player marker: dominant team ring, tiny player dot
+        outer_radius = 16
+        ring_thickness = 4
+        inner_radius = 5  # small personal dot so team color dominates
+        cv2.circle(frame, (px, py), outer_radius, team_color, ring_thickness)
+        cv2.circle(frame, (px, py), inner_radius + 2, (0, 0, 0), 2)  # subtle outline for contrast
+        cv2.circle(frame, (px, py), inner_radius, player_color, -1)
 
-        # Track ID
-        cv2.putText(
-            frame,
-            str(track_id),
-            (px - 5, py + 5),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.4,
-            (255, 255, 255),
-            1,
-        )
+        # Track ID with slight shadow for legibility
+        cv2.putText(frame, str(track_id), (px - 5, py + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 2)
+        cv2.putText(frame, str(track_id), (px - 5, py + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
 
-    # Draw ball
+    # Draw ball (2D view): white filled circle, no outline
     if ball_position:
         px, py = to_pixels(ball_position[0], ball_position[1])
-        cv2.circle(frame, (px, py), 8, BALL_COLOR, -1)
-        cv2.circle(frame, (px, py), 8, (0, 0, 0), 2)
+        cv2.circle(frame, (px, py), 8, (255, 255, 255), -1)
 
     return frame

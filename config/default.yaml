@@ -33,13 +33,13 @@ ball_detection:
 
 # Player tracking (ByteTrack)
 tracking:
-  track_high_thresh: 0.3     # Detection threshold for first association
+  track_high_thresh: 0.5     # Detection threshold for first association (raised: only confident dets in first pass)
   track_low_thresh: 0.1      # Detection threshold for second association
-  new_track_thresh: 0.25     # Threshold for initializing new track (lowered for distant players)
-  track_buffer: 60           # Frames to keep lost tracks (increased to handle occlusions)
-  match_thresh: 0.3          # IOU threshold for matching (lowered for close/overlapping players)
-  appearance_weight: 0.6     # Blend weight for color-histogram matching [0=IoU only, 1=appearance only]
-  max_center_distance: 100   # Max pixel distance for track-detection matching (prevents ID swaps when players cluster)
+  new_track_thresh: 0.4      # Threshold for initializing new track (raised: stop spawning tracks from noise)
+  track_buffer: 30           # Frames to keep lost tracks (1 sec at 30 FPS)
+  match_thresh: 0.45         # IOU threshold for matching (tightened to require stronger spatial agreement)
+  max_center_distance: 70    # Motion gate to reduce cross-overs
+  velocity_weight: 0.3       # Velocity consistency weight in cost matrix [0-1]
   # Player track interpolation
   interpolation_confidence: 0.4      # Confidence score for interpolated positions
   interpolation_buffer_extension: 30 # Extra frames to keep interpolated tracks
@@ -47,9 +47,28 @@ tracking:
 
 # Team classification (K-Means on HSV)
 team_classification:
+  enable: true           # Keep off by default to avoid regressions
   n_clusters: 2              # 2 teams (increase to 3 if referee detection needed)
   histogram_bins: 32         # Bins per HSV channel
   min_samples: 10            # Minimum detections before clustering
+  max_samples: 200           # Cap on samples collected across the video (higher = richer palette)
+  sampling_stride: 99999     # Disable main-pass sampling; rely on pre-pass only for stability
+  vote_count: 3              # Frames of agreement before locking a team to a track
+  recheck_interval: 15       # Frames between periodic team re-votes (to correct any swaps)
+  recheck_votes: 5           # Minimum votes in the recent window to relock a track's team
+  recheck_near_px: 140       # If players are closer than this, use the fastest recheck interval
+  recheck_far_px: 260        # If players are farther than this, use the slowest recheck interval
+  recheck_min_interval: 10   # Fastest recheck cadence (frames) when overlapping
+  recheck_max_interval: 30   # Slowest recheck cadence (frames) when spaced
+  team_cap: 7                # Max players per team to assign per frame (temporarily increased for easier corrections)
+  vividify: true             # Boost low-saturation cluster colors so teams are not gray
+  force_team_colors:         # Optional override for palette; when enabled, map clusters to these colors
+    enabled: true
+    team_a: [0, 0, 0]        # BLACK in BGR
+    team_b: [0, 140, 255]    # ORANGE in BGR
+  sample_full_video: true    # If true, run a pre-pass over the full video to gather samples even when processing a subset
+  save_crops: true          # If true, save sampled crops split by cluster/team for inspection
+  crops_output_dir: "team_crops"  # Subdirectory under output when saving crops
 
 # Jersey OCR (PaddleOCR)
 jersey_ocr:
@@ -58,13 +77,6 @@ jersey_ocr:
   det_db_thresh: 0.3
   rec_score_threshold: 0.6
   vote_threshold: 5          # Confirmations needed for number assignment
-
-# Player Re-ID (numbered players only)
-player_reid:
-  embedding_model: "osnet_x1_0"
-  embedding_dim: 512
-  match_threshold: 0.7       # Cosine similarity threshold
-  gallery_update_interval: 30  # Frames between gallery updates
 
 # Fisheye correction
 fisheye:
@@ -77,7 +89,7 @@ homography:
   court_length: 40.0
   court_width: 20.0
   goal_width: 3.0
-  output_pixel_scale: 15  # Pixels per meter for 2D pitch (600x300 output)
+  output_pixel_scale: 20  # Pixels per meter for 2D pitch (600x300 output)
 
   # Calibration points - pixel coordinates from video frame
   source_points:
