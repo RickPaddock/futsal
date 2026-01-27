@@ -1,12 +1,15 @@
 """
-Extract high-value frames from futsal video for training a player detector.
+Extract high-value frames from futsal video for training detectors.
 
-High-value = frames with occlusions, congestion, and detection failures.
+Two modes:
+- PLAYER mode: Frames with occlusions, congestion, detection failures
+- BALL mode: Diverse frames across the video (for small/blurry ball detection)
 
 Uses batch processing - stops early once enough high-quality frames are found.
 
 Usage:
-    python utils/extract_training_frames.py
+    python utils/extract_training_frames.py --mode player
+    python utils/extract_training_frames.py --mode ball
 
 Requirements:
     pip install ultralytics opencv-python numpy
@@ -14,6 +17,7 @@ Requirements:
 
 import cv2
 import numpy as np
+import argparse
 from pathlib import Path
 from dataclasses import dataclass
 from ultralytics import YOLO
@@ -23,35 +27,41 @@ from ultralytics import YOLO
 # CONFIGURATION (edit these values directly)
 # ============================================================================
 
-INPUT_VIDEO = "videos/input/GoPro_Futsal_part1.mp4"
-OUTPUT_FOLDER = "videos/output/frames_training"
-YOLO_MODEL = "models/yolo11m.pt"  # Will download if not present
+INPUT_VIDEO = "videos/input/GoPro_Futsal_part1_CLEANED.mp4"
+OUTPUT_FOLDER_PLAYER = "videos/output/frames_training_players"
+OUTPUT_FOLDER_BALL = "videos/output/frames_training/BALL"
+YOLO_MODEL = "models/yolo11x.pt"  # Will download if not present (for player mode)
 
-# Frame sampling
-FRAME_SKIP = 2  # Process every Nth frame (1 = all frames, 2 = every other)
-TARGET_FRAMES = 750  # Target number of frames to extract (700-800 range)
-MIN_TEMPORAL_GAP_SEC = 0.5  # Minimum seconds between selected frames
+# Frame sampling - PLAYER mode (for complex player scenarios)
+PLAYER_FRAME_SKIP = 2  # Process every Nth frame (1 = all frames, 2 = every other)
+PLAYER_TARGET_FRAMES = 750  # Target number of frames to extract (700-800 range)
+PLAYER_MIN_TEMPORAL_GAP_SEC = 0.5  # Minimum seconds between selected frames
 
-# Batch processing
-BATCH_SIZE = 1000  # Frames to process per batch (before checking if done)
-MIN_SCORE_THRESHOLD = 15.0  # Minimum score to consider a frame "high-value"
-EARLY_STOP_MULTIPLIER = 1.5  # Stop when candidates >= target * multiplier
+# Frame sampling - BALL mode (for diverse ball appearances)
+BALL_FRAME_SKIP = 15  # Sample less frequently for diversity
+BALL_TARGET_FRAMES = 1500  # Need more frames due to ball being small/blurry
+BALL_MIN_TEMPORAL_GAP_SEC = 0.5  # Larger gaps for more diversity
 
-# Expected players on court
+# Batch processing - PLAYER mode
+PLAYER_BATCH_SIZE = 1000  # Frames to process per batch (before checking if done)
+PLAYER_MIN_SCORE_THRESHOLD = 15.0  # Minimum score to consider a frame "high-value"
+PLAYER_EARLY_STOP_MULTIPLIER = 1.5  # Stop when candidates >= target * multiplier
+
+# Expected players on court - PLAYER mode only
 EXPECTED_PLAYERS = 12  # 5v5 + 2 goalkeepers + refs (adjustable)
 
-# Scoring weights
+# Scoring weights - PLAYER mode only
 W_UNDERCOUNT = 10.0  # Weight for missing players (detected < expected)
 W_MEAN_IOU = 5.0  # Weight for average IoU between boxes (crowding)
 W_LARGE_BOX = 3.0  # Weight for unusually large boxes (merged detections)
 W_COUNT_CHANGE = 2.0  # Weight for rapid detection count changes
 
-# Detection thresholds
+# Detection thresholds - PLAYER mode only
 CONFIDENCE_THRESHOLD = 0.3  # YOLO confidence threshold
 PERSON_CLASS_ID = 0  # COCO class ID for 'person'
 LARGE_BOX_AREA_RATIO = 0.02  # Box area / frame area threshold for "large"
 
-# Easy frame sampling
+# Easy frame sampling - PLAYER mode only
 EASY_FRAME_RATIO = 0.05  # Fraction of easy frames to include for balance
 
 
@@ -219,18 +229,85 @@ def add_easy_frames(
 # MAIN EXTRACTION PIPELINE
 # ============================================================================
 
-def extract_training_frames():
-    """Main function to extract high-value training frames using batch processing."""
-
-    # Resolve paths
-    input_path = Path(INPUT_VIDEO)
-    output_path = Path(OUTPUT_FOLDER)
+def extract_ball_frames(input_video: str, output_folder: str):
+    """Extract diverse frames for ball training (simple uniform sampling)."""
+    
+    input_path = Path(input_video)
+    output_path = Path(output_folder)
 
     if not input_path.exists():
         raise FileNotFoundError(f"Input video not found: {input_path}")
 
     output_path.mkdir(parents=True, exist_ok=True)
 
+    print(f"=== BALL TRACKING MODE ===")
+    print(f"Opening video: {input_path}")
+    cap = cv2.VideoCapture(str(input_path))
+
+    if not cap.isOpened():
+        raise RuntimeError(f"Failed to open video: {input_path}")
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    print(f"Video info: {frame_width}x{frame_height}, {fps:.2f} fps, {total_frames} frames")
+    print(f"Extracting every {BALL_FRAME_SKIP} frames with {BALL_MIN_TEMPORAL_GAP_SEC}s minimum gap")
+    print(f"Target: {BALL_TARGET_FRAMES} frames")
+
+    frame_idx = 0
+    saved_count = 0
+    last_saved_time = -BALL_MIN_TEMPORAL_GAP_SEC  # Allow first frame
+
+    while saved_count < BALL_TARGET_FRAMES:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        timestamp = frame_idx / fps
+
+        # Skip frames according to BALL_FRAME_SKIP and temporal gap
+        if (frame_idx % BALL_FRAME_SKIP == 0 and 
+            timestamp - last_saved_time >= BALL_MIN_TEMPORAL_GAP_SEC):
+            
+            ts_str = format_timestamp(timestamp)
+            filename = f"ball_frame_{frame_idx:06d}_t{ts_str}s.jpg"
+            filepath = output_path / filename
+
+            cv2.imwrite(str(filepath), frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            saved_count += 1
+            last_saved_time = timestamp
+
+            if saved_count % 100 == 0:
+                progress = 100 * frame_idx / total_frames
+                print(f"  Saved {saved_count}/{BALL_TARGET_FRAMES} frames ({progress:.1f}% through video)")
+
+        frame_idx += 1
+
+    cap.release()
+
+    print(f"\nDone! Saved {saved_count} frames to {output_path}")
+    print(f"\nNext steps for ball tracking:")
+    print(f"  1. Upload frames to Roboflow")
+    print(f"  2. Annotate the ball in each frame (white, may be small/blurry)")
+    print(f"  3. Train a YOLO model with ball class")
+    print(f"  4. Since ball is small, consider using a larger YOLO model (yolo11x)")
+
+
+def extract_player_frames(input_video: str, output_folder: str):
+    """Main function to extract high-value training frames using batch processing."""
+
+    # Resolve paths
+    input_path = Path(input_video)
+    output_path = Path(output_folder)
+
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input video not found: {input_path}")
+
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    print(f"=== PLAYER TRACKING MODE ===")
     print(f"Loading YOLO model: {YOLO_MODEL}")
     model = YOLO(YOLO_MODEL)
 
@@ -247,12 +324,12 @@ def extract_training_frames():
     frame_area = frame_width * frame_height
 
     print(f"Video info: {frame_width}x{frame_height}, {fps:.2f} fps, {total_frames} frames")
-    print(f"Processing every {FRAME_SKIP} frame(s) in batches of {BATCH_SIZE}...")
-    print(f"Target: {TARGET_FRAMES} frames, early stop at {int(TARGET_FRAMES * EARLY_STOP_MULTIPLIER)} candidates")
+    print(f"Processing every {PLAYER_FRAME_SKIP} frame(s) in batches of {PLAYER_BATCH_SIZE}...")
+    print(f"Target: {PLAYER_TARGET_FRAMES} frames, early stop at {int(PLAYER_TARGET_FRAMES * PLAYER_EARLY_STOP_MULTIPLIER)} candidates")
 
     # Collect all candidate frames (using heap to track top scores efficiently)
     all_frame_data: list[FrameData] = []
-    high_value_count = 0  # Frames above MIN_SCORE_THRESHOLD
+    high_value_count = 0  # Frames above PLAYER_MIN_SCORE_THRESHOLD
 
     prev_count = None
     frame_idx = 0
@@ -264,8 +341,8 @@ def extract_training_frames():
         if not ret:
             break
 
-        # Skip frames according to FRAME_SKIP
-        if frame_idx % FRAME_SKIP != 0:
+        # Skip frames according to PLAYER_FRAME_SKIP
+        if frame_idx % PLAYER_FRAME_SKIP != 0:
             frame_idx += 1
             continue
 
@@ -303,20 +380,20 @@ def extract_training_frames():
         )
         all_frame_data.append(frame_data)
 
-        if score >= MIN_SCORE_THRESHOLD:
+        if score >= PLAYER_MIN_SCORE_THRESHOLD:
             high_value_count += 1
 
         prev_count = detection_count
         batch_count += 1
 
         # Check batch completion
-        if batch_count >= BATCH_SIZE:
+        if batch_count >= PLAYER_BATCH_SIZE:
             progress = 100 * frame_idx / total_frames
             print(f"  Batch complete: frame {frame_idx}/{total_frames} ({progress:.1f}%) - "
                   f"high-value candidates: {high_value_count}")
 
             # Early stopping check
-            required_candidates = int(TARGET_FRAMES * EARLY_STOP_MULTIPLIER)
+            required_candidates = int(PLAYER_TARGET_FRAMES * PLAYER_EARLY_STOP_MULTIPLIER)
             if high_value_count >= required_candidates:
                 print(f"\n  Early stop: Found {high_value_count} high-value candidates "
                       f"(>= {required_candidates} required)")
@@ -335,17 +412,17 @@ def extract_training_frames():
         print(f"\nProcessed entire video: {len(all_frame_data)} frames")
 
     # Select frames
-    hard_frame_count = int(TARGET_FRAMES * (1 - EASY_FRAME_RATIO))
-    easy_frame_count = TARGET_FRAMES - hard_frame_count
+    hard_frame_count = int(PLAYER_TARGET_FRAMES * (1 - EASY_FRAME_RATIO))
+    easy_frame_count = PLAYER_TARGET_FRAMES - hard_frame_count
 
     print(f"Selecting {hard_frame_count} hard frames and {easy_frame_count} easy frames...")
 
     selected_frames = select_frames_with_spacing(
-        all_frame_data, hard_frame_count, MIN_TEMPORAL_GAP_SEC
+        all_frame_data, hard_frame_count, PLAYER_MIN_TEMPORAL_GAP_SEC
     )
 
     selected_frames = add_easy_frames(
-        all_frame_data, selected_frames, easy_frame_count, MIN_TEMPORAL_GAP_SEC
+        all_frame_data, selected_frames, easy_frame_count, PLAYER_MIN_TEMPORAL_GAP_SEC
     )
 
     print(f"Selected {len(selected_frames)} frames total")
@@ -399,8 +476,40 @@ def extract_training_frames():
         print(f"  Frames with undercount (<{EXPECTED_PLAYERS}): "
               f"{sum(1 for c in counts if c < EXPECTED_PLAYERS)}")
         if early_stopped:
-            print(f"  Note: Early stopped - only processed {100*len(all_frame_data)*FRAME_SKIP/total_frames:.1f}% of video")
+            print(f"  Note: Early stopped - only processed {100*len(all_frame_data)*PLAYER_FRAME_SKIP/total_frames:.1f}% of video")
 
 
 if __name__ == "__main__":
-    extract_training_frames()
+    parser = argparse.ArgumentParser(
+        description="Extract training frames for player or ball detection"
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["player", "ball"],
+        default="player",
+        help="Extraction mode: 'player' for complex player scenarios, 'ball' for diverse ball frames"
+    )
+    parser.add_argument(
+        "--input",
+        type=str,
+        default=INPUT_VIDEO,
+        help="Path to input video file"
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Path to output folder (defaults based on mode)"
+    )
+    
+    args = parser.parse_args()
+    
+    # Set default output folder based on mode
+    if args.output is None:
+        args.output = OUTPUT_FOLDER_BALL if args.mode == "ball" else OUTPUT_FOLDER_PLAYER
+    
+    if args.mode == "ball":
+        extract_ball_frames(args.input, args.output)
+    else:
+        extract_player_frames(args.input, args.output)

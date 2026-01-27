@@ -121,6 +121,7 @@ class ByteTracker:
         match_thresh: float = 0.8,
         appearance_weight: float = 0.5,
         max_center_distance: float = 100.0,
+        velocity_weight: float = 0.3,
     ):
         """
         Initialize ByteTracker.
@@ -134,6 +135,9 @@ class ByteTracker:
             appearance_weight: Blend weight for appearance [0-1], 0=IoU only, 1=appearance only
             max_center_distance: Maximum pixel distance between track and detection centers for matching.
                                  Prevents ID swaps when players are close together.
+            velocity_weight: Weight for velocity consistency cost [0-1]. Higher values penalize
+                           matches that deviate from predicted motion. Helps prevent ID swaps
+                           when players are close but moving in different directions.
         """
         self.track_high_thresh = track_high_thresh
         self.track_low_thresh = track_low_thresh
@@ -142,6 +146,7 @@ class ByteTracker:
         self.match_thresh = match_thresh
         self.appearance_weight = appearance_weight
         self.max_center_distance = max_center_distance
+        self.velocity_weight = velocity_weight
 
         self.tracked_stracks: list[STrack] = []
         self.lost_stracks: list[STrack] = []

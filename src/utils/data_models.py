@@ -223,6 +223,7 @@ class MatchData(BaseModel):
     height: int
 
     player_tracks: list[PlayerTrack] = Field(default_factory=list)
+    ball_positions: list[Detection] = Field(default_factory=list)  # Ball detections per frame
     events: list[Event] = Field(default_factory=list)
     
     # Low-confidence detections for debug visualization (filtered out from tracking)
@@ -248,3 +249,10 @@ class MatchData(BaseModel):
             track for track in self.player_tracks
             if track.start_frame <= frame_idx <= track.end_frame
         ]
+    
+    def get_ball_at_frame(self, frame_idx: int) -> Optional[Detection]:
+        """Get ball detection at a specific frame."""
+        for ball in self.ball_positions:
+            if ball.frame_idx == frame_idx:
+                return ball
+        return None

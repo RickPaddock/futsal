@@ -5,7 +5,15 @@
       "Bash(python:*)",
       "Bash(dir /s /b \"C:\\\\Users\\\\rickp\\\\Documents\\\\GitRepos\\\\futsal\\\\models\\\\datasets\\\\*.yaml\")",
       "Bash(dir \"C:\\\\Users\\\\rickp\\\\Documents\\\\GitRepos\\\\futsal_notebooks\\\\segment-anything-2-real-time\\\\sam2\\\\configs\" /s /b)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(dir \"c:\\\\Users\\\\rickp\\\\Documents\\\\GitRepos\\\\futsal\\\\models\\\\*.pt\")",
+      "Bash(dir:*)",
+      "Bash(for dir in \"C:\\\\Users\\\\rickp\\\\Documents\\\\GitRepos\\\\futsal\\\\models\\\\datasets\\\\BALL\"/*)",
+      "Bash(do echo \"$dir:\")",
+      "Bash(if [ -d \"$dir/train/images\" ])",
+      "Bash(do if [ -d \"$dir\" ])",
+      "Bash(then echo \"$dir:\")",
+      "WebFetch(domain:supervision.roboflow.com)"
     ]
   }
 }

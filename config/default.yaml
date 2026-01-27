@@ -9,7 +9,7 @@ processing:
 # Player detection
 player_detection:
   # Local YOLO model (used if use_roboflow is false)
-  model: "models/best.pt"  # Model weights file
+  model: "models/PLAYER_MODEL_best_v1.pt"  # Model weights file
   confidence_threshold: 0.3   # Detection confidence threshold (lowered to catch distant/slow players)
   iou_threshold: 0.4          # NMS IoU threshold - lower = more aggressive duplicate suppression
   max_detections: 12          # Maximum detections per frame (10 players + 2 goalies)
@@ -19,6 +19,17 @@ player_detection:
   # Roboflow model (used if use_roboflow is true)
   use_roboflow: false
   roboflow_model_id: "gopro_v1/2" # Roboflow Universe model
+
+# Ball detection
+ball_detection:
+  # Local YOLO ball model (trained on tiled GoPro footage)
+  model: "models/BALL_MODEL_best_v1.pt"  # Ball detector weights
+  confidence_threshold: 0.1    # Very aggressive - catch even weak predictions
+  iou_threshold: 0.05          # Very low NMS - allow multi-tile detections of same ball
+  max_detections: 100          # Allow all detections - no filtering to see raw model performance
+  input_scale: 1.0             # Full resolution; InferenceSlicer handles tiling
+  # Inference tiling for small objects - uses supervision.InferenceSlicer
+  use_inference_slicer: true   # Enable overlapping tiles (trained on 640x640 tiles)
 
 # Player tracking (ByteTrack)
 tracking:
@@ -104,7 +115,7 @@ homography:
 # SAM2 is used for partial occlusions where the player is still visible but YOLO missed them.
 # For full occlusions (player completely behind another), "assume behind" logic is used.
 segmentation:
-  enabled: true               # Enable SAM2 for partial occlusion recovery
+  enabled: false               # Enable SAM2 for partial occlusion recovery
   overlap_iou_threshold: 0.2   # Run segmentation when bbox IoU exceeds this (lowered to catch more overlaps)
   max_pairs_per_frame: 6       # Safety cap to limit SAM2 calls per frame
   pitch_top_y: 400             # Top Y boundary of pitch (pixels) - SAM only works in this region
@@ -136,7 +147,7 @@ output:
     fps: 30
     codec: "h264"
     draw_tracks: true
-    draw_ball: false
+    draw_ball: true
     draw_team_colors: true
     draw_jersey_numbers: true
   tactical_view:

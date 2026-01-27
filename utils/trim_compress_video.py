@@ -1,159 +1,150 @@
 #!/usr/bin/env python3
 """
-Trim and compress GoPro futsal video for player identification testing.
-Extracts middle portion and compresses to ~100MB.
+Trim and stitch video segments - keeps only specified time ranges.
 """
 
 import subprocess
 import os
 import sys
+import tempfile
 
 # Configuration
-INPUT_VIDEO = "input/videos/GoPro_Futsal_part2.mp4"
-OUTPUT_VIDEO = "output/GoPro_Futsal_part2_trimmed_100mb.mp4"
-OUTPUT_DIR = "output"
+INPUT_VIDEO = "videos/input/ORIGINAL/GoPro_Futsal_part2.mp4"
+OUTPUT_VIDEO = "videos/input/GoPro_Futsal_part2_CLEANED.mp4"
 
-# Video parameters
-DURATION = 142.4  # seconds
-TARGET_SIZE_MB = 100
-START_TIME = 51  # Start at 51 seconds (middle portion)
-TRIM_DURATION = 40  # 40 seconds duration
+# Segments to KEEP (start, end) in "MM:SS" or "SS" format
+# Use None for end to mean "to end of video"
+KEEP_SEGMENTS = [
+    ("0:22", "1:10"),
+    ("1:15", "2:05")
+]
 
-def ensure_output_dir():
-    """Create output directory if it doesn't exist."""
-    if not os.path.exists(OUTPUT_DIR):
-        os.makedirs(OUTPUT_DIR)
-        print(f"Created output directory: {OUTPUT_DIR}")
 
-def calculate_target_bitrate(duration_seconds, target_mb):
-    """Calculate target video bitrate to achieve desired file size."""
-    # Formula: bitrate = (target_size_mb * 8192) / duration - audio_bitrate
-    # Assuming 128kbps audio
-    audio_bitrate_kbps = 128
-    target_video_bitrate = (target_mb * 8192) / duration_seconds - audio_bitrate_kbps
-    return int(target_video_bitrate)
+def parse_time(time_str: str) -> float:
+    """Convert MM:SS or SS string to seconds."""
+    parts = time_str.split(":")
+    if len(parts) == 1:
+        return float(parts[0])
+    elif len(parts) == 2:
+        return float(parts[0]) * 60 + float(parts[1])
+    elif len(parts) == 3:
+        return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+    raise ValueError(f"Invalid time format: {time_str}")
 
-def trim_and_compress_video():
-    """Trim middle portion and compress using ffmpeg."""
-    ensure_output_dir()
 
-    # Calculate target bitrate
-    target_bitrate = calculate_target_bitrate(TRIM_DURATION, TARGET_SIZE_MB)
-    print(f"\nVideo Compression Settings:")
-    print(f"  Input: {INPUT_VIDEO}")
-    print(f"  Output: {OUTPUT_VIDEO}")
-    print(f"  Start time: {START_TIME}s")
-    print(f"  Duration: {TRIM_DURATION}s")
-    print(f"  Target size: ~{TARGET_SIZE_MB}MB")
-    print(f"  Target video bitrate: ~{target_bitrate}kbps")
-    print()
+def format_time(seconds):
+    """Format seconds as MM:SS for display."""
+    mins = int(seconds // 60)
+    secs = seconds % 60
+    return f"{mins}:{secs:05.2f}"
 
-    # Build ffmpeg command
-    # Using H.265 (HEVC) with CRF for quality-based encoding
-    # CRF 28 provides good quality while maintaining small file size
+
+def get_video_duration(video_path):
+    """Get video duration in seconds using ffprobe."""
     cmd = [
-        'ffmpeg',
-        '-ss', str(START_TIME),           # Start time
-        '-i', INPUT_VIDEO,                 # Input file
-        '-t', str(TRIM_DURATION),          # Duration
-        '-c:v', 'libx265',                 # H.265 codec
-        '-crf', '17',                      # Constant Rate Factor (lower = better quality)
-        '-preset', 'medium',               # Encoding speed vs compression
-        '-c:a', 'aac',                     # Audio codec
-        '-b:a', '128k',                    # Audio bitrate
-        '-movflags', '+faststart',         # Enable streaming
-        '-y',                              # Overwrite output
-        OUTPUT_VIDEO
+        'ffprobe', '-v', 'error',
+        '-show_entries', 'format=duration',
+        '-of', 'default=noprint_wrappers=1:nokey=1',
+        video_path
     ]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    return float(result.stdout.strip())
 
-    print("Running ffmpeg...")
-    print(f"Command: {' '.join(cmd)}\n")
 
-    try:
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-        print("✓ Video processing complete!")
+def extract_and_concat_segments():
+    """Extract segments and concatenate them into one video."""
 
-        # Check output file size
-        if os.path.exists(OUTPUT_VIDEO):
-            size_mb = os.path.getsize(OUTPUT_VIDEO) / (1024 * 1024)
-            print(f"\nOutput file: {OUTPUT_VIDEO}")
-            print(f"Final size: {size_mb:.2f}MB")
-
-            if size_mb > TARGET_SIZE_MB * 1.1:
-                print(f"\n⚠ Warning: Output size ({size_mb:.2f}MB) exceeds target by >10%")
-                print("Consider adjusting CRF value (higher = smaller file) or duration")
-            elif size_mb < TARGET_SIZE_MB * 0.8:
-                print(f"\n⚠ Note: Output size ({size_mb:.2f}MB) is significantly smaller than target")
-                print("Consider lowering CRF value (lower = better quality) for better quality")
-
-    except subprocess.CalledProcessError as e:
-        print(f"✗ Error during video processing:")
-        print(e.stderr)
+    # Verify input exists
+    if not os.path.exists(INPUT_VIDEO):
+        print(f"Error: Input video not found: {INPUT_VIDEO}")
         sys.exit(1)
 
-def trim_and_compress_twopass():
-    """Trim and compress using two-pass encoding for exact file size."""
-    ensure_output_dir()
+    # Get video duration for "to end" segments
+    duration = get_video_duration(INPUT_VIDEO)
+    print(f"Input video duration: {format_time(duration)}")
 
-    target_bitrate = calculate_target_bitrate(TRIM_DURATION, TARGET_SIZE_MB)
+    # Parse segments
+    segments: list[tuple[float, float]] = []
+    total_kept = 0.0
+    for start_str, end_str in KEEP_SEGMENTS:
+        start = parse_time(start_str)
+        end = parse_time(end_str) if end_str else duration
+        segments.append((start, end))
+        total_kept += end - start
 
-    print(f"\nTwo-Pass Encoding:")
-    print(f"  Target bitrate: {target_bitrate}kbps")
+    print(f"\nSegments to keep: {len(segments)}")
+    print(f"Total kept duration: {format_time(total_kept)}")
+    print(f"Removed: {format_time(duration - total_kept)}")
     print()
 
-    # Pass 1
-    cmd_pass1 = [
-        'ffmpeg',
-        '-ss', str(START_TIME),
-        '-i', INPUT_VIDEO,
-        '-t', str(TRIM_DURATION),
-        '-c:v', 'libx265',
-        '-b:v', f'{target_bitrate}k',
-        '-preset', 'medium',
-        '-pass', '1',
-        '-an',  # No audio in pass 1
-        '-f', 'null',
-        '/dev/null' if sys.platform != 'win32' else 'NUL'
-    ]
+    # Create temp directory for segment files
+    with tempfile.TemporaryDirectory() as temp_dir:
+        segment_files = []
+        concat_list_path = os.path.join(temp_dir, "concat_list.txt")
 
-    print("Pass 1/2...")
-    subprocess.run(cmd_pass1, check=True)
+        # Extract each segment
+        for i, (start, end) in enumerate(segments):
+            segment_path = os.path.join(temp_dir, f"segment_{i:03d}.mp4")
+            segment_files.append(segment_path)
 
-    # Pass 2
-    cmd_pass2 = [
-        'ffmpeg',
-        '-ss', str(START_TIME),
-        '-i', INPUT_VIDEO,
-        '-t', str(TRIM_DURATION),
-        '-c:v', 'libx265',
-        '-b:v', f'{target_bitrate}k',
-        '-preset', 'medium',
-        '-pass', '2',
-        '-c:a', 'aac',
-        '-b:a', '128k',
-        '-movflags', '+faststart',
-        '-y',
-        OUTPUT_VIDEO
-    ]
+            print(f"Extracting segment {i+1}/{len(segments)}: {format_time(start)} - {format_time(end)}")
 
-    print("Pass 2/2...")
-    subprocess.run(cmd_pass2, check=True)
+            cmd = [
+                'ffmpeg', '-y',
+                '-ss', str(start),
+                '-i', INPUT_VIDEO,
+                '-t', str(end - start),
+                '-c', 'copy',  # No re-encoding for speed
+                '-avoid_negative_ts', 'make_zero',
+                segment_path
+            ]
 
-    # Clean up pass files
-    for f in ['ffmpeg2pass-0.log', 'ffmpeg2pass-0.log.mbtree']:
-        if os.path.exists(f):
-            os.remove(f)
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"Error extracting segment {i+1}:")
+                print(result.stderr)
+                sys.exit(1)
 
-    print("✓ Two-pass encoding complete!")
+        # Create concat list file
+        with open(concat_list_path, 'w') as f:
+            for seg_path in segment_files:
+                f.write(f"file '{seg_path}'\n")
 
-    # Check output file size
+        # Ensure output directory exists
+        output_dir = os.path.dirname(OUTPUT_VIDEO)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        # Concatenate all segments
+        print(f"\nConcatenating {len(segments)} segments...")
+
+        cmd = [
+            'ffmpeg', '-y',
+            '-f', 'concat',
+            '-safe', '0',
+            '-i', concat_list_path,
+            '-c', 'copy',
+            OUTPUT_VIDEO
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print("Error concatenating segments:")
+            print(result.stderr)
+            sys.exit(1)
+
+    # Report results
     if os.path.exists(OUTPUT_VIDEO):
-        size_mb = os.path.getsize(OUTPUT_VIDEO) / (1024 * 1024)
-        print(f"\nOutput file: {OUTPUT_VIDEO}")
-        print(f"Final size: {size_mb:.2f}MB")
+        output_size = os.path.getsize(OUTPUT_VIDEO) / (1024 * 1024)
+        output_duration = get_video_duration(OUTPUT_VIDEO)
+        print(f"\nComplete!")
+        print(f"Output: {OUTPUT_VIDEO}")
+        print(f"Duration: {format_time(output_duration)}")
+        print(f"Size: {output_size:.1f} MB")
+    else:
+        print("Error: Output file was not created")
+        sys.exit(1)
+
 
 if __name__ == "__main__":
-    # Use single-pass CRF encoding by default (faster, good quality)
-    # Uncomment the line below to use two-pass encoding for more precise file size
-    trim_and_compress_video()
-    # trim_and_compress_twopass()
+    extract_and_concat_segments()

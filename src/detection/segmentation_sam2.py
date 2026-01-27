@@ -73,14 +73,8 @@ class SamSegmenter2:
         config_path = os.path.join(sam2_pkg_dir, "configs", "sam2.1", f"{config_name}.yaml")
 
         try:
-            print(f"Loading SAM2 ({model_type}) with config name '{config_name}' and checkpoint '{checkpoint_path}'...")
-            # Try loading with config name first (Hydra search path)
-            # If that fails, fall back to full path
-            try:
-                model = build_sam2(config_name, checkpoint_path, device=device)
-            except Exception as e:
-                print(f"  Config name '{config_name}' failed, trying full path: {config_path}")
-                model = build_sam2(config_path, checkpoint_path, device=device)
+            print(f"Loading SAM2 ({model_type}) with config '{config_path}' and checkpoint '{checkpoint_path}'...")
+            model = build_sam2(config_path, checkpoint_path, device=device)
             self._predictor = SAM2ImagePredictor(model)
             self.available = True
             print(f"SAM2 loaded successfully")
@@ -113,12 +107,19 @@ class SamSegmenter2:
         except Exception as e:
             print(f"SAM2 set_image failed: {type(e).__name__}: {e}")
 
-    def segment_by_box(self, bbox: BoundingBox) -> Optional[np.ndarray]:
+    def segment_by_box(
+        self,
+        bbox: BoundingBox,
+        negative_points: list[tuple[float, float]] | None = None,
+    ) -> Optional[np.ndarray]:
         """
-        Segment using single box prompt.
+        Segment using single box prompt, with optional negative point prompts.
 
         Args:
             bbox: BoundingBox used as a prompt
+            negative_points: Optional list of (x, y) coordinates indicating
+                locations that should NOT be part of this object (e.g. centers
+                of already-segmented overlapping players).
 
         Returns:
             Binary mask (H x W) as uint8 values {0,1}, or None
@@ -128,10 +129,18 @@ class SamSegmenter2:
 
         try:
             box = np.array([bbox.x1, bbox.y1, bbox.x2, bbox.y2], dtype=np.float32)
+
+            if negative_points:
+                point_coords = np.array(negative_points, dtype=np.float32)
+                point_labels = np.zeros(len(negative_points), dtype=np.int32)  # 0 = background/negative
+            else:
+                point_coords = None
+                point_labels = None
+
             with torch.inference_mode(), torch.autocast("cuda", dtype=torch.float16):
                 masks, scores, logits = self._predictor.predict(
-                    point_coords=None,
-                    point_labels=None,
+                    point_coords=point_coords,
+                    point_labels=point_labels,
                     box=box,
                     multimask_output=False,
                 )
@@ -139,7 +148,7 @@ class SamSegmenter2:
                 return masks[0].astype(np.uint8)
         except Exception as e:
             print(f"SAM2 segment_by_box failed: {type(e).__name__}: {e}")
-        
+
         return None
 
     def auto_segment_box(self, bbox: BoundingBox, min_mask_area: int = 500) -> list[np.ndarray]:

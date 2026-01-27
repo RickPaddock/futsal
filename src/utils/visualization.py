@@ -5,8 +5,10 @@ Draws bounding boxes, track IDs, ball positions, and trajectories on frames.
 """
 
 from typing import Optional
+from collections import deque
 import numpy as np
 import cv2
+import supervision as sv
 
 from src.utils.data_models import MatchData, TeamID, BoundingBox
 from src.geometry.homography import CourtHomography
@@ -216,6 +218,54 @@ def draw_ball_trajectory(
     return frame
 
 
+class BallAnnotator:
+    """Draws ball with a trailing jet-colormap tail showing recent positions."""
+
+    def __init__(
+        self,
+        radius: int = 12,
+        buffer_size: int = 30,
+        thickness: int = 2,
+        max_age_seconds: float = 2.0,
+        fps: Optional[float] = None,
+    ):
+        self.color_palette = sv.ColorPalette.from_matplotlib('jet', buffer_size)
+        self.buffer: deque[tuple[tuple[int, int], Optional[int]]] = deque(maxlen=buffer_size)
+        self.radius = radius
+        self.thickness = thickness
+        self.max_age_frames = int(max_age_seconds * fps) if fps and max_age_seconds > 0 else None
+
+    def interpolate_radius(self, i: int, max_i: int) -> int:
+        if max_i == 1:
+            return self.radius
+        return int(1 + i * (self.radius - 1) / (max_i - 1))
+
+    def _prune_old(self, frame_idx: Optional[int]) -> None:
+        if self.max_age_frames is None or frame_idx is None:
+            return
+        cutoff = frame_idx - self.max_age_frames
+        while self.buffer and self.buffer[0][1] is not None and self.buffer[0][1] < cutoff:
+            self.buffer.popleft()
+
+    def annotate(
+        self,
+        frame: np.ndarray,
+        center: Optional[tuple[int, int]] = None,
+        frame_idx: Optional[int] = None,
+    ) -> np.ndarray:
+        if center is not None:
+            self.buffer.append((center, frame_idx))
+
+        self._prune_old(frame_idx)
+
+        for i, (pos, _) in enumerate(self.buffer):
+            color = self.color_palette.by_idx(i).as_bgr()
+            radius = self.interpolate_radius(i, len(self.buffer))
+            cv2.circle(frame, pos, radius, color, self.thickness)
+
+        return frame
+
+
 def draw_frame_annotations(
     frame: np.ndarray,
     frame_idx: int,
@@ -229,6 +279,7 @@ def draw_frame_annotations(
     draw_minimap: bool = True,
     minimap_size: tuple[int, int] = (600, 300),
     homography: CourtHomography = None,
+    ball_annotator: Optional[BallAnnotator] = None,
 ) -> np.ndarray:
     """
     Draw all annotations for a frame.
@@ -330,7 +381,19 @@ def draw_frame_annotations(
 
             label_parts.append(tier)
             label = " ".join(label_parts)
-            draw_bbox(frame_bgr, det.bbox, color, label=label, dotted=dotted, thickness=2 if not dotted else 1)
+            if dotted:
+                # T2/T3: keep dotted rectangle
+                draw_bbox(frame_bgr, det.bbox, color, label=label, dotted=True, thickness=1)
+            else:
+                # T1: supervision ellipse annotator
+                _det = sv.Detections(xyxy=np.array([[det.bbox.x1, det.bbox.y1, det.bbox.x2, det.bbox.y2]]))
+                _color = sv.Color(color[2], color[1], color[0])  # BGR -> RGB
+                frame_bgr = sv.EllipseAnnotator(
+                    color=_color, thickness=2, color_lookup=sv.ColorLookup.INDEX
+                ).annotate(frame_bgr, _det)
+                frame_bgr = sv.LabelAnnotator(
+                    color=_color, text_color=sv.Color.WHITE, color_lookup=sv.ColorLookup.INDEX
+                ).annotate(frame_bgr, _det, labels=[label])
 
             # Draw mask for SAM detections - use same color as bbox for consistency
             if hasattr(det, 'mask') and det.mask is not None:
@@ -409,7 +472,7 @@ def draw_frame_annotations(
 
                 # Transform player position to court coordinates
                 if homography is not None:
-                    # Use bottom-center (feet) for accurate ground position
+                    # Use head + offset for stable positioning
                     court_x, court_y = homography.transform_bbox_to_court(det.bbox)
                     # Convert court meters to minimap pixels, INVERT Y axis
                     mini_x, mini_y = homography.court_to_pixel_2d(court_x, court_y)
@@ -451,6 +514,29 @@ def draw_frame_annotations(
                 # Draw track ID
                 cv2.putText(minimap, str(track.track_id), (mini_x - 6, mini_y + 4),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+
+            # Draw ball on minimap
+            for ball in match_data.ball_positions:
+                if ball.frame_idx == frame_idx:
+                    ball_cx = (ball.bbox.x1 + ball.bbox.x2) / 2
+                    ball_cy = (ball.bbox.y1 + ball.bbox.y2) / 2
+
+                    if homography is not None:
+                        bx, by = homography.pixel_to_court(ball_cx, ball_cy)
+                        ball_mini_x, ball_mini_y = homography.court_to_pixel_2d(bx, by)
+                        ball_mini_y = minimap_h - ball_mini_y
+                    else:
+                        frame_h, frame_w = frame_bgr.shape[:2]
+                        ball_mini_x = int((ball_cx / frame_w) * minimap_w)
+                        ball_mini_y = int((ball_cy / frame_h) * minimap_h)
+
+                    ball_mini_x = max(6, min(ball_mini_x, minimap_w - 6))
+                    ball_mini_y = max(6, min(ball_mini_y, minimap_h - 6))
+
+                    # Orange filled circle with black border
+                    cv2.circle(minimap, (ball_mini_x, ball_mini_y), 8, BALL_COLOR, -1)
+                    cv2.circle(minimap, (ball_mini_x, ball_mini_y), 8, (0, 0, 0), 2)
+                    break  # One ball per frame
 
             # Add border to minimap
             cv2.rectangle(minimap, (0, 0), (minimap_w - 1, minimap_h - 1), (100, 100, 100), 3)
@@ -517,6 +603,43 @@ def draw_frame_annotations(
         (255, 255, 255),
         2,
     )
+
+    # Draw ball position (with optional trail annotator)
+    if draw_ball:
+        # Find best ball detection for this frame (highest confidence)
+        best_ball = None
+        best_conf = 0.0
+        for ball in match_data.ball_positions:
+            if ball.frame_idx == frame_idx and ball.bbox.confidence > best_conf:
+                best_ball = ball
+                best_conf = ball.bbox.confidence
+
+        if ball_annotator is not None:
+            # Trail annotator: jet-colormap tail with interpolated radius
+            center = None
+            if best_ball is not None:
+                center = (
+                    int((best_ball.bbox.x1 + best_ball.bbox.x2) / 2),
+                    int((best_ball.bbox.y1 + best_ball.bbox.y2) / 2),
+                )
+            frame_bgr = ball_annotator.annotate(frame_bgr, center, frame_idx=frame_idx)
+        elif best_ball is not None:
+            # Fallback: simple filled circle
+            center_x = int((best_ball.bbox.x1 + best_ball.bbox.x2) / 2)
+            center_y = int((best_ball.bbox.y1 + best_ball.bbox.y2) / 2)
+            radius = max(int((best_ball.bbox.x2 - best_ball.bbox.x1) / 2), 8)
+            cv2.circle(frame_bgr, (center_x, center_y), radius, BALL_COLOR, -1)
+            cv2.circle(frame_bgr, (center_x, center_y), radius, (255, 255, 255), 2)
+            label = f"Ball {best_ball.bbox.confidence:.2f}"
+            cv2.putText(
+                frame_bgr,
+                label,
+                (center_x - 30, center_y - radius - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                BALL_COLOR,
+                1,
+            )
 
     # Convert back to RGB
     return cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)

@@ -38,6 +38,10 @@ class CourtHomography:
         if self.H is None:
             raise ValueError("Could not calculate homography from provided points")
 
+        # Fixed offset from head to estimate foot position (in pixels)
+        # This provides stable positioning even when lower body is occluded
+        self.head_to_foot_offset = 150  # pixels - adjust based on your video
+
     def pixel_to_court(self, x: float, y: float) -> tuple[float, float]:
         """
         Transform pixel coordinates to court coordinates (meters).
@@ -73,7 +77,10 @@ class CourtHomography:
 
     def transform_bbox_to_court(self, bbox) -> tuple[float, float]:
         """
-        Transform a bounding box to court position using bottom-center (feet).
+        Transform a bounding box to court position using head + fixed offset.
+
+        Uses the top of the bbox (head) plus a fixed pixel offset to estimate
+        foot position. This is stable even when lower body is occluded.
 
         Args:
             bbox: BoundingBox with x1, y1, x2, y2
@@ -81,10 +88,11 @@ class CourtHomography:
         Returns:
             (court_x, court_y) in meters
         """
-        # Use bottom-center as feet position
-        foot_x = (bbox.x1 + bbox.x2) / 2
-        foot_y = bbox.y2
-        return self.pixel_to_court(foot_x, foot_y)
+        # Use center X
+        center_x = (bbox.x1 + bbox.x2) / 2
+        # Use head (top of bbox) + fixed offset for foot position
+        foot_y = bbox.y1 + self.head_to_foot_offset
+        return self.pixel_to_court(center_x, foot_y)
 
 
 def create_homography_from_config(config: dict) -> CourtHomography | None:

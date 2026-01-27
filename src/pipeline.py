@@ -20,6 +20,7 @@ from src.utils.data_models import (
     TeamID,
 )
 from src.detection.player_detector import PlayerDetector, filter_detections_by_size, extract_color_histogram
+from src.detection.ball_detector import BallDetector
 from src.detection.tracking import ByteTracker, convert_stracks_to_player_tracks
 from src.detection.segmentation_sam2 import SamSegmenter2
 from src.geometry.homography import CourtHomography, create_homography_from_config
@@ -52,6 +53,7 @@ class Pipeline:
 
         # Initialize components (lazy loading)
         self._player_detector: Optional[PlayerDetector] = None
+        self._ball_detector: Optional[BallDetector] = None
         self._tracker: Optional[ByteTracker] = None
         self._sam_segmenter: Optional[SamSegmenter2] = None
         self._homography: Optional[CourtHomography] = None
@@ -76,6 +78,24 @@ class Pipeline:
                 input_scale=cfg.get("input_scale", 1.0),
             )
         return self._player_detector
+
+    @property
+    def ball_detector(self) -> BallDetector:
+        """Lazy-load ball detector."""
+        if self._ball_detector is None:
+            cfg = self.config.get("ball_detection")
+            if cfg is None:
+                raise ValueError("ball_detection config not found in config file")
+            self._ball_detector = BallDetector(
+                model_path=cfg["model"],
+                confidence_threshold=cfg["confidence_threshold"],
+                iou_threshold=cfg["iou_threshold"],
+                device=self.device,
+                max_detections=cfg.get("max_detections", 1),
+                input_scale=cfg.get("input_scale", 1.0),
+                use_inference_slicer=cfg.get("use_inference_slicer", False),
+            )
+        return self._ball_detector
 
     @property
     def tracker(self) -> ByteTracker:
@@ -179,6 +199,17 @@ class Pipeline:
         # Low-confidence detections for debug visualization (show what was filtered)
         low_conf_detections: dict[int, list[PlayerDetection]] = {}
 
+        # Ball position history (one per frame where detected)
+        ball_positions: list = []  # Will store Detection objects with frame_idx
+
+        # =============================================================
+        # FULL SAM MODE STATE
+        # When YOLO drops below 12, switch to SAM for ALL players
+        # =============================================================
+        full_sam_mode_active: bool = False
+        last_full_t1_frame_idx: Optional[int] = None  # Frame where T1 found all 12
+        last_full_t1_state: dict[int, dict] = {}  # Reference state: {track_id: {bbox, detection}}
+
         # Expected player count is fixed per run
         expected_players = self.config["tracking"].get("min_players_enforce", 12)
 
@@ -243,8 +274,11 @@ class Pipeline:
 
                 # Player detection
                 all_detections = self.player_detector.detect_batch(frames, frame_indices)
+                
+                # Ball detection
+                all_ball_detections = self.ball_detector.detect_batch(frames, frame_indices)
 
-                for (frame_idx, frame), detections in zip(batch, all_detections):
+                for (frame_idx, frame), detections, ball_detections in zip(batch, all_detections, all_ball_detections):
                     log_frame_state(frame_idx, "prev_state (memory)", previous_frame_state)
 
                     # Capture low-confidence detections for debug visualization
@@ -254,6 +288,13 @@ class Pipeline:
                         if d.bbox.confidence < self.config["player_detection"]["confidence_threshold"]
                         and d.bbox.confidence >= debug_low_thresh
                     ]
+                    
+                    # Store ball detections
+                    if ball_detections:
+                        # Update frame_idx on ball detections
+                        for ball in ball_detections:
+                            ball.frame_idx = frame_idx
+                        self.match_data.ball_positions.extend(ball_detections)
                     
                     # Filter detections
                     detections = filter_detections_by_size(detections)
@@ -294,11 +335,13 @@ class Pipeline:
                     active_track_ids = set()
 
                     # =============================================================
-                    # STEP 1: T1 - Process all YOLO-detected players first
+                    # STEP 1: T1 - Build YOLO detections (don't add to track_histories yet)
+                    # We'll add to track_histories after deciding T1 vs Full SAM Mode
                     # =============================================================
                     for track_id, bbox in yolo_track_results.items():
                         active_track_ids.add(track_id)
 
+                        # Ensure track exists
                         if track_id not in track_histories:
                             track_histories[track_id] = PlayerTrack(
                                 track_id=track_id,
@@ -324,7 +367,7 @@ class Pipeline:
                             if hasattr(best_match_det, 'mask') and best_match_det.mask is not None:
                                 mask = best_match_det.mask
 
-                        # Create T1 detection
+                        # Create T1 detection (stored in current_frame_state, NOT track_histories yet)
                         det = PlayerDetection(
                             frame_idx=frame_idx,
                             bbox=bbox,
@@ -333,7 +376,7 @@ class Pipeline:
                             mask=mask,
                             is_sam_recovered=False,
                         )
-                        track_histories[track_id].detections.append(det)
+                        # NOTE: Don't add to track_histories here - wait until after Full SAM Mode decision
 
                         current_frame_state[track_id] = {
                             'tier': 'T1',
@@ -345,10 +388,180 @@ class Pipeline:
                     log_frame_state(frame_idx, "T1 state (YOLO)", current_frame_state)
 
                     # =============================================================
-                    # STEP 2: T2 - SAM recovery for MISSING players only
+                    # FULL SAM MODE: Check if we should store reference or switch modes
                     # =============================================================
-                    # Only use SAM for players that YOLO missed but were in previous frame
-                    if sam_available and self.sam_segmenter is not None and len(current_frame_state) < expected_players:
+                    # Debug: log state every 100 frames
+                    if frame_idx % 100 == 0:
+                        print(f"Frame {frame_idx}: DEBUG - T1 count={len(current_frame_state)}, ref_exists={bool(last_full_t1_state)}, ref_count={len(last_full_t1_state)}, full_sam_active={full_sam_mode_active}")
+
+                    if len(current_frame_state) == expected_players:
+                        # T1 found all 12 players - store as reference frame
+                        last_full_t1_frame_idx = frame_idx
+                        last_full_t1_state = {
+                            tid: {
+                                'bbox': info['bbox'],
+                                'detection': info['detection'],
+                                'class_id': info['detection'].class_id,
+                                'class_name': info['detection'].class_name,
+                            }
+                            for tid, info in current_frame_state.items()
+                        }
+
+                        # Exit full SAM mode if we were in it
+                        if full_sam_mode_active:
+                            print(f"Frame {frame_idx}: EXITING Full SAM Mode - YOLO recovered all {expected_players} players")
+                            full_sam_mode_active = False
+
+                    elif len(current_frame_state) < expected_players and sam_available and last_full_t1_state:
+                        # T1 dropped below 12, SAM is available, and we have a reference - enter full SAM mode
+                        if not full_sam_mode_active:
+                            print(f"Frame {frame_idx}: ENTERING Full SAM Mode - YOLO found {len(current_frame_state)}, ref has {len(last_full_t1_state)} players from frame {last_full_t1_frame_idx}")
+                            full_sam_mode_active = True
+                    elif len(current_frame_state) < expected_players and sam_available and not last_full_t1_state:
+                        # No reference yet - will use fallback T2
+                        if frame_idx % 100 == 0:
+                            print(f"Frame {frame_idx}: No reference yet (YOLO never found {expected_players}), using fallback T2")
+
+                    # =============================================================
+                    # STEP 2: T2 - SAM processing
+                    # =============================================================
+                    # If in full SAM mode: run SAM on ALL players (not just missing)
+                    # Otherwise: fall back to SAM recovery for missing players only
+
+                    if full_sam_mode_active and sam_available and self.sam_segmenter is not None:
+                        # FULL SAM MODE: Clear T1 results and use SAM for ALL players
+                        # This ensures SAM can properly distinguish overlapping players
+                        print(f"Frame {frame_idx}: Executing Full SAM Mode on {len(last_full_t1_state)} players (clearing {len(current_frame_state)} T1 results)")
+
+                        # Snapshot YOLO detections before clearing — used for T2 proximity validation
+                        yolo_frame_detections = dict(current_frame_state)
+
+                        current_frame_state = {}
+                        active_track_ids = set()
+
+                        sam_success_count = 0
+                        sam_fail_count = 0
+
+                        # Track successfully segmented players this frame for negative prompts & proximity checks
+                        segmented_this_frame = {}  # track_id -> sam_bbox
+
+                        for track_id, ref_state in last_full_t1_state.items():
+                            ref_bbox = ref_state['bbox']
+
+                            # Build negative point prompts from already-segmented overlapping players
+                            # This tells SAM "not this person" when two players overlap
+                            negative_points = []
+                            for seg_tid, seg_bbox in segmented_this_frame.items():
+                                iou = self._compute_iou(ref_bbox, seg_bbox)
+                                if iou > 0.1:  # any meaningful overlap
+                                    cx, cy = seg_bbox.center
+                                    negative_points.append((cx, cy))
+
+                            # SAM segment using reference bbox + negative points
+                            mask = self.sam_segmenter.segment_by_box(
+                                ref_bbox,
+                                negative_points=negative_points or None,
+                            )
+
+                            if mask is not None and np.sum(mask) >= 300:
+                                # Derive bbox from mask for accuracy
+                                ys, xs = np.where(mask > 0)
+                                if len(xs) > 0 and len(ys) > 0:
+                                    sam_x1, sam_y1 = int(xs.min()), int(ys.min())
+                                    sam_x2, sam_y2 = int(xs.max()), int(ys.max())
+                                    sam_bbox = BoundingBox(
+                                        x1=sam_x1, y1=sam_y1, x2=sam_x2, y2=sam_y2,
+                                        confidence=0.7
+                                    )
+
+                                    # Validate movement isn't too extreme
+                                    sam_cx, sam_cy = sam_bbox.center
+                                    ref_cx, ref_cy = ref_bbox.center
+                                    center_dist = ((sam_cx - ref_cx)**2 + (sam_cy - ref_cy)**2)**0.5
+                                    max_movement = 200  # Slightly more lenient for full SAM mode
+
+                                    if center_dist <= max_movement:
+                                        # ===== T2 PROXIMITY VALIDATION =====
+                                        # A T2 detection is only valid if it's near a T1 or another T2.
+                                        # An isolated T2 with no nearby player means SAM latched onto
+                                        # background (fence, pitch lines) — reject it.
+                                        has_nearby_player = False
+
+                                        # Check against YOLO T1 detections from this frame
+                                        for yolo_state in yolo_frame_detections.values():
+                                            yolo_cx, yolo_cy = yolo_state['bbox'].center
+                                            dist = ((sam_cx - yolo_cx)**2 + (sam_cy - yolo_cy)**2)**0.5
+                                            if dist < 150:
+                                                has_nearby_player = True
+                                                break
+
+                                        # Check against already-segmented T2 players this frame
+                                        if not has_nearby_player:
+                                            for seg_tid, seg_bbox in segmented_this_frame.items():
+                                                seg_cx, seg_cy = seg_bbox.center
+                                                dist = ((sam_cx - seg_cx)**2 + (sam_cy - seg_cy)**2)**0.5
+                                                if dist < 150:
+                                                    has_nearby_player = True
+                                                    break
+
+                                        if not has_nearby_player:
+                                            # Isolated T2 — no player nearby to cause occlusion
+                                            # Do NOT update reference bbox (keep last good one for next frame)
+                                            if frame_idx % 50 == 0:
+                                                print(f"  SAM reject #{track_id}: isolated T2 at ({sam_cx:.0f},{sam_cy:.0f}) - no nearby T1/T2")
+                                            sam_fail_count += 1
+                                            continue
+
+                                        # Create T2 detection
+                                        det = PlayerDetection(
+                                            frame_idx=frame_idx,
+                                            bbox=sam_bbox,
+                                            class_id=ref_state['class_id'],
+                                            class_name=ref_state['class_name'],
+                                            mask=mask,
+                                            is_sam_recovered=True,
+                                        )
+
+                                        # Add to tracking
+                                        active_track_ids.add(track_id)
+                                        if track_id not in track_histories:
+                                            track_histories[track_id] = PlayerTrack(track_id=track_id, detections=[])
+                                        track_histories[track_id].detections.append(det)
+
+                                        current_frame_state[track_id] = {
+                                            'tier': 'T2',
+                                            'bbox': sam_bbox,
+                                            'frame_idx': frame_idx,
+                                            'detection': det
+                                        }
+                                        sam_tracking_players.add(track_id)
+
+                                        # Track successful segmentation for negative prompts on subsequent players
+                                        segmented_this_frame[track_id] = sam_bbox
+
+                                        # Update reference bbox for next frame (so prompts stay accurate)
+                                        last_full_t1_state[track_id]['bbox'] = sam_bbox
+                                        sam_success_count += 1
+                                    else:
+                                        if frame_idx % 50 == 0:
+                                            print(f"  SAM fail #{track_id}: moved too far ({center_dist:.0f}px > {max_movement}px)")
+                                        sam_fail_count += 1
+                                else:
+                                    if frame_idx % 50 == 0:
+                                        print(f"  SAM fail #{track_id}: empty mask coords")
+                                    sam_fail_count += 1
+                            else:
+                                if frame_idx % 50 == 0:
+                                    mask_size = np.sum(mask) if mask is not None else 0
+                                    print(f"  SAM fail #{track_id}: mask too small ({mask_size} pixels)")
+                                sam_fail_count += 1
+
+                        print(f"Frame {frame_idx}: Full SAM Mode result - {sam_success_count} success, {sam_fail_count} fail"
+                              f" (neg_prompts used, {len(yolo_frame_detections)} YOLO refs for proximity)")
+
+                    elif sam_available and self.sam_segmenter is not None and len(current_frame_state) < expected_players:
+                        # FALLBACK T2: No reference frame yet - use legacy per-player SAM recovery
+                        # This only runs before we first see all 12 players
                         # Find players missing from YOLO detection
                         all_prev_track_ids = set(previous_frame_state.keys())
                         missing_track_ids = all_prev_track_ids - set(current_frame_state.keys())
@@ -368,8 +581,8 @@ class Pipeline:
                             prev_bbox = prev_state['bbox']
                             frames_since_seen = frame_idx - prev_state['frame_idx']
 
-                            # Skip stale tracks (not seen in 3+ frames)
-                            if frames_since_seen > 3:
+                            # Skip stale tracks (not seen in 6+ frames)
+                            if frames_since_seen > 6:
                                 continue
 
                             # Get class info from track history
@@ -446,6 +659,17 @@ class Pipeline:
                                     }
                                     sam_tracking_players.add(track_id)
 
+                    # =============================================================
+                    # COMMIT T1 detections to track_histories (if not in Full SAM Mode)
+                    # Full SAM Mode already committed T2 detections; T1 detections were skipped
+                    # Fallback T2 needs T1 detections committed now
+                    # =============================================================
+                    if not full_sam_mode_active:
+                        for track_id, state in current_frame_state.items():
+                            if state['tier'] == 'T1':
+                                # Commit T1 detection to track_histories
+                                track_histories[track_id].detections.append(state['detection'])
+
                     log_frame_state(frame_idx, "T1+T2 state", current_frame_state)
                     log_counts(frame_idx, detections, active_track_ids, current_frame_state,
                               len(current_frame_state) < expected_players, False, yolo_count)
@@ -494,6 +718,11 @@ class Pipeline:
                             # Get the previous state for this track
                             prev_state = previous_frame_state[track_id]
                             last_bbox = prev_state['bbox']
+                            frames_since_seen = frame_idx - prev_state['frame_idx']
+
+                            # Skip stale tracks (not seen in 6+ frames)
+                            if frames_since_seen > 6:
+                                continue
 
                             # Check if player was near edge - they might have walked off
                             if is_near_edge(last_bbox):
@@ -502,65 +731,127 @@ class Pipeline:
 
                             # Find the closest active player to where this player disappeared
                             closest_active = None
+                            closest_active_id = None
                             closest_distance = float('inf')
 
-                            for active_track_id in active_track_ids:
-                                if active_track_id not in current_frame_state:
-                                    continue
-                                active_state = current_frame_state[active_track_id]
-                                active_bbox = active_state['bbox']
+                            head_to_foot = getattr(self.homography, "head_to_foot_offset", 150)
+                            prev_center_x, _ = last_bbox.center
+                            prev_foot_y = last_bbox.y1 + head_to_foot
 
-                                dist = bbox_distance(last_bbox, active_bbox)
-                                if dist < closest_distance:
-                                    closest_distance = dist
-                                    closest_active = active_bbox
+                            # Helper to reuse previous T3 anchor (keeps consistent offset)
+                            anchor = prev_state.get('t3_anchor') if isinstance(prev_state, dict) else None
+                            if anchor:
+                                anchor_occluder_id = anchor.get('occluder_id')
+                                if anchor_occluder_id in current_frame_state:
+                                    closest_active_id = anchor_occluder_id
+                                    closest_active = current_frame_state[anchor_occluder_id]['bbox']
 
-                            # If there's a player within reasonable distance, assume occlusion
-                            # Typical player bbox is ~100-200 pixels wide, so 150px is "very close"
-                            # For recently T2-recovered players, use a slightly relaxed threshold (200px)
-                            occlusion_distance_threshold = 150  # pixels
+                            if closest_active is None:
+                                for active_track_id in active_track_ids:
+                                    if active_track_id not in current_frame_state:
+                                        continue
+                                    active_state = current_frame_state[active_track_id]
+                                    if active_state['tier'] not in ('T1', 'T2'):
+                                        continue  # only anchor to visible players
+                                    active_bbox = active_state['bbox']
+
+                                    # Prefer occluders that are closer to camera (larger foot_y)
+                                    active_foot_y = active_bbox.y1 + head_to_foot
+                                    if active_foot_y < prev_foot_y - 5:
+                                        continue  # occluder must be in front of (or very near) missing player
+
+                                    dist = bbox_distance(last_bbox, active_bbox)
+                                    if dist < closest_distance:
+                                        closest_distance = dist
+                                        closest_active = active_bbox
+                                        closest_active_id = active_track_id
+
+                            # If there's a player within reasonable distance, assume occlusion.
+                            # Allow larger gap to avoid losing the anchor; if we have an anchor match, trust it.
+                            occlusion_distance_threshold = 220  # pixels
                             if hasattr(self, '_t2_recovery_history') and track_id in self._t2_recovery_history:
                                 if frame_idx - self._t2_recovery_history[track_id] <= 2:
-                                    occlusion_distance_threshold = 200  # More lenient for recently recovered
+                                    occlusion_distance_threshold = 240
 
-                            if closest_active and closest_distance < occlusion_distance_threshold:
+                            anchored_match = anchor is not None and closest_active_id == anchor.get('occluder_id')
+
+                            if closest_active and (anchored_match or closest_distance < occlusion_distance_threshold):
                                 # Lost player is behind the closest active player
-                                # Place them at the occluder's position but OFFSET UPWARD to show depth (behind)
-                                # Offset upward (negative y) to indicate the player is behind/occluded
-                                # Use larger offset so it's clearly "behind" in the camera perspective
-                                y_offset = -50  # pixels offset UP to show player is further behind
+                                full_height = closest_active.y2 - closest_active.y1
+                                occluded_height = full_height * 0.5  # keep them visibly shorter than a true box
+
+                                occ_center_x, _ = closest_active.center
+                                occ_foot_y = closest_active.y1 + head_to_foot
+
+                                # Compute / reuse anchor offset relative to occluder (in pixels)
+                                if not anchor or anchor.get('occluder_id') != closest_active_id:
+                                    dx_anchor = prev_center_x - occ_center_x
+                                    dy_anchor = prev_foot_y - occ_foot_y
+                                    anchor = {
+                                        'occluder_id': closest_active_id,
+                                        'dx': dx_anchor,
+                                        'dy': dy_anchor,
+                                        'created_frame': frame_idx,
+                                    }
+                                else:
+                                    dx_anchor = anchor.get('dx', 0)
+                                    dy_anchor = anchor.get('dy', -50)
+
+                                desired_foot_x = occ_center_x + dx_anchor
+                                desired_foot_y = occ_foot_y + dy_anchor
+
+                                # Smooth to avoid teleports: cap per-frame movement from last seen position
+                                prev_foot_x = prev_center_x
+                                max_step_px = 55
+                                step_x = max(-max_step_px, min(max_step_px, desired_foot_x - prev_foot_x))
+                                step_y = max(-max_step_px, min(max_step_px, desired_foot_y - prev_foot_y))
+                                foot_x = prev_foot_x + step_x
+                                foot_y = prev_foot_y + step_y
+
+                                occluded_width = closest_active.x2 - closest_active.x1
+                                half_w = occluded_width / 2
+
+                                y1_est = foot_y - head_to_foot
+                                y2_est = y1_est + occluded_height
+
                                 occluded_bbox = BoundingBox(
-                                    x1=closest_active.x1,
-                                    y1=closest_active.y1 + y_offset,
-                                    x2=closest_active.x2,
-                                    y2=closest_active.y2 + y_offset,
+                                    x1=foot_x - half_w,
+                                    y1=y1_est,
+                                    x2=foot_x + half_w,
+                                    y2=y2_est,
                                     confidence=0.3,  # Low confidence = interpolated
                                 )
 
-                                det = PlayerDetection(
-                                    frame_idx=frame_idx,
-                                    bbox=occluded_bbox,
-                                    class_id=prev_state['detection'].class_id,
-                                    class_name=prev_state['detection'].class_name,
-                                    is_interpolated=True,
-                                )
+                            else:
+                                # Fallback: no valid occluder found. Keep previous position to avoid vanishing.
+                                occluded_bbox = last_bbox
+                                anchor = prev_state.get('t3_anchor', None)
 
-                                # Ensure track exists in history
-                                if track_id not in track_histories:
-                                    track_histories[track_id] = PlayerTrack(track_id=track_id, detections=[])
-                                track_histories[track_id].detections.append(det)
+                            det = PlayerDetection(
+                                frame_idx=frame_idx,
+                                bbox=occluded_bbox,
+                                class_id=prev_state['detection'].class_id,
+                                class_name=prev_state['detection'].class_name,
+                                is_interpolated=True,
+                            )
 
-                                # Add to current_frame_state and active set
-                                current_frame_state[track_id] = {
-                                    'tier': 'T3',
-                                    'bbox': occluded_bbox,
-                                    'frame_idx': frame_idx,
-                                    'detection': det
-                                }
-                                active_track_ids.add(track_id)
+                            # Ensure track exists in history
+                            if track_id not in track_histories:
+                                track_histories[track_id] = PlayerTrack(track_id=track_id, detections=[])
+                            track_histories[track_id].detections.append(det)
 
-                                boxes_added += 1
-                                print(f"    T3 - Player #{track_id} occluded behind active player (dist={closest_distance:.0f}px)")
+                            # Add to current_frame_state and active set
+                            current_frame_state[track_id] = {
+                                'tier': 'T3',
+                                'bbox': occluded_bbox,
+                                'frame_idx': frame_idx,
+                                'detection': det,
+                                't3_anchor': anchor,
+                            }
+                            active_track_ids.add(track_id)
+
+                            boxes_added += 1
+                            print(f"    T3 - Player #{track_id} occluded behind active player (dist={closest_distance:.0f}px)")
 
                         if boxes_added > 0:
                             print(f"Frame {frame_idx}: T3 recovered {boxes_added} players")
@@ -582,6 +873,10 @@ class Pipeline:
                     log_frame_state(frame_idx, "T3 additions", t3_state)
                     log_frame_state(frame_idx, "end_state (carry to next)", current_frame_state)
                     
+                    # Store ball detection if found (single ball per frame)
+                    if ball_detections:
+                        ball_positions.extend(ball_detections)
+                    
                     # Update previous_frame_state for next iteration
                     previous_frame_state = current_frame_state.copy()
                     # Cache current frame for SAM baseline (in case YOLO drops on next frame)
@@ -591,10 +886,12 @@ class Pipeline:
 
         # Store results
         self.match_data.player_tracks = list(track_histories.values())
+        self.match_data.ball_positions = ball_positions
         self.match_data.low_confidence_detections = low_conf_detections
 
         print(f"\nResults:")
         print(f"  Player tracks: {len(self.match_data.player_tracks)}")
+        print(f"  Ball detections: {len(self.match_data.ball_positions)}")
 
         # Generate debug output if enabled
         if self.debug:
@@ -618,10 +915,17 @@ class Pipeline:
         end_frame: int,
     ):
         """Generate debug visualization video."""
-        from src.utils.visualization import draw_frame_annotations
+        from src.utils.visualization import draw_frame_annotations, BallAnnotator
 
         print("\nGenerating debug video...")
         reader = VideoReader(video_path)
+        ball_annotator = BallAnnotator(
+            radius=6,
+            buffer_size=60,
+            thickness=2,
+            max_age_seconds=2.0,
+            fps=reader.fps,
+        )
 
         # Scale down for faster rendering (0.5 = half resolution)
         scale = self.config.get("output", {}).get("debug_scale", 0.5)
@@ -655,6 +959,7 @@ class Pipeline:
                     pitch_top_y=pitch_top_y,
                     pitch_bottom_y=pitch_bottom_y,
                     homography=self.homography,
+                    ball_annotator=ball_annotator,
                 )
                 # Scale down for output
                 if scale != 1.0:
@@ -768,6 +1073,7 @@ class Pipeline:
             "height": self.match_data.height,
             "num_tracks": len(self.match_data.player_tracks),
             "tracks": [],
+            "ball_detections": [],
         }
 
         for track in self.match_data.player_tracks:
@@ -787,6 +1093,16 @@ class Pipeline:
                 ],
             }
             results["tracks"].append(track_data)
+
+        # Add ball detections
+        for detection in self.match_data.ball_positions:
+            ball_data = {
+                "frame": detection.frame_idx if hasattr(detection, "frame_idx") else None,
+                "x": detection.bbox.center[0],
+                "y": detection.bbox.center[1],
+                "confidence": detection.bbox.confidence,
+            }
+            results["ball_detections"].append(ball_data)
 
         with open(output_path, "w") as f:
             json.dump(results, f, indent=2)
