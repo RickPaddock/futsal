@@ -323,17 +323,27 @@ class Pipeline:
         total_frames = end_frame - start_frame
         print(f"\nProcessing frames {start_frame} to {end_frame}...")
 
-        # Optional full-video sampling for team colors (before main pass)
+        # Optional early-frame sampling for team colors (before main pass)
+        # Optional early-frame sampling for team colors (before main pass)
+        # NOTE: This ALWAYS samples from frame 500 onwards regardless of start_frame/end_frame
+        # to ensure consistent team color learning from when players have settled into teams
         if team_enabled and team_sample_full_video and team_classifier is not None:
-            stride = max(1, reader.total_frames // max(team_max_samples, 1))
-            print(f"[TEAM] Pre-pass sampling full video with stride={stride} (max {team_max_samples})")
+            # Sample starting from frame 500 (skip early frames where players were swapping shirts)
+            initial_sample_start = 1000
+            sample_stride = 50  # Sample every 75 frames for diversity
+            print(f"[TEAM] Pre-pass sampling from frame {initial_sample_start} onwards (every {sample_stride} frames) for initial team colors (max {team_max_samples} samples)")
+
             sampled = team_classifier.sample_full_video(
                 reader,
                 self.player_detector,
-                step=stride,
+                step=sample_stride,
                 max_samples=team_max_samples,
                 expected_players=None,  # allow sampling even if fewer players are visible
+                frame_limit=None,  # No limit - sample until max_samples reached
+                start_frame=initial_sample_start,
+                proximity_thresh=40.0,  # px, skip players close to others
             )
+            
             print(f"[TEAM] Pre-pass collected {sampled} samples")
             if team_classifier.ready:
                 team_classifier.fit()
@@ -399,11 +409,12 @@ class Pipeline:
                     det_team_preds = []
                     for det in detections:
                         if team_enabled and team_classifier is not None:
-                            hist, _, _ = team_classifier.extract_features(frame, det.bbox)
+                            hist, _, _, quality = team_classifier.extract_features(frame, det.bbox)
                         else:
                             hist = extract_color_histogram(frame, det.bbox)
+                            quality = 1.0  # no mask for legacy path
                         det.color_histogram = hist
-                        if team_enabled and team_classifier is not None and team_classifier.fitted:
+                        if team_enabled and team_classifier is not None and team_classifier.fitted and quality >= team_classifier.MIN_QUALITY:
                             det_team_preds.append(team_classifier.predict(hist))
                         else:
                             det_team_preds.append(None)
@@ -1018,6 +1029,14 @@ class Pipeline:
                     # TEAM CLASSIFICATION (optional, per-run)
                     # =============================================================
                     if team_enabled and team_classifier is not None:
+                        # Always extract histograms for recheck voting (even if not adding to K-Means)
+                        for track_id, state in current_frame_state.items():
+                            hist, _, _, quality = team_classifier.extract_features(frame, state['bbox'])
+                            state['team_hist'] = hist
+                            state['team_quality'] = quality
+                            if quality >= team_classifier.MIN_QUALITY:
+                                team_histories[track_id].append(hist)
+                        
                         # Sample jersey colors across the video at a fixed stride (only when full roster is present)
                         if (
                             team_classifier.sample_count < team_max_samples
@@ -1025,9 +1044,9 @@ class Pipeline:
                             and (len(current_frame_state) >= sample_min_players or not team_classifier.ready)
                         ):
                             for track_id, state in current_frame_state.items():
-                                hist = team_classifier.add_sample(frame, state['bbox'], frame_idx=frame_idx, track_id=track_id)
-                                state['team_hist'] = hist
-                                team_histories[track_id].append(hist)
+                                hist = state.get('team_hist')
+                                if hist is not None and hist.size > 0:
+                                    team_classifier.add_sample(frame, state['bbox'], frame_idx=frame_idx, track_id=track_id)
 
                             if frame_idx != team_last_sample_log:
                                 print(f"[TEAM] frame={frame_idx} samples={team_classifier.sample_count}/{team_max_samples}")
@@ -1039,7 +1058,7 @@ class Pipeline:
                             self.team_colors = team_classifier.team_palette.copy()
                             team_last_fit_count = team_classifier.sample_count
                             print(f"[TEAM] fit with {team_last_fit_count} samples | {team_classifier.describe_palette()}")
-                            team_classifier.save_crops()
+                            # Don't re-save crops during main pass - only save from pre-pass to avoid duplicates
 
                         # Constant recheck interval to prevent ID swaps when players are close
                         if team_classifier.fitted and team_recheck_max_interval > 0:
@@ -1173,54 +1192,207 @@ class Pipeline:
                                         msg += f" ({hard_resets} hard resets)"
                                     print(msg)
 
-                        # Assign teams per frame with votes and cap; natural voting only (no forced initial assignment)
+                        # Hierarchical team assignment: confident players first, then fill gaps
                         if team_classifier.fitted:
-                            frame_team_counts: dict[TeamID, int] = defaultdict(int)
-
-                            # Per-frame vote
+                            # Phase 1: collect predictions + confidence for all players
+                            player_preds = []
                             for track_id, state in current_frame_state.items():
                                 hist = state.get('team_hist') if isinstance(state, dict) else None
+                                quality = state.get('team_quality', 0.0) if isinstance(state, dict) else 0.0
                                 if hist is None or (hasattr(hist, "size") and hist.size == 0):
-                                    hist = team_classifier.extract_features(frame, state['bbox'])[0]
+                                    hist, _, _, quality = team_classifier.extract_features(frame, state['bbox'])
 
-                                team = team_classifier.predict(hist) or TeamID.UNKNOWN
-
-                                votes = team_votes[track_id]
-                                votes[team] += 1
-
-                                # Use vote if it meets threshold; else keep per-frame prediction
-                                if votes[team] >= team_vote_count:
-                                    assigned_team = team
+                                if quality >= team_classifier.MIN_QUALITY:
+                                    team, dist = team_classifier.predict_with_confidence(hist)
+                                    if team is None:
+                                        team, dist = TeamID.UNKNOWN, float("inf")
                                 else:
-                                    assigned_team = team
+                                    team, dist = TeamID.UNKNOWN, float("inf")
 
-                                # Enforce per-team cap
-                                cap_blocks = assigned_team in (TeamID.TEAM_A, TeamID.TEAM_B) and frame_team_counts[assigned_team] >= team_cap
-                                if cap_blocks:
-                                    assigned_team = TeamID.UNKNOWN
+                                player_preds.append({
+                                    'track_id': track_id,
+                                    'state': state,
+                                    'team': team,
+                                    'dist': dist,
+                                    'hist': hist,
+                                })
+
+                            # Phase 2: sort by confidence (lowest distance = most confident)
+                            player_preds.sort(key=lambda p: p['dist'])
+
+                            # Phase 3: assign confident players to their predicted team (up to cap)
+                            frame_team_counts: dict[TeamID, int] = defaultdict(int)
+                            assigned_teams: dict[int, TeamID] = {}
+                            deferred = []
+
+                            for p in player_preds:
+                                team = p['team']
+                                if team in (TeamID.TEAM_A, TeamID.TEAM_B) and frame_team_counts[team] < team_cap:
+                                    assigned_teams[p['track_id']] = team
+                                    frame_team_counts[team] += 1
+                                else:
+                                    deferred.append(p)
+                            
+                            # Debug: log deferred players and their predictions
+                            if frame_idx % 50 == 0 and deferred:
+                                print(f"[TEAM] Frame {frame_idx}: {len(deferred)} deferred - " + 
+                                      ", ".join([f"#{p['track_id']}→{p['team'].value}(dist={p['dist']:.1f})" for p in deferred[:5]]))
+
+                            # Phase 4: fill gaps — assign deferred players to the team that needs them
+                            # CRITICAL FIX: Respect the histogram prediction even when filling gaps
+                            # Only override prediction if team is full AND the other team has space
+                            for p in deferred:
+                                count_a = frame_team_counts.get(TeamID.TEAM_A, 0)
+                                count_b = frame_team_counts.get(TeamID.TEAM_B, 0)
+                                predicted_team = p['team']
+                                
+                                # Try to honor the prediction first
+                                if predicted_team == TeamID.TEAM_A and count_a < team_cap:
+                                    fill_team = TeamID.TEAM_A
+                                elif predicted_team == TeamID.TEAM_B and count_b < team_cap:
+                                    fill_team = TeamID.TEAM_B
+                                # If predicted team is full, assign to other team if it has space
+                                elif predicted_team == TeamID.TEAM_A and count_b < team_cap:
+                                    fill_team = TeamID.TEAM_B
+                                elif predicted_team == TeamID.TEAM_B and count_a < team_cap:
+                                    fill_team = TeamID.TEAM_A
+                                # Both teams full or no valid prediction
+                                elif count_a < team_cap:
+                                    fill_team = TeamID.TEAM_A
+                                elif count_b < team_cap:
+                                    fill_team = TeamID.TEAM_B
+                                else:
+                                    fill_team = TeamID.UNKNOWN  # both teams full
+                                
+                                assigned_teams[p['track_id']] = fill_team
+                                if fill_team in (TeamID.TEAM_A, TeamID.TEAM_B):
+                                    frame_team_counts[fill_team] += 1
+
+                            # Phase 5: apply assignments, update votes and state
+                            for p in player_preds:
+                                track_id = p['track_id']
+                                state = p['state']
+                                assigned_team = assigned_teams[track_id]
+
+                                team_votes[track_id][assigned_team] += 1
 
                                 state['detection'].team = assigned_team
-                                if assigned_team in (TeamID.TEAM_A, TeamID.TEAM_B):
-                                    frame_team_counts[assigned_team] += 1
-
                                 if track_id in track_histories:
                                     track_histories[track_id].team = assigned_team
-
-                                team_histories[track_id].append(hist)
-
-                            # Hard cap cleanup: demote excess if any team exceeds cap
-                            for team_id, count in list(frame_team_counts.items()):
-                                if count <= team_cap:
-                                    continue
-                                overflow = count - team_cap
-                                for track_id, state in current_frame_state.items():
-                                    if overflow <= 0:
-                                        break
-                                    assigned = state['detection'].team if 'detection' in state else TeamID.UNKNOWN
-                                    if assigned == team_id:
-                                        state['detection'].team = TeamID.UNKNOWN
-                                        overflow -= 1
-                                        frame_team_counts[team_id] -= 1
+                                team_histories[track_id].append(p['hist'])
+                            
+                            # HARD CAP ENFORCEMENT: Force exactly 6 per team, no exceptions
+                            final_count_a = sum(1 for t in assigned_teams.values() if t == TeamID.TEAM_A)
+                            final_count_b = sum(1 for t in assigned_teams.values() if t == TeamID.TEAM_B)
+                            
+                            if final_count_a > team_cap or final_count_b > team_cap:
+                                # One team is oversized - force rebalance
+                                # Get all players sorted by confidence in their assigned team
+                                players_by_team_a = [(p['track_id'], p['dist']) for p in player_preds if assigned_teams[p['track_id']] == TeamID.TEAM_A]
+                                players_by_team_b = [(p['track_id'], p['dist']) for p in player_preds if assigned_teams[p['track_id']] == TeamID.TEAM_B]
+                                
+                                # Sort by distance (highest = least confident)
+                                players_by_team_a.sort(key=lambda x: x[1], reverse=True)
+                                players_by_team_b.sort(key=lambda x: x[1], reverse=True)
+                                
+                                # Move excess players from oversized team to undersized team
+                                if final_count_a > team_cap:
+                                    excess = final_count_a - team_cap
+                                    for i in range(excess):
+                                        if i < len(players_by_team_a):
+                                            tid_to_move = players_by_team_a[i][0]
+                                            assigned_teams[tid_to_move] = TeamID.TEAM_B
+                                            # Update the track and detection
+                                            if tid_to_move in track_histories:
+                                                track_histories[tid_to_move].team = TeamID.TEAM_B
+                                            if tid_to_move in current_frame_state:
+                                                current_frame_state[tid_to_move]['detection'].team = TeamID.TEAM_B
+                                            print(f"[HARD CAP] Frame {frame_idx}: Moved track {tid_to_move} from A to B (A was {final_count_a})")
+                                
+                                if final_count_b > team_cap:
+                                    excess = final_count_b - team_cap
+                                    for i in range(excess):
+                                        if i < len(players_by_team_b):
+                                            tid_to_move = players_by_team_b[i][0]
+                                            assigned_teams[tid_to_move] = TeamID.TEAM_A
+                                            # Update the track and detection
+                                            if tid_to_move in track_histories:
+                                                track_histories[tid_to_move].team = TeamID.TEAM_A
+                                            if tid_to_move in current_frame_state:
+                                                current_frame_state[tid_to_move]['detection'].team = TeamID.TEAM_A
+                                            print(f"[HARD CAP] Frame {frame_idx}: Moved track {tid_to_move} from B to A (B was {final_count_b})")
+                                
+                                # Recount
+                                final_count_a = sum(1 for t in assigned_teams.values() if t == TeamID.TEAM_A)
+                                final_count_b = sum(1 for t in assigned_teams.values() if t == TeamID.TEAM_B)
+                            
+                            # ABSOLUTE FINAL CHECK: Count ALL track_histories (including T3 tracks not in current_frame_state)
+                            # and enforce 6 per team across the entire tracking session
+                            all_track_team_a = [tid for tid, track in track_histories.items() if track.team == TeamID.TEAM_A]
+                            all_track_team_b = [tid for tid, track in track_histories.items() if track.team == TeamID.TEAM_B]
+                            
+                            if len(all_track_team_a) > team_cap or len(all_track_team_b) > team_cap:
+                                print(f"[GLOBAL CAP] Frame {frame_idx}: Found {len(all_track_team_a)} in A, {len(all_track_team_b)} in B (cap={team_cap})")
+                                
+                                # For each track, compute average histogram distance to team centers (if available)
+                                track_confidences_a = []
+                                track_confidences_b = []
+                                
+                                for tid in all_track_team_a:
+                                    if tid in team_histories and len(team_histories[tid]) > 0:
+                                        # Use most recent histogram
+                                        recent_hists = list(team_histories[tid])[-5:]
+                                        avg_dist = float('inf')
+                                        if team_classifier and team_classifier.fitted:
+                                            dists = [team_classifier.predict_with_confidence(h)[1] for h in recent_hists if h is not None and h.size > 0]
+                                            if dists:
+                                                avg_dist = sum(dists) / len(dists)
+                                        track_confidences_a.append((tid, avg_dist))
+                                    else:
+                                        track_confidences_a.append((tid, float('inf')))
+                                
+                                for tid in all_track_team_b:
+                                    if tid in team_histories and len(team_histories[tid]) > 0:
+                                        recent_hists = list(team_histories[tid])[-5:]
+                                        avg_dist = float('inf')
+                                        if team_classifier and team_classifier.fitted:
+                                            dists = [team_classifier.predict_with_confidence(h)[1] for h in recent_hists if h is not None and h.size > 0]
+                                            if dists:
+                                                avg_dist = sum(dists) / len(dists)
+                                        track_confidences_b.append((tid, avg_dist))
+                                    else:
+                                        track_confidences_b.append((tid, float('inf')))
+                                
+                                # Sort by confidence (higher distance = lower confidence = move first)
+                                track_confidences_a.sort(key=lambda x: x[1], reverse=True)
+                                track_confidences_b.sort(key=lambda x: x[1], reverse=True)
+                                
+                                # Move excess from A to B
+                                if len(all_track_team_a) > team_cap:
+                                    excess = len(all_track_team_a) - team_cap
+                                    for i in range(excess):
+                                        tid_to_move = track_confidences_a[i][0]
+                                        track_histories[tid_to_move].team = TeamID.TEAM_B
+                                        # Update current frame state if present
+                                        if tid_to_move in current_frame_state:
+                                            current_frame_state[tid_to_move]['detection'].team = TeamID.TEAM_B
+                                        print(f"[GLOBAL CAP] Moved track {tid_to_move} from A to B")
+                                
+                                # Move excess from B to A
+                                if len(all_track_team_b) > team_cap:
+                                    excess = len(all_track_team_b) - team_cap
+                                    for i in range(excess):
+                                        tid_to_move = track_confidences_b[i][0]
+                                        track_histories[tid_to_move].team = TeamID.TEAM_A
+                                        # Update current frame state if present
+                                        if tid_to_move in current_frame_state:
+                                            current_frame_state[tid_to_move]['detection'].team = TeamID.TEAM_A
+                                        print(f"[GLOBAL CAP] Moved track {tid_to_move} from B to A")
+                            
+                            # Debug: log frame team counts periodically
+                            if frame_idx % 50 == 0:
+                                final_count_unk = sum(1 for t in assigned_teams.values() if t == TeamID.UNKNOWN)
+                                print(f"[TEAM] Frame {frame_idx}: Final assignments - A:{final_count_a} B:{final_count_b} UNK:{final_count_unk}")
                     
                     # Store ball detection if found (single ball per frame)
                     if ball_detections:

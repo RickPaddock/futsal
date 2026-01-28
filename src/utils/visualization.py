@@ -305,6 +305,11 @@ def draw_frame_annotations(
 
     # Resolve palette (allows runtime override from pipeline)
     palette = team_colors or TEAM_COLORS
+    # DEBUG: Print palette/team mapping on first frame
+    if frame_idx == 0:
+        print("[VIZ] Team palette mapping:")
+        for k, v in palette.items():
+            print(f"    {k}: {v}")
 
     # Draw pitch boundary lines for SAM filtering (if provided)
     # if pitch_top_y is not None and pitch_bottom_y is not None:
@@ -339,6 +344,12 @@ def draw_frame_annotations(
         t1_count = 0  # YOLO
         t2_count = 0  # SAM
         t3_count = 0  # Estimated
+        
+        # DEBUG: Log track detection counts on first frame
+        if frame_idx == 0:
+            print(f"\n[VIZ] Frame 0 DEBUG: Checking {len(match_data.player_tracks)} tracks")
+            for i, track in enumerate(match_data.player_tracks[:3]):
+                print(f"  Track {track.track_id}: {len(track.detections)} detections")
 
         for track in match_data.player_tracks:
             det = track.get_detection_at_frame(frame_idx)
@@ -355,6 +366,10 @@ def draw_frame_annotations(
                 team_color = palette.get(track.team, get_track_color(track.track_id))
             else:
                 team_color = player_color
+            
+            # DEBUG: Log on frame 0
+            if frame_idx == 0 and track.track_id <= 2:
+                print(f"    Track {track.track_id}: team={track.team.value if track.team != TeamID.UNKNOWN else 'UNKNOWN'}, team_color={team_color}, player_color={player_color}")
 
             # Build label with tier indicator
             label_parts = [f"#{track.track_id}"]
@@ -390,14 +405,17 @@ def draw_frame_annotations(
                 draw_bbox(frame_bgr, det.bbox, color, label=label, dotted=True, thickness=1)
             else:
                 # T1: supervision ellipse annotator
-                _det = sv.Detections(xyxy=np.array([[det.bbox.x1, det.bbox.y1, det.bbox.x2, det.bbox.y2]]))
+                _det = sv.Detections(
+                    xyxy=np.array([[det.bbox.x1, det.bbox.y1, det.bbox.x2, det.bbox.y2]]),
+                    class_id=np.array([0])  # Provide dummy class_id to satisfy supervision>=0.18
+                )
                 _color = sv.Color(color[2], color[1], color[0])  # Team ellipse color (BGR -> RGB)
                 _label_color = sv.Color(player_color[2], player_color[1], player_color[0])
                 frame_bgr = sv.EllipseAnnotator(
-                    color=_color, thickness=2, color_lookup=sv.ColorLookup.INDEX
+                    color=_color, thickness=2
                 ).annotate(frame_bgr, _det)
                 frame_bgr = sv.LabelAnnotator(
-                    color=_label_color, text_color=sv.Color.WHITE, color_lookup=sv.ColorLookup.INDEX
+                    color=_label_color, text_color=sv.Color.WHITE
                 ).annotate(frame_bgr, _det, labels=[label])
 
             # Draw mask for SAM detections - use same color as bbox for consistency

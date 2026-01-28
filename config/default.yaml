@@ -60,7 +60,7 @@ team_classification:
   recheck_far_px: 260        # If players are farther than this, use the slowest recheck interval
   recheck_min_interval: 10   # Fastest recheck cadence (frames) when overlapping
   recheck_max_interval: 30   # Slowest recheck cadence (frames) when spaced
-  team_cap: 7                # Max players per team to assign per frame (temporarily increased for easier corrections)
+  team_cap: 6                # Max players per team per frame (6-a-side)
   vividify: true             # Boost low-saturation cluster colors so teams are not gray
   force_team_colors:         # Optional override for palette; when enabled, map clusters to these colors
     enabled: true
