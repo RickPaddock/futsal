@@ -14,7 +14,8 @@
       "Bash(do if [ -d \"$dir\" ])",
       "Bash(then echo \"$dir:\")",
       "WebFetch(domain:supervision.roboflow.com)",
-      "Bash(shuf:*)"
+      "Bash(shuf:*)",
+      "Bash(del \"\\\\.\\\\c:\\\\Users\\\\rickp\\\\Documents\\\\GitRepos\\\\futsal\\\\nul\")"
     ]
   }
 }
