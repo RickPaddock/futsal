@@ -103,7 +103,11 @@ class TeamClustering:
         # 1) Suppress court floor (yellow-green through green, H 25-90)
         #    Measured court: H≈28, S≈47, V≈143-187.
         #    Orange bibs are H≈10-20 so H≥25 cleanly avoids them.
-        court_mask = cv2.inRange(hsv, (25, 15, 50), (90, 255, 255))
+        #    IMPORTANT: Only suppress LOW SATURATION green to preserve green jerseys.
+        #    Court is desaturated (S~47), jerseys are vivid (S>70).
+        court_h_range = (hsv[:, :, 0] >= 25) & (hsv[:, :, 0] <= 90)
+        court_low_sat = hsv[:, :, 1] < 70  # Court S~47, green jerseys S>70
+        court_mask = (court_h_range & court_low_sat).astype(np.uint8) * 255
         jersey_mask = cv2.bitwise_and(jersey_mask, cv2.bitwise_not(court_mask))
 
         # 2) Suppress skin (YCrCb), but spare:
@@ -111,11 +115,13 @@ class TeamClustering:
         #    - orange-hue pixels (H 5-22) which are bib, not skin, in
         #      the torso crop.  Shadow can drop bib S to 50-80 which
         #      overlaps the skin range, so hue is the safer discriminator.
+        #    - green jersey pixels (H 60-90, S > 70) to preserve green jerseys
         ycrcb = cv2.cvtColor(roi_rgb, cv2.COLOR_RGB2YCrCb)
         skin_mask = cv2.inRange(ycrcb, (0, 133, 77), (255, 173, 127))
         vivid = hsv[:, :, 1] > 110
         orange_hue = (hsv[:, :, 0] >= 5) & (hsv[:, :, 0] <= 22)
-        skin_mask[vivid | orange_hue] = 0
+        green_jersey = (hsv[:, :, 0] >= 60) & (hsv[:, :, 0] <= 90) & (hsv[:, :, 1] > 70)
+        skin_mask[vivid | orange_hue | green_jersey] = 0
         jersey_mask = cv2.bitwise_and(jersey_mask, cv2.bitwise_not(skin_mask))
 
         # 3) Suppress overexposed / washed-out white (S < 20, V > 230)
@@ -200,6 +206,25 @@ class TeamClustering:
         crop_bgr = cv2.cvtColor(roi_rgb, cv2.COLOR_RGB2BGR)
         return hist, mean_bgr, crop_bgr, quality
 
+    def compute_cluster_variance(self, cluster_label: int) -> float:
+        """Compute histogram variance within a cluster. Lower = more uniform team.
+
+        Uses the same histogram features that K-Means clusters on, not mean_bgr.
+        """
+        if self.cluster_labels is None:
+            return float('inf')
+        idxs = np.where(self.cluster_labels == cluster_label)[0].tolist()
+        if len(idxs) < 2:
+            return float('inf')
+
+        # Use histograms (same feature K-Means uses)
+        hists = np.array([self.samples[i]["hist"] for i in idxs])
+
+        # Compute variance across histogram dimensions
+        # Mean across samples for each histogram bin, then variance
+        variance = np.var(hists, axis=0).sum()  # Sum variance across all 96 histogram bins
+        return float(variance)
+
     # ------------------------------------------------------------------
     # Sampling and fitting
     # ------------------------------------------------------------------
@@ -267,20 +292,25 @@ class TeamClustering:
             target_a = np.array(self.force_palette.get("team_a", [0, 140, 255]), dtype=float)
             target_b = np.array(self.force_palette.get("team_b", [0, 0, 0]), dtype=float)
             print(f"[TEAM] Force palette enabled: target_A (team_a BGR)={target_a}, target_B (team_b BGR)={target_b}")
-            # Optimal assignment: try both pairings and pick the one
-            # with lowest total distance (avoids greedy mis-match when
-            # one target is close to both clusters, e.g. black [0,0,0]).
-            if len(self.cluster_colors) > 1:
-                c0, c1 = self.cluster_colors[0], self.cluster_colors[1]
-                print(f"[TEAM] Cluster 0 color: {c0}, Cluster 1 color: {c1}")
-                cost_0a = np.linalg.norm(c0 - target_a) + np.linalg.norm(c1 - target_b)
-                cost_0b = np.linalg.norm(c0 - target_b) + np.linalg.norm(c1 - target_a)
-                print(f"[TEAM] Cost if cluster 0→A, 1→B: {cost_0a:.2f}, Cost if cluster 0→B, 1→A: {cost_0b:.2f}")
-                a_label = 0 if cost_0a <= cost_0b else 1
+
+            # Respect variance-based uniform detection if already set
+            if hasattr(self, 'uniform_cluster'):
+                print(f"[TEAM] Using variance-based mapping: uniform cluster {self.uniform_cluster} → TEAM_A")
+                # label_to_team already set by fit() based on variance, don't override
             else:
-                a_label = 0
-            b_label = 1 - a_label if len(self.cluster_colors) > 1 else a_label
-            self.label_to_team = {a_label: TeamID.TEAM_A, b_label: TeamID.TEAM_B}
+                # Fallback to color-based optimal assignment
+                if len(self.cluster_colors) > 1:
+                    c0, c1 = self.cluster_colors[0], self.cluster_colors[1]
+                    print(f"[TEAM] Cluster 0 color: {c0}, Cluster 1 color: {c1}")
+                    cost_0a = np.linalg.norm(c0 - target_a) + np.linalg.norm(c1 - target_b)
+                    cost_0b = np.linalg.norm(c0 - target_b) + np.linalg.norm(c1 - target_a)
+                    print(f"[TEAM] Cost if cluster 0→A, 1→B: {cost_0a:.2f}, Cost if cluster 0→B, 1→A: {cost_0b:.2f}")
+                    a_label = 0 if cost_0a <= cost_0b else 1
+                else:
+                    a_label = 0
+                b_label = 1 - a_label if len(self.cluster_colors) > 1 else a_label
+                self.label_to_team = {a_label: TeamID.TEAM_A, b_label: TeamID.TEAM_B}
+
             self._label_to_team_locked = True  # Lock it!
             self.team_palette = {
                 TeamID.TEAM_A: tuple(int(x) for x in target_a),
@@ -288,7 +318,11 @@ class TeamClustering:
                 TeamID.UNKNOWN: (200, 200, 200),
                 TeamID.REFEREE: (0, 255, 255),
             }
-            print(f"[TEAM] Selected mapping: cluster {a_label} → TEAM_A, cluster {b_label} → TEAM_B")
+
+            # Log the final mapping
+            a_label = [k for k, v in self.label_to_team.items() if v == TeamID.TEAM_A][0]
+            b_label = [k for k, v in self.label_to_team.items() if v == TeamID.TEAM_B][0]
+            print(f"[TEAM] Final mapping: cluster {a_label} → TEAM_A, cluster {b_label} → TEAM_B")
             return
 
         self.label_to_team = {0: TeamID.TEAM_A, 1: TeamID.TEAM_B}
@@ -384,15 +418,51 @@ class TeamClustering:
             final_1 = len(cluster_track_counts[1])
             print(f"[TEAM REBALANCE] After rebalance: {final_0} tracks in cluster 0, {final_1} in cluster 1")
 
+        # Auto-detect which cluster is more uniform (lower variance) for DFU prediction
+        cluster_variances = {}
+        for label in range(self.n_clusters):
+            cluster_variances[label] = self.compute_cluster_variance(label)
+
+        # Cluster with LOWEST variance is the uniform team (TEAM_A)
+        self.uniform_cluster = min(cluster_variances, key=cluster_variances.get)
+        diverse_cluster = 1 - self.uniform_cluster
+
+        print(f"[TEAM] Cluster variances: {cluster_variances}")
+        print(f"[TEAM] Uniform cluster: {self.uniform_cluster} (var={cluster_variances[self.uniform_cluster]:.1f})")
+        print(f"[TEAM] Diverse cluster: {diverse_cluster} (var={cluster_variances[diverse_cluster]:.1f})")
+
+        # Store uniform cluster centroid for DFU prediction
+        self.uniform_centroid = self.kmeans.cluster_centers_[self.uniform_cluster]
+
+        # Compute threshold: 90th percentile distance of uniform samples to centroid
+        uniform_idxs = np.where(self.cluster_labels == self.uniform_cluster)[0]
+        uniform_distances = distances[uniform_idxs, self.uniform_cluster]
+        self.uniform_threshold = float(np.percentile(uniform_distances, 90))
+
+        print(f"[TEAM] Uniform threshold: {self.uniform_threshold:.3f}")
+
+        # Update label mapping: uniform = TEAM_A, diverse = TEAM_B
+        self.label_to_team = {
+            self.uniform_cluster: TeamID.TEAM_A,
+            diverse_cluster: TeamID.TEAM_B,
+        }
+
         self.cluster_colors = []
         for label in range(self.n_clusters):
             idxs = np.where(self.cluster_labels == label)[0].tolist()
             if idxs:
-                mean_color = np.mean([self.samples[i]["mean_bgr"] for i in idxs], axis=0)
+                colors = np.array([self.samples[i]["mean_bgr"] for i in idxs])
+                if label != self.uniform_cluster:  # Diverse team - use median
+                    color = np.median(colors, axis=0)
+                    color_type = "median"
+                else:  # Uniform team - use mean
+                    color = np.mean(colors, axis=0)
+                    color_type = "mean"
             else:
-                mean_color = np.array([180.0, 180.0, 180.0], dtype=np.float32)
-            self.cluster_colors.append(mean_color)
-            print(f"[TEAM] Cluster {label} mean color (BGR): ({mean_color[0]:.0f}, {mean_color[1]:.0f}, {mean_color[2]:.0f})")
+                color = np.array([180.0, 180.0, 180.0], dtype=np.float32)
+                color_type = "default"
+            self.cluster_colors.append(color)
+            print(f"[TEAM] Cluster {label} {color_type} color (BGR): ({color[0]:.0f}, {color[1]:.0f}, {color[2]:.0f})")
 
         self._build_palette()
 
@@ -410,6 +480,26 @@ class TeamClustering:
         label = int(self.kmeans.predict(data)[0])
         dist = float(self.kmeans.transform(data)[0, label])
         return self.label_to_team.get(label, TeamID.UNKNOWN), dist
+
+    def predict_dfu(self, hist: np.ndarray) -> Tuple[TeamID, float]:
+        """Distance-from-Uniform prediction. Close to uniform team = TEAM_A, else TEAM_B.
+
+        This method is more robust for asymmetric teams (one uniform, one diverse).
+        Instead of relying on K-Means prediction which uses both centroids,
+        it only measures distance to the uniform team's centroid.
+
+        Returns:
+            (team, distance_to_uniform): TeamID and distance metric
+        """
+        if self.kmeans is None or not hasattr(self, 'uniform_centroid') or hist is None or hist.size == 0:
+            return TeamID.UNKNOWN, float("inf")
+
+        dist_to_uniform = float(np.linalg.norm(hist - self.uniform_centroid))
+
+        if dist_to_uniform <= self.uniform_threshold * 1.2:  # 20% margin
+            return TeamID.TEAM_A, dist_to_uniform
+        else:
+            return TeamID.TEAM_B, dist_to_uniform
 
     # ------------------------------------------------------------------
     # Sampling helpers

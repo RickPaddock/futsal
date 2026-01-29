@@ -104,7 +104,7 @@ def draw_bbox(
             (x1 + 2, y1 - 5),
             font,
             font_scale,
-            (255, 255, 255),
+            (0, 0, 0),  # Black text for better visibility
             font_thickness,
         )
 
@@ -415,7 +415,7 @@ def draw_frame_annotations(
                     color=_color, thickness=2
                 ).annotate(frame_bgr, _det)
                 frame_bgr = sv.LabelAnnotator(
-                    color=_label_color, text_color=sv.Color.WHITE
+                    color=_label_color, text_color=sv.Color.BLACK
                 ).annotate(frame_bgr, _det, labels=[label])
 
             # Draw mask for SAM detections - use same color as bbox for consistency

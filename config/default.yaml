@@ -64,8 +64,8 @@ team_classification:
   vividify: true             # Boost low-saturation cluster colors so teams are not gray
   force_team_colors:         # Optional override for palette; when enabled, map clusters to these colors
     enabled: true
-    team_a: [0, 0, 0]        # BLACK in BGR
-    team_b: [0, 140, 255]    # ORANGE in BGR
+    team_a: [0, 140, 255]    # ORANGE in BGR (uniform team)
+    team_b: [0, 0, 0]        # BLACK in BGR (diverse team, placeholder)
   sample_full_video: true    # If true, run a pre-pass over the full video to gather samples even when processing a subset
   save_crops: true          # If true, save sampled crops split by cluster/team for inspection
   crops_output_dir: "team_crops"  # Subdirectory under output when saving crops
