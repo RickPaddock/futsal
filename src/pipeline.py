@@ -223,6 +223,9 @@ class Pipeline:
         locked_team_assignments: dict[int, TeamID] = {}
         first_frame_processed = False
 
+        # Video cut detection - track frames since last cut to stabilize T3
+        frames_since_video_cut = 999  # Start high so normal operation proceeds
+
         # Pre-warm SAM2 if enabled (initialize it now to avoid first-frame lag)
         sam_available = False
         if self.config.get("segmentation", {}).get("enabled", False):
@@ -447,6 +450,113 @@ class Pipeline:
                         active_tracks, frame_idx
                     ):
                         yolo_track_results[track_id] = bbox
+
+                    # ================================================================
+                    # VIDEO CUT DETECTION: Detect when multiple players teleport (video edit)
+                    # ================================================================
+                    if team_enabled and len(previous_frame_state) >= 3:
+                        large_jumps = []
+                        tracked_players = 0  # Count players we can compare
+                        new_track_ids = []   # Tracks with no previous state (new IDs from ByteTracker)
+
+                        for track_id, bbox in yolo_track_results.items():
+                            if track_id in previous_frame_state:
+                                tracked_players += 1
+                                prev_bbox = previous_frame_state[track_id].get('bbox')
+                                if prev_bbox:
+                                    prev_cx, prev_cy = prev_bbox.center
+                                    curr_cx, curr_cy = bbox.center
+                                    jump_dist = ((curr_cx - prev_cx)**2 + (curr_cy - prev_cy)**2)**0.5
+
+                                    if jump_dist > 200:  # Video cut threshold
+                                        large_jumps.append((track_id, jump_dist))
+                            else:
+                                new_track_ids.append(track_id)
+
+                        # Detect cut if EITHER:
+                        # 1) 3+ tracked players jumped >200px AND >40% of tracked jumped
+                        # 2) 5+ brand new track IDs appeared simultaneously (ByteTracker couldn't match)
+                        jump_percentage = len(large_jumps) / tracked_players if tracked_players > 0 else 0
+                        cut_by_jumps = len(large_jumps) >= 3 and jump_percentage > 0.4
+                        cut_by_new_ids = len(new_track_ids) >= 5
+                        is_video_cut = cut_by_jumps or cut_by_new_ids
+
+                        if is_video_cut:
+                            print(f"\n{'='*60}")
+                            print(f"[VIDEO CUT] Frame {frame_idx}: Detected video cut!")
+                            if cut_by_jumps:
+                                print(f"[VIDEO CUT] {len(large_jumps)} players teleported >200px ({jump_percentage:.0%} of tracked)")
+                                for tid, dist in large_jumps:
+                                    print(f"  Track {tid}: {dist:.0f}px")
+                            if cut_by_new_ids:
+                                print(f"[VIDEO CUT] {len(new_track_ids)} new track IDs appeared (ByteTracker couldn't match)")
+                            print(f"{'='*60}\n")
+
+                            # Reset team detection state
+                            first_frame_processed = False
+                            locked_team_assignments.clear()
+                            team_histories.clear()
+                            team_votes.clear()
+                            previous_frame_state.clear()
+                            t3_tracks_active.clear()  # Clear T3 occluded tracks
+                            frames_since_video_cut = 0
+
+                            # Reset ByteTracker for fresh ID assignment
+                            self.tracker.reset()
+
+                            # Re-run tracking with fresh state
+                            active_tracks = self.tracker.update(
+                                det_array,
+                                frame_idx,
+                                team_preds=None,
+                                track_team_map=None,
+                            )
+
+                            # Rebuild yolo_track_results with new IDs
+                            yolo_track_results = {}
+                            for track_id, bbox in convert_stracks_to_player_tracks(
+                                active_tracks, frame_idx
+                            ):
+                                yolo_track_results[track_id] = bbox
+
+                            print(f"[VIDEO CUT] Searching for next clean frame with all {expected_players} players\n")
+
+                    # ================================================================
+                    # SWAP DETECTION: Detect when tracks appear to have crossed paths
+                    # ================================================================
+                    if team_enabled and first_frame_processed and len(previous_frame_state) >= 2:
+                        swap_candidates = []
+
+                        for tid_a in list(yolo_track_results.keys()):
+                            if tid_a not in previous_frame_state or tid_a not in locked_team_assignments:
+                                continue
+
+                            team_a = locked_team_assignments[tid_a]
+                            if team_a not in (TeamID.TEAM_A, TeamID.TEAM_B):
+                                continue
+
+                            curr_pos_a = yolo_track_results[tid_a].center
+                            prev_pos_a = previous_frame_state[tid_a]['bbox'].center
+
+                            for tid_b in list(yolo_track_results.keys()):
+                                if tid_b <= tid_a or tid_b not in previous_frame_state or tid_b not in locked_team_assignments:
+                                    continue
+
+                                team_b = locked_team_assignments[tid_b]
+                                if team_b not in (TeamID.TEAM_A, TeamID.TEAM_B) or team_a == team_b:
+                                    continue  # Same team, no issue
+
+                                curr_pos_b = yolo_track_results[tid_b].center
+                                prev_pos_b = previous_frame_state[tid_b]['bbox'].center
+
+                                # Check if tracks "crossed" - each moved toward the other's previous position
+                                dist_a_to_prev_b = ((curr_pos_a[0] - prev_pos_b[0])**2 + (curr_pos_a[1] - prev_pos_b[1])**2)**0.5
+                                dist_b_to_prev_a = ((curr_pos_b[0] - prev_pos_a[0])**2 + (curr_pos_b[1] - prev_pos_a[1])**2)**0.5
+
+                                # If both tracks moved very close to each other's previous positions, likely a swap
+                                if dist_a_to_prev_b < 50 and dist_b_to_prev_a < 50:
+                                    swap_candidates.append((tid_a, tid_b, team_a, team_b))
+                                    print(f"[SWAP ALERT] Frame {frame_idx}: Tracks {tid_a} ({team_a.value}) and {tid_b} ({team_b.value}) may have swapped positions")
 
                     # Check for suspicious bbox jumps that could indicate ID swap
                     if team_enabled:
@@ -842,7 +952,8 @@ class Pipeline:
                         return ((cx1 - cx2) ** 2 + (cy1 - cy2) ** 2) ** 0.5
 
                     # Process lost tracks - try to recover them with T3 (estimated position)
-                    if current_player_count < expected_players:
+                    # Skip T3 for a few frames after video cut to allow tracking to stabilize
+                    if current_player_count < expected_players and frames_since_video_cut >= 5:
                         boxes_added = 0
                         max_to_add = expected_players - current_player_count
 
@@ -1029,6 +1140,11 @@ class Pipeline:
 
                         if boxes_added > 0:
                             print(f"Frame {frame_idx}: T3 recovered {boxes_added} players")
+
+                    elif current_player_count < expected_players and frames_since_video_cut < 5:
+                        print(f"Frame {frame_idx}: T3 SKIPPED - {frames_since_video_cut} frames since video cut (need 5+)")
+                        missing_track_ids = [tid for tid in previous_frame_state.keys() if tid not in current_frame_state]
+                        print(f"    T3: {len(missing_track_ids)} tracks missing from current frame: {missing_track_ids}")
 
                     # Log any T3 additions and the state that carries to the next frame
                     t3_state: dict[int, dict] = {}
@@ -1270,53 +1386,27 @@ class Pipeline:
                                     team, dist = team_classifier.predict_dfu(hist)
                                     player_predictions.append((track_id, team, dist, hist))
 
-                                # Separate into team_a candidates (low distance) and team_b candidates (high distance)
-                                # Sort each list by confidence (distance)
-                                team_a_candidates = [(tid, team, dist, hist) for tid, team, dist, hist in player_predictions if team == TeamID.TEAM_A]
-                                team_b_candidates = [(tid, team, dist, hist) for tid, team, dist, hist in player_predictions if team == TeamID.TEAM_B]
-
-                                team_a_candidates.sort(key=lambda x: x[2])  # Sort by distance (ascending = more confident)
-                                team_b_candidates.sort(key=lambda x: x[2])  # Sort by distance (ascending = more confident)
-
-                                print(f"[TEAM] Team A candidates: {len(team_a_candidates)}, Team B candidates: {len(team_b_candidates)}")
-
-                                # Alternate assignment: most confident team_a, most confident team_b, etc.
+                                # Sort all by DFU distance: lowest = team_a, highest = team_b
+                                # Simple 6-6 split by distance - no predictions needed
+                                all_predictions = sorted(player_predictions, key=lambda x: x[2])
                                 team_counts = {TeamID.TEAM_A: 0, TeamID.TEAM_B: 0}
-                                a_idx = 0
-                                b_idx = 0
 
-                                while (a_idx < len(team_a_candidates) or b_idx < len(team_b_candidates)) and (team_counts[TeamID.TEAM_A] < team_cap or team_counts[TeamID.TEAM_B] < team_cap):
-                                    # Try to assign most confident team_a candidate
-                                    if a_idx < len(team_a_candidates) and team_counts[TeamID.TEAM_A] < team_cap:
-                                        track_id, predicted_team, dist, hist = team_a_candidates[a_idx]
-                                        locked_team_assignments[track_id] = TeamID.TEAM_A
-                                        team_counts[TeamID.TEAM_A] += 1
-                                        a_idx += 1
+                                for idx, (track_id, predicted_team, dist, hist) in enumerate(all_predictions):
+                                    # First 6 (lowest distance) = team_a, last 6 = team_b
+                                    assigned_team = TeamID.TEAM_A if idx < team_cap else TeamID.TEAM_B
 
-                                        print(f"  Track {track_id}: {TeamID.TEAM_A.value} (dist={dist:.3f})")
+                                    # Lock assignment
+                                    locked_team_assignments[track_id] = assigned_team
+                                    team_counts[assigned_team] += 1
 
-                                        # Apply locked assignment immediately
-                                        current_frame_state[track_id]['detection'].team = TeamID.TEAM_A
-                                        if track_id in track_histories:
-                                            track_histories[track_id].team = TeamID.TEAM_A
-                                        team_votes[track_id][TeamID.TEAM_A] = team_vote_count
-                                        team_histories[track_id].append(hist)
+                                    print(f"  Track {track_id}: {assigned_team.value} (dist={dist:.3f}, predicted={predicted_team.value})")
 
-                                    # Try to assign most confident team_b candidate
-                                    if b_idx < len(team_b_candidates) and team_counts[TeamID.TEAM_B] < team_cap:
-                                        track_id, predicted_team, dist, hist = team_b_candidates[b_idx]
-                                        locked_team_assignments[track_id] = TeamID.TEAM_B
-                                        team_counts[TeamID.TEAM_B] += 1
-                                        b_idx += 1
-
-                                        print(f"  Track {track_id}: {TeamID.TEAM_B.value} (dist={dist:.3f})")
-
-                                        # Apply locked assignment immediately
-                                        current_frame_state[track_id]['detection'].team = TeamID.TEAM_B
-                                        if track_id in track_histories:
-                                            track_histories[track_id].team = TeamID.TEAM_B
-                                        team_votes[track_id][TeamID.TEAM_B] = team_vote_count
-                                        team_histories[track_id].append(hist)
+                                    # Apply immediately
+                                    current_frame_state[track_id]['detection'].team = assigned_team
+                                    if track_id in track_histories:
+                                        track_histories[track_id].team = assigned_team
+                                    team_votes[track_id][assigned_team] = team_vote_count
+                                    team_histories[track_id].append(hist)
 
                                 first_frame_processed = True
                                 print(f"[TEAM] First-frame lock-in complete: A={team_counts[TeamID.TEAM_A]}, B={team_counts[TeamID.TEAM_B]}")
@@ -1356,12 +1446,77 @@ class Pipeline:
 
                         # For subsequent frames: apply locked assignments first, then handle new players
                         if team_enabled and first_frame_processed:
+                            # Step 1: Apply locked assignments
                             for track_id, state in current_frame_state.items():
                                 if track_id in locked_team_assignments:
-                                    # Use locked assignment
                                     state['detection'].team = locked_team_assignments[track_id]
                                     if track_id in track_histories:
                                         track_histories[track_id].team = locked_team_assignments[track_id]
+
+                            # Step 2: Count active players per team
+                            team_cap = 6
+                            active_counts = {TeamID.TEAM_A: 0, TeamID.TEAM_B: 0}
+                            for track_id, state in current_frame_state.items():
+                                team = state['detection'].team
+                                if team in active_counts:
+                                    active_counts[team] += 1
+
+                            # Step 3: Handle NEW players (not in locked_team_assignments)
+                            # These are players who went off-screen and came back with new ID
+                            new_players = [tid for tid in current_frame_state.keys() if tid not in locked_team_assignments]
+
+                            if new_players:
+                                print(f"[TEAM] Frame {frame_idx}: {len(new_players)} new player(s) need team assignment")
+
+                                # Get frame dimensions for edge detection
+                                frame_height, frame_width = frame.shape[:2]
+                                edge_margin = 30  # pixels - bbox must be this far from edge
+
+                                for new_tid in new_players:
+                                    state = current_frame_state[new_tid]
+                                    bbox = state['bbox']
+
+                                    # Check if player bbox is touching frame edges
+                                    # If so, jersey may not be fully visible - wait for them to enter frame
+                                    x1, y1, x2, y2 = bbox.x1, bbox.y1, bbox.x2, bbox.y2
+                                    at_left_edge = x1 < edge_margin
+                                    at_right_edge = x2 > (frame_width - edge_margin)
+                                    at_top_edge = y1 < edge_margin
+                                    at_bottom_edge = y2 > (frame_height - edge_margin)
+
+                                    if at_left_edge or at_right_edge or at_top_edge or at_bottom_edge:
+                                        edge_name = "left" if at_left_edge else "right" if at_right_edge else "top" if at_top_edge else "bottom"
+                                        print(f"[TEAM] New player #{new_tid} at {edge_name} edge - waiting for full jersey visibility")
+                                        continue  # Skip this player, try again next frame
+
+                                    # Predict team using jersey color
+                                    hist = state.get('team_hist')
+                                    if hist is None or (hasattr(hist, "size") and hist.size == 0):
+                                        hist, _, _, _ = team_classifier.extract_features(frame, state['bbox'])
+
+                                    predicted_team, dist = team_classifier.predict_dfu(hist)
+
+                                    # Assign to predicted team if space, otherwise other team
+                                    if predicted_team == TeamID.TEAM_A and active_counts[TeamID.TEAM_A] < team_cap:
+                                        assigned_team = TeamID.TEAM_A
+                                    elif predicted_team == TeamID.TEAM_B and active_counts[TeamID.TEAM_B] < team_cap:
+                                        assigned_team = TeamID.TEAM_B
+                                    elif active_counts[TeamID.TEAM_A] < team_cap:
+                                        assigned_team = TeamID.TEAM_A
+                                    elif active_counts[TeamID.TEAM_B] < team_cap:
+                                        assigned_team = TeamID.TEAM_B
+                                    else:
+                                        # Both full - force to predicted team
+                                        assigned_team = predicted_team if predicted_team in (TeamID.TEAM_A, TeamID.TEAM_B) else TeamID.TEAM_A
+
+                                    # Apply and lock assignment
+                                    state['detection'].team = assigned_team
+                                    if new_tid in track_histories:
+                                        track_histories[new_tid].team = assigned_team
+                                    locked_team_assignments[new_tid] = assigned_team
+                                    active_counts[assigned_team] += 1
+
+                                    print(f"[TEAM] New player #{new_tid} → {assigned_team.value} (predicted={predicted_team.value}, dist={dist:.3f})")
 
                         # Hierarchical team assignment: confident players first, then fill gaps
                         # DISABLED: Using first-frame lock-in approach instead
@@ -1625,6 +1780,9 @@ class Pipeline:
                     previous_frame_state = current_frame_state.copy()
                     # Cache current frame for SAM baseline (in case YOLO drops on next frame)
                     previous_frame_image = frame.copy()
+
+                    # Increment video cut tracking counter
+                    frames_since_video_cut += 1
 
                 pbar.update(len(batch))
 

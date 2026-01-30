@@ -453,7 +453,7 @@ class ByteTracker:
                 too_far = distance_matrix[i, :] > scaled_gate
                 iou_matrix[i, too_far] = 0.0
 
-        # Team gating: zero out matches between different locked teams
+        # Team gating: heavily penalize matches between different locked teams
         if det_team_preds is not None and track_team_map is not None:
             for i, track in enumerate(tracks):
                 locked_team = track_team_map.get(track.track_id)
@@ -461,7 +461,9 @@ class ByteTracker:
                     continue
                 for j, team_pred in enumerate(det_team_preds):
                     if team_pred in (TeamID.TEAM_A, TeamID.TEAM_B) and team_pred != locked_team:
-                        iou_matrix[i, j] = 0.0
+                        # Use large negative penalty to make cross-team matches extremely unlikely
+                        # This prevents ID swaps when players from different teams get close
+                        iou_matrix[i, j] = -999.0
 
         # Velocity consistency: penalize matches that contradict Kalman-predicted motion
         if self.velocity_weight > 0 and len(tracks) > 0 and len(detections) > 0:
