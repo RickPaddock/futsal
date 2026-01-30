@@ -1225,12 +1225,15 @@ class Pipeline:
                                         continue
                                     
                                     # Weighted voting: 2x weight for recent 10 frames, 1x for older
+                                    # Batch predict all histograms at once (single kmeans.predict call)
                                     vote_counts: dict[TeamID, float] = defaultdict(float)
                                     hist_list = list(hist_deque)
                                     recent_cutoff = max(0, len(hist_list) - 10)
-                                    
-                                    for i, h in enumerate(hist_list):
-                                        team_pred = team_classifier.predict(h)
+
+                                    all_hists = np.stack(hist_list)
+                                    all_labels = team_classifier.kmeans.predict(all_hists.reshape(len(hist_list), -1))
+                                    for i, label in enumerate(all_labels):
+                                        team_pred = team_classifier.label_to_team.get(int(label), TeamID.UNKNOWN)
                                         if team_pred is not None:
                                             weight = 2.0 if i >= recent_cutoff else 1.0
                                             vote_counts[team_pred] += weight
@@ -1778,8 +1781,6 @@ class Pipeline:
 
                     # Update previous_frame_state for next iteration
                     previous_frame_state = current_frame_state.copy()
-                    # Cache current frame for SAM baseline (in case YOLO drops on next frame)
-                    previous_frame_image = frame.copy()
 
                     # Increment video cut tracking counter
                     frames_since_video_cut += 1
