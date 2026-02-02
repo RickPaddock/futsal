@@ -122,23 +122,52 @@ class PlayerTrack(Track):
     """Player track with identification info."""
     team: TeamID = TeamID.UNKNOWN
     jersey_number: Optional[int] = None
-    jersey_votes: dict[int, int] = Field(default_factory=dict)  # number -> vote count
+    jersey_votes: dict[int, float] = Field(default_factory=dict)  # number -> cumulative confidence
+    jersey_locked: bool = False
+    jersey_lock_confidence: float = 0.0
+    last_identification_frame: Optional[int] = None
     embedding: Optional[list[float]] = None  # Re-ID embedding
 
-    def vote_jersey_number(self, number: int, confidence: float = 1.0):
-        """Add a vote for a jersey number detection."""
-        if number not in self.jersey_votes:
-            self.jersey_votes[number] = 0
-        self.jersey_votes[number] += int(confidence * 10)
+    def vote_jersey_number(self, number: int, confidence: float) -> None:
+        """Add a confidence-weighted vote for a jersey number detection."""
+        if confidence <= 0:
+            return
+        self.jersey_votes[number] = self.jersey_votes.get(number, 0.0) + float(confidence)
 
-    def get_confirmed_number(self, threshold: int = 5) -> Optional[int]:
-        """Get jersey number if vote threshold met."""
+    def get_best_vote(self) -> tuple[Optional[int], float]:
+        """Return the most-voted number and its cumulative confidence."""
         if not self.jersey_votes:
-            return None
+            return None, 0.0
         best_number = max(self.jersey_votes, key=self.jersey_votes.get)
-        if self.jersey_votes[best_number] >= threshold:
-            return best_number
-        return None
+        return best_number, self.jersey_votes[best_number]
+
+    def try_lock_number(self, threshold: float) -> bool:
+        """Lock jersey number once cumulative confidence crosses threshold."""
+        number, score = self.get_best_vote()
+        if number is None or score < threshold:
+            return False
+        self.jersey_number = number
+        self.jersey_locked = True
+        self.jersey_lock_confidence = score
+        return True
+
+    def reset_jersey_identification(self) -> None:
+        """Reset jersey identification state for the track."""
+        self.jersey_number = None
+        self.jersey_votes.clear()
+        self.jersey_locked = False
+        self.jersey_lock_confidence = 0.0
+        self.last_identification_frame = None
+
+    def get_confirmed_number(self, threshold: float = 0.0) -> Optional[int]:
+        """Return locked jersey number or best vote above threshold."""
+        if self.jersey_locked and self.jersey_number is not None:
+            return self.jersey_number
+
+        number, score = self.get_best_vote()
+        if number is None:
+            return None
+        return number if score >= threshold else None
 
 
 

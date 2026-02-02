@@ -303,6 +303,18 @@ def draw_frame_annotations(
     # Convert RGB to BGR for OpenCV
     frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
+    # Determine highest-confidence ball detection for this frame
+    frame_ball_detections = [
+        ball for ball in match_data.ball_positions
+        if ball.frame_idx == frame_idx
+    ]
+    best_ball = max(
+        frame_ball_detections,
+        key=lambda b: b.bbox.confidence,
+        default=None,
+    )
+    best_ball_conf = best_ball.bbox.confidence if best_ball is not None else None
+
     # Resolve palette (allows runtime override from pipeline)
     palette = team_colors or TEAM_COLORS
     # DEBUG: Print palette/team mapping on first frame
@@ -373,8 +385,11 @@ def draw_frame_annotations(
 
             # Build label with tier indicator
             label_parts = [f"#{track.track_id}"]
-            if track.jersey_number is not None:
-                label_parts.append(f"J{track.jersey_number}")
+            jersey_number = getattr(det, "jersey_number", None)
+            if jersey_number is None:
+                jersey_number = track.jersey_number
+            if jersey_number is not None:
+                label_parts.append(f"J{jersey_number}")
 
             # Assign tier and visual style
             # IMPORTANT: T2 (SAM) uses same base_color as T1 for consistency
@@ -627,15 +642,31 @@ def draw_frame_annotations(
         2,
     )
 
+    # Draw ball confidence box below frame counter
+    box_x, box_y = 10, 45
+    box_w, box_h = 180, 30
+    conf_overlay = frame_bgr.copy()
+    cv2.rectangle(conf_overlay, (box_x, box_y), (box_x + box_w, box_y + box_h), (0, 0, 0), -1)
+    frame_bgr = cv2.addWeighted(conf_overlay, 0.4, frame_bgr, 0.6, 0)
+    if best_ball_conf is not None:
+        conf_text = f"Ball conf: {best_ball_conf:.2f}"
+        conf_color = BALL_COLOR
+    else:
+        conf_text = "Ball conf: --"
+        conf_color = (180, 180, 180)
+    cv2.putText(
+        frame_bgr,
+        conf_text,
+        (box_x + 8, box_y + 20),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.6,
+        conf_color,
+        2,
+    )
+
     # Draw ball position (with optional trail annotator)
     if draw_ball:
-        # Find best ball detection for this frame (highest confidence)
-        best_ball = None
-        best_conf = 0.0
-        for ball in match_data.ball_positions:
-            if ball.frame_idx == frame_idx and ball.bbox.confidence > best_conf:
-                best_ball = ball
-                best_conf = ball.bbox.confidence
+        best_conf = best_ball_conf or 0.0
 
         if ball_annotator is not None:
             # Trail annotator: jet-colormap tail with interpolated radius

@@ -7,7 +7,10 @@ Orchestrates the detection, tracking, and output generation stages.
 from pathlib import Path
 from typing import Optional
 from collections import defaultdict, deque
+import logging
+import math
 import sys
+import time
 import numpy as np
 from tqdm import tqdm
 import cv2
@@ -18,15 +21,165 @@ from src.utils.data_models import (
     PlayerTrack,
     MatchData,
     BoundingBox,
+    Detection,
     TeamID,
 )
 from src.detection.player_detector import PlayerDetector, filter_detections_by_size, extract_color_histogram
 from src.detection.ball_detector import BallDetector
 from src.detection.tracking import ByteTracker, convert_stracks_to_player_tracks
 from src.detection.segmentation_sam2 import SamSegmenter2
+from src.detection.jersey_classifier import JerseyClassifier
 from src.geometry.homography import CourtHomography, create_homography_from_config
 from src.detection.team_clustering import TeamClustering
 from src.utils.visualization import TEAM_COLORS
+
+
+logger = logging.getLogger(__name__)
+
+
+class BallTemporalFilter:
+    """Temporal smoothing guard that suppresses one-frame teleports."""
+
+    def __init__(
+        self,
+        enabled: bool = True,
+        max_jump_distance: float = 85.0,
+        min_persist_frames: int = 2,
+        grace_return_frames: int = 3,
+        high_confidence_accept: float = 0.82,
+        max_idle_frames: int = 12,
+    ) -> None:
+        self.enabled = enabled
+        self.max_jump_distance = max_jump_distance
+        self.min_persist_frames = max(1, min_persist_frames)
+        self.grace_return_frames = max(1, grace_return_frames)
+        self.high_confidence_accept = high_confidence_accept
+        self.max_idle_frames = max(1, max_idle_frames)
+
+        self.last_confirmed: Optional[Detection] = None
+        self.last_confirmed_frame: int = -1
+
+        self.pending_buffer: list[Detection] = []
+        self.pending_start_frame: int = -1
+        self.pending_last_center: Optional[tuple[float, float]] = None
+        self.pending_persist: int = 0
+        self.pending_idle_frames: int = 0
+
+        self.frames_without_detection: int = 0
+
+    @staticmethod
+    def _center(det: Detection) -> tuple[float, float]:
+        return det.bbox.center
+
+    @staticmethod
+    def _distance(a: tuple[float, float], b: tuple[float, float]) -> float:
+        return math.hypot(a[0] - b[0], a[1] - b[1])
+
+    def _select_candidate(self, detections: list[Detection]) -> Detection:
+        if self.last_confirmed is None:
+            return max(detections, key=lambda d: d.bbox.confidence)
+
+        last_center = self._center(self.last_confirmed)
+        nearby = [
+            det for det in detections
+            if self._distance(self._center(det), last_center) <= self.max_jump_distance
+        ]
+        if nearby:
+            return max(nearby, key=lambda d: d.bbox.confidence)
+
+        return min(detections, key=lambda d: self._distance(self._center(d), last_center))
+
+    def update(self, detections: list[Detection]) -> list[Detection]:
+        if not self.enabled:
+            return detections
+
+        if not detections:
+            self.frames_without_detection += 1
+            if self.pending_buffer:
+                self.pending_idle_frames += 1
+                if self.pending_idle_frames > self.grace_return_frames:
+                    self.pending_buffer.clear()
+                    self.pending_start_frame = -1
+                    self.pending_last_center = None
+                    self.pending_persist = 0
+            if (
+                self.last_confirmed is not None
+                and self.frames_without_detection > self.max_idle_frames
+            ):
+                self.last_confirmed = None
+                self.last_confirmed_frame = -1
+            return []
+
+        # Reset non-detection counters once we have candidates
+        self.frames_without_detection = 0
+        self.pending_idle_frames = 0
+
+        candidate = self._select_candidate(detections)
+        candidate_center = self._center(candidate)
+
+        if self.last_confirmed is None:
+            self.last_confirmed = candidate
+            self.last_confirmed_frame = candidate.frame_idx
+            return [candidate]
+
+        last_center = self._center(self.last_confirmed)
+        distance_to_last = self._distance(candidate_center, last_center)
+
+        if distance_to_last <= self.max_jump_distance:
+            self.pending_buffer.clear()
+            self.pending_start_frame = -1
+            self.pending_last_center = None
+            self.pending_persist = 0
+            self.last_confirmed = candidate
+            self.last_confirmed_frame = candidate.frame_idx
+            return [candidate]
+
+        if candidate.bbox.confidence >= self.high_confidence_accept:
+            self.pending_buffer.clear()
+            self.pending_start_frame = -1
+            self.pending_last_center = None
+            self.pending_persist = 0
+            self.last_confirmed = candidate
+            self.last_confirmed_frame = candidate.frame_idx
+            return [candidate]
+
+        if not self.pending_buffer:
+            self.pending_buffer = [candidate]
+            self.pending_start_frame = candidate.frame_idx
+            self.pending_last_center = candidate_center
+            self.pending_persist = 1
+            return []
+
+        distance_to_pending = self._distance(candidate_center, self.pending_last_center)
+        if distance_to_pending <= self.max_jump_distance:
+            self.pending_buffer.append(candidate)
+            self.pending_last_center = candidate_center
+            self.pending_persist += 1
+        else:
+            self.pending_buffer = [candidate]
+            self.pending_start_frame = candidate.frame_idx
+            self.pending_last_center = candidate_center
+            self.pending_persist = 1
+
+        frames_in_pending = (
+            candidate.frame_idx - self.pending_start_frame + 1
+            if self.pending_start_frame >= 0 else self.pending_persist
+        )
+
+        if (
+            self.pending_persist >= self.min_persist_frames
+            or frames_in_pending > self.grace_return_frames
+        ):
+            committed = list(self.pending_buffer)
+            self.last_confirmed = committed[-1]
+            self.last_confirmed_frame = self.last_confirmed.frame_idx
+            self.pending_buffer.clear()
+            self.pending_start_frame = -1
+            self.pending_last_center = None
+            self.pending_persist = 0
+            return committed
+
+        return []
 
 
 class Pipeline:
@@ -60,6 +213,7 @@ class Pipeline:
         self._tracker: Optional[ByteTracker] = None
         self._sam_segmenter: Optional[SamSegmenter2] = None
         self._homography: Optional[CourtHomography] = None
+        self._jersey_classifier: Optional[JerseyClassifier] = None
 
         # Match data storage
         self.match_data: Optional[MatchData] = None
@@ -132,6 +286,21 @@ class Pipeline:
             self._homography = create_homography_from_config(self.config)
         return self._homography
 
+    @property
+    def jersey_classifier(self) -> JerseyClassifier:
+        """Lazy-load jersey digit classifier."""
+        if self._jersey_classifier is None:
+            cfg = self.config.get("jersey_identification", {})
+            model_path = cfg.get("model")
+            if not model_path:
+                raise ValueError("jersey_identification.model must be configured when jersey identification is enabled")
+            self._jersey_classifier = JerseyClassifier(
+                model_path=model_path,
+                device=self.device,
+                top_crop_ratio=cfg.get("top_crop_ratio", 0.5),
+            )
+        return self._jersey_classifier
+
     def _build_tracker(self) -> ByteTracker:
         """Construct a fresh tracker instance from config."""
         cfg = self.config["tracking"]
@@ -164,6 +333,9 @@ class Pipeline:
         """
         # Reset tracker state per video to keep IDs consistent between runs
         self._tracker = self._build_tracker()
+
+        processing_start = time.perf_counter()
+        processed_frame_count = 0
 
         reader = VideoReader(video_path)
         print(f"Video info:")
@@ -199,6 +371,25 @@ class Pipeline:
         team_sampling_stride = team_cfg.get("sampling_stride")
         team_sample_full_video = team_cfg.get("sample_full_video", False)
         sample_min_players = max(8, expected_players - 2)
+
+        jersey_cfg = self.config.get("jersey_identification", {})
+        jersey_enabled = bool(jersey_cfg.get("enabled", False) and jersey_cfg.get("model"))
+        jersey_gate_conf = jersey_cfg.get("gate_confidence", 0.75)
+        jersey_min_aspect = jersey_cfg.get("gate_min_aspect_ratio", 1.3)
+        jersey_classifier_conf = jersey_cfg.get("classifier_confidence", 0.55)
+        jersey_frame_stride = max(1, int(jersey_cfg.get("frame_stride", 5)))
+        jersey_lock_threshold = float(jersey_cfg.get("lock_threshold", 18.0))
+
+        ball_cfg = self.config.get("ball_detection", {})
+        ball_temporal_cfg = ball_cfg.get("temporal_filter", {}) if isinstance(ball_cfg.get("temporal_filter", {}), dict) else {}
+        ball_filter = BallTemporalFilter(
+            enabled=ball_temporal_cfg.get("enabled", True),
+            max_jump_distance=float(ball_temporal_cfg.get("max_jump_distance", 85.0)),
+            min_persist_frames=int(ball_temporal_cfg.get("min_persist_frames", 2)),
+            grace_return_frames=int(ball_temporal_cfg.get("grace_return_frames", 3)),
+            high_confidence_accept=float(ball_temporal_cfg.get("high_confidence_accept", 0.82)),
+            max_idle_frames=int(ball_temporal_cfg.get("max_idle_frames", 12)),
+        )
 
         team_classifier = TeamClustering(
             bins=team_bins,
@@ -396,12 +587,15 @@ class Pipeline:
                         and d.bbox.confidence >= debug_low_thresh
                     ]
                     
-                    # Store ball detections
+                    ball_detections = ball_detections or []
+
+                    # Store ball detections with temporal smoothing guard
                     if ball_detections:
-                        # Update frame_idx on ball detections
                         for ball in ball_detections:
                             ball.frame_idx = frame_idx
-                        self.match_data.ball_positions.extend(ball_detections)
+                    filtered_balls = ball_filter.update(ball_detections)
+                    if filtered_balls:
+                        ball_positions.extend(filtered_balls)
                     
                     # Filter detections
                     detections = filter_detections_by_size(detections)
@@ -1163,6 +1357,19 @@ class Pipeline:
                     log_frame_state(frame_idx, "T3 additions", t3_state)
                     log_frame_state(frame_idx, "end_state (carry to next)", current_frame_state)
 
+                    if jersey_enabled:
+                        self._update_jersey_identification(
+                            frame=frame,
+                            frame_idx=frame_idx,
+                            current_frame_state=current_frame_state,
+                            track_histories=track_histories,
+                            gate_confidence=jersey_gate_conf,
+                            min_aspect_ratio=jersey_min_aspect,
+                            classifier_min_conf=jersey_classifier_conf,
+                            frame_stride=jersey_frame_stride,
+                            lock_threshold=jersey_lock_threshold,
+                        )
+
                     # =============================================================
                     # TEAM CLASSIFICATION (optional, per-run)
                     # =============================================================
@@ -1413,39 +1620,6 @@ class Pipeline:
 
                                 first_frame_processed = True
                                 print(f"[TEAM] First-frame lock-in complete: A={team_counts[TeamID.TEAM_A]}, B={team_counts[TeamID.TEAM_B]}")
-
-                                # Save first-frame crops for debugging
-                                crops_dir = self.output_dir / "player_crops"
-                                crops_dir.mkdir(parents=True, exist_ok=True)
-
-                                for track_id, state in current_frame_state.items():
-                                    bbox = state.get('bbox')
-                                    if bbox is None:
-                                        continue
-
-                                    # Get the exact jersey crop region (same as team classifier)
-                                    x1, y1, x2, y2 = team_classifier._crop_jersey_region(bbox, frame.shape)
-                                    if x2 <= x1 or y2 <= y1:
-                                        continue
-
-                                    roi_rgb = frame[y1:y2, x1:x2]
-                                    roi_bgr = cv2.cvtColor(roi_rgb, cv2.COLOR_RGB2BGR)
-
-                                    # Also get the mask to show what pixels are actually used
-                                    mask = team_classifier._jersey_mask(roi_rgb)
-
-                                    # Save: 1) raw crop, 2) masked crop, 3) mask itself
-                                    team_label = locked_team_assignments.get(track_id, TeamID.UNKNOWN).value
-                                    prefix = f"frame{frame_idx}_track{track_id}_{team_label}"
-
-                                    cv2.imwrite(str(crops_dir / f"{prefix}_1_crop.jpg"), roi_bgr)
-
-                                    if mask is not None and np.any(mask):
-                                        masked_bgr = cv2.bitwise_and(roi_bgr, roi_bgr, mask=mask)
-                                        cv2.imwrite(str(crops_dir / f"{prefix}_2_masked.jpg"), masked_bgr)
-                                        cv2.imwrite(str(crops_dir / f"{prefix}_3_mask.jpg"), mask)
-
-                                print(f"[DEBUG] Saved first-frame player crops to {crops_dir}")
 
                         # For subsequent frames: apply locked assignments first, then handle new players
                         if team_enabled and first_frame_processed:
@@ -1775,9 +1949,7 @@ class Pipeline:
                                 print(f"[GUARD] Frame {frame_idx}: Resetting track_histories[{track_id}] team to UNKNOWN (was {track_histories[track_id].team.value})")
                                 track_histories[track_id].team = TeamID.UNKNOWN
 
-                    # Store ball detection if found (single ball per frame)
-                    if ball_detections:
-                        ball_positions.extend(ball_detections)
+                    processed_frame_count += 1
 
                     # Update previous_frame_state for next iteration
                     previous_frame_state = current_frame_state.copy()
@@ -1796,6 +1968,15 @@ class Pipeline:
         print(f"  Player tracks: {len(self.match_data.player_tracks)}")
         print(f"  Ball detections: {len(self.match_data.ball_positions)}")
 
+        elapsed = time.perf_counter() - processing_start
+        runtime_fps = (processed_frame_count / elapsed) if elapsed > 0 else 0.0
+        logger.info(
+            "Processing throughput: %.2f FPS (%d frames in %.2fs)",
+            runtime_fps,
+            processed_frame_count,
+            elapsed,
+        )
+
         # Generate debug output if enabled
         if self.debug:
             self._generate_debug_video(video_path, start_frame, end_frame)
@@ -1810,6 +1991,139 @@ class Pipeline:
         print(f"  Results JSON: {self.output_dir / 'tracking_results.json'}")
 
         return self.match_data
+
+    def _update_jersey_identification(
+        self,
+        frame: np.ndarray,
+        frame_idx: int,
+        current_frame_state: dict[int, dict],
+        track_histories: dict[int, PlayerTrack],
+        gate_confidence: float,
+        min_aspect_ratio: float,
+        classifier_min_conf: float,
+        frame_stride: int,
+        lock_threshold: float,
+    ) -> None:
+        """Run lightweight jersey identification on eligible tracks."""
+        if not current_frame_state:
+            return
+
+        classifier = self.jersey_classifier
+
+        for track_id, state in current_frame_state.items():
+            track = track_histories.get(track_id)
+            detection = state.get("detection")
+            if track is None or detection is None:
+                continue
+
+            if track.jersey_locked and track.jersey_number is not None:
+                detection.jersey_number = track.jersey_number
+                detection.jersey_confidence = track.jersey_lock_confidence
+                continue
+
+            best_number, best_score = track.get_best_vote()
+            if best_number is not None and best_score > 0:
+                detection.jersey_number = best_number
+                detection.jersey_confidence = best_score
+            else:
+                detection.jersey_number = None
+                detection.jersey_confidence = 0.0
+
+            if getattr(detection, "is_interpolated", False):
+                continue
+
+            if not self._passes_jersey_gate(detection, gate_confidence, min_aspect_ratio):
+                continue
+
+            if (
+                track.last_identification_frame is not None
+                and frame_idx - track.last_identification_frame < frame_stride
+            ):
+                continue
+
+            number, confidence = classifier.classify(frame, detection.bbox)
+            track.last_identification_frame = frame_idx
+
+            if number is None or confidence < classifier_min_conf:
+                continue
+
+            track.vote_jersey_number(number, confidence)
+            best_number, best_score = track.get_best_vote()
+            if best_number is not None:
+                detection.jersey_number = best_number
+                detection.jersey_confidence = best_score
+                print(
+                    f"[JERSEY] Frame {frame_idx}: Track {track_id} vote {number}"
+                    f" conf={confidence:.2f} cumulative={best_score:.2f}"
+                )
+
+            if track.try_lock_number(lock_threshold):
+                detection.jersey_number = track.jersey_number
+                detection.jersey_confidence = track.jersey_lock_confidence
+                print(
+                    f"[JERSEY] Frame {frame_idx}: Track {track_id} LOCKED"
+                    f" jersey {track.jersey_number} (score={track.jersey_lock_confidence:.2f})"
+                )
+
+        self._resolve_jersey_conflicts(track_histories, current_frame_state)
+
+        for track_id, state in current_frame_state.items():
+            track = track_histories.get(track_id)
+            detection = state.get("detection")
+            if track is None or detection is None:
+                continue
+            if track.jersey_locked and track.jersey_number is not None:
+                detection.jersey_number = track.jersey_number
+                detection.jersey_confidence = track.jersey_lock_confidence
+
+    @staticmethod
+    def _passes_jersey_gate(
+        detection: PlayerDetection,
+        min_confidence: float,
+        min_aspect_ratio: float,
+    ) -> bool:
+        """Return True if detection meets gate criteria."""
+        if detection.bbox.confidence < min_confidence:
+            return False
+
+        width = detection.bbox.width
+        height = detection.bbox.height
+        if width <= 0 or height <= 0:
+            return False
+
+        aspect_ratio = height / max(width, 1e-6)
+        return aspect_ratio >= min_aspect_ratio
+
+    def _resolve_jersey_conflicts(
+        self,
+        track_histories: dict[int, PlayerTrack],
+        current_frame_state: dict[int, dict],
+    ) -> None:
+        """Resolve duplicate jersey locks by keeping the highest-confidence track."""
+        claims: dict[int, list[PlayerTrack]] = defaultdict(list)
+        for track in track_histories.values():
+            if track.jersey_locked and track.jersey_number is not None:
+                claims[track.jersey_number].append(track)
+
+        for number, tracks in claims.items():
+            if len(tracks) <= 1:
+                continue
+
+            tracks.sort(key=lambda t: t.jersey_lock_confidence, reverse=True)
+            winner = tracks[0]
+            for loser in tracks[1:]:
+                logger.debug(
+                    "Resetting jersey number %s for track %s (conflict with track %s)",
+                    number,
+                    loser.track_id,
+                    winner.track_id,
+                )
+                loser.reset_jersey_identification()
+                if loser.track_id in current_frame_state:
+                    detection = current_frame_state[loser.track_id].get("detection")
+                    if detection is not None:
+                        detection.jersey_number = None
+                        detection.jersey_confidence = 0.0
 
     def _generate_debug_video(
         self,

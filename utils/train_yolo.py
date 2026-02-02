@@ -35,10 +35,8 @@ TASKS = {
         "output_weights": "models/futsal_player_detector.pt",
     },
     "ball": {
-        # Tiled ball dataset WITH OVERLAP (matches InferenceSlicer)
-        # Generate with: python utils/tile_dataset.py --input models/datasets/BALL/<ROBOFLOW_EXPORT> --output models/datasets/BALL/GoPro_BALL_v1_tiled_overlap
         "dataset_path": "models/datasets/BALL/GoPro_BALL_v1_tiled_overlap/data.yaml",
-        # Use yolo11x for best small object detection (Roboflow blog recommends largest model)
+        # Use yolo11x for best small object detection (largest backbone keeps the ball visible)
         "base_model": "models/yolo11x.pt",
         "epochs": 50,  # Roboflow blog used 50 epochs; early stopping will apply if converged
         "image_size": 640,
