@@ -35,11 +35,93 @@ TEAM_COLORS = {
 }
 
 BALL_COLOR = (0, 165, 255)  # Orange
+JERSEY_STATUS_REGION_RATIO = 0.45
 
 
 def get_track_color(track_id: int) -> tuple[int, int, int]:
     """Get color for a track ID."""
     return TRACK_COLORS[track_id % len(TRACK_COLORS)]
+
+
+def draw_jersey_status_overlay(
+    frame: np.ndarray,
+    bbox: BoundingBox,
+    team_color: tuple[int, int, int],
+    vote_number: int,
+    vote_confidence: float,
+    vote_cumulative: float,
+    locked: bool,
+    lock_threshold: float,
+    vote_totals: Optional[list[tuple[int, float]]] = None,
+) -> None:
+    """Render jersey vote status near the detection."""
+    x1, y1, x2, y2 = int(bbox.x1), int(bbox.y1), int(bbox.x2), int(bbox.y2)
+    frame_h, frame_w = frame.shape[:2]
+
+    # Highlight the upper torso region that feeds the classifier
+    region_y2 = y1 + int((y2 - y1) * JERSEY_STATUS_REGION_RATIO)
+    if locked:
+        region_color = tuple(int(0.55 * c + 0.45 * 255) for c in team_color)
+    else:
+        region_color = (0, 200, 255)
+    cv2.rectangle(frame, (x1, y1), (x2, region_y2), region_color, 2, lineType=cv2.LINE_AA)
+
+    # Prepare status text showing instantaneous vote and cumulative confidence
+    status_text = f"{vote_number} C{vote_confidence:.2f}"
+    if locked:
+        status_text += " LOCK"
+    elif lock_threshold > 0:
+        status_text += f" TRG{lock_threshold:.1f}"
+
+    breakdown_text = ""
+    if vote_totals:
+        breakdown_entries = [f"{num}:{score:.1f}" for num, score in vote_totals[:3]]
+        if breakdown_entries:
+            breakdown_text = " ".join(breakdown_entries)
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.5
+    thickness = 1
+    padding = 4
+    lines = [status_text]
+    if breakdown_text:
+        lines.append(breakdown_text)
+
+    text_metrics = [cv2.getTextSize(line, font, font_scale, thickness) for line in lines]
+    text_widths = [size[0][0] for size in text_metrics]
+    text_heights = [size[0][1] for size in text_metrics]
+    line_gap = 2
+
+    box_w = max(text_widths) + padding * 2
+    total_text_height = sum(text_heights) + max(0, len(lines) - 1) * line_gap
+    box_h = total_text_height + padding * 2
+    box_x1 = max(0, min(x1, frame_w - box_w))
+    box_y2 = min(frame_h - 1, y2 - 2)
+    box_y1 = box_y2 - box_h
+    if box_y1 <= y1:
+        # Not enough space inside box; drop just below
+        box_y1 = min(frame_h - box_h, y2 + 6)
+        box_y2 = box_y1 + box_h
+
+    text_bg_color = region_color if locked else (40, 40, 40)
+    cv2.rectangle(frame, (box_x1, box_y1), (box_x1 + box_w, box_y2), text_bg_color, -1)
+    cv2.rectangle(frame, (box_x1, box_y1), (box_x1 + box_w, box_y2), (0, 0, 0), 1)
+
+    text_color = (0, 0, 0) if locked else (255, 255, 255)
+    current_y = box_y1 + padding + text_heights[0]
+    for idx, line in enumerate(lines):
+        cv2.putText(
+            frame,
+            line,
+            (box_x1 + padding, current_y),
+            font,
+            font_scale,
+            text_color,
+            thickness,
+            cv2.LINE_AA,
+        )
+        if idx + 1 < len(lines):
+            current_y += text_heights[idx + 1] + line_gap
 
 
 def draw_bbox(
@@ -280,6 +362,7 @@ def draw_frame_annotations(
     homography: CourtHomography = None,
     ball_annotator: Optional[BallAnnotator] = None,
     team_colors: Optional[dict[TeamID, tuple[int, int, int]]] = None,
+    jersey_lock_threshold: Optional[float] = None,
 ) -> np.ndarray:
     """
     Draw all annotations for a frame.
@@ -390,6 +473,9 @@ def draw_frame_annotations(
                 jersey_number = track.jersey_number
             if jersey_number is not None:
                 label_parts.append(f"J{jersey_number}")
+            player_name = getattr(det, "player_name", None) or track.player_name
+            if player_name:
+                label_parts.append(str(player_name))
 
             # Assign tier and visual style
             # IMPORTANT: T2 (SAM) uses same base_color as T1 for consistency
@@ -445,6 +531,37 @@ def draw_frame_annotations(
             # Draw SAM mask when in dual-box mode (YOLO + SAM tracking both active)
             if hasattr(det, 'sam_mask') and det.sam_mask is not None:
                 frame_bgr = draw_sam_mask_prominent(frame_bgr, det.sam_mask, color=base_color, alpha=0.3)
+
+            # Overlay jersey vote status when available to show lock progress
+            jersey_vote_number = getattr(det, "jersey_vote_number", None)
+            if jersey_vote_number is None and track.jersey_locked and track.jersey_number is not None:
+                jersey_vote_number = track.jersey_number
+
+            jersey_vote_conf = getattr(det, "jersey_vote_confidence", 0.0)
+            jersey_vote_cum = getattr(det, "jersey_vote_cumulative", 0.0)
+            if track.jersey_locked:
+                jersey_vote_cum = max(jersey_vote_cum, track.jersey_lock_confidence)
+                if jersey_vote_conf <= 0:
+                    jersey_vote_conf = track.jersey_lock_confidence
+
+            lock_frame = getattr(track, "jersey_lock_frame", None)
+            jersey_vote_locked = getattr(det, "jersey_vote_locked", False)
+            if not jersey_vote_locked and track.jersey_locked and lock_frame is not None:
+                jersey_vote_locked = frame_idx >= lock_frame
+
+            threshold_val = jersey_lock_threshold if jersey_lock_threshold is not None else 0.0
+            if jersey_vote_number is not None and (jersey_vote_conf > 0 or jersey_vote_cum > 0):
+                draw_jersey_status_overlay(
+                    frame_bgr,
+                    det.bbox,
+                    team_color,
+                    jersey_vote_number,
+                    jersey_vote_conf,
+                    jersey_vote_cum,
+                    jersey_vote_locked,
+                    threshold_val,
+                    getattr(det, "jersey_vote_totals", []),
+                )
 
         # =============================================================
         # BIRD'S EYE VIEW MINIMAP (top-right corner)

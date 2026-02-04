@@ -1,5 +1,5 @@
 """
-Train YOLO model on custom futsal player dataset.
+Train YOLO model on custom futsal datasets (player, ball, jersey).
 
 Usage:
     python utils/train_yolo.py
@@ -46,6 +46,17 @@ TASKS = {
         "project": "runs/train",
         "name": "futsal_ball_detector_v2",
         "output_weights": "models/BALL_MODEL_best_v2.pt",
+    },
+    "jersey": {
+        "dataset_path": "models/datasets/JERSEY/GoPro_JERSEY_v1.v1i.yolov11/data.yaml",
+        "base_model": "models/yolo11m.pt",
+        "epochs": 75,
+        "image_size": 640,
+        "batch_size": 16,
+        "device": "0",
+        "project": "runs/train",
+        "name": "futsal_jersey_detector_v1",
+        "output_weights": "models/JERSEY_MODEL_best_v1.pt",
     },
 }
 

@@ -5,7 +5,7 @@ Defines structured data types for detections, tracks, events, and analytics.
 """
 
 from enum import Enum
-from typing import Optional
+from typing import Optional, List, Tuple
 from pydantic import BaseModel, Field
 import numpy as np
 
@@ -76,6 +76,12 @@ class PlayerDetection(Detection):
     team: TeamID = TeamID.UNKNOWN
     jersey_number: Optional[int] = None
     jersey_confidence: float = 0.0
+    player_name: Optional[str] = None
+    jersey_vote_number: Optional[int] = None
+    jersey_vote_confidence: float = 0.0
+    jersey_vote_cumulative: float = 0.0
+    jersey_vote_locked: bool = False
+    jersey_vote_totals: List[Tuple[int, float]] = Field(default_factory=list)
     color_histogram: Optional[np.ndarray] = None  # HSV histogram for appearance matching
     is_interpolated: bool = False  # True if position was predicted (Kalman), not detected
     mask: Optional[np.ndarray] = None  # Optional binary mask from segmentation (SAM)
@@ -125,8 +131,15 @@ class PlayerTrack(Track):
     jersey_votes: dict[int, float] = Field(default_factory=dict)  # number -> cumulative confidence
     jersey_locked: bool = False
     jersey_lock_confidence: float = 0.0
+    jersey_lock_frame: Optional[int] = None
+    jersey_display_number: Optional[int] = None
+    jersey_display_confidence: float = 0.0
+    jersey_display_cumulative: float = 0.0
+    jersey_display_frame: Optional[int] = None
+    jersey_display_totals: List[Tuple[int, float]] = Field(default_factory=list)
     last_identification_frame: Optional[int] = None
     embedding: Optional[list[float]] = None  # Re-ID embedding
+    player_name: Optional[str] = None
 
     def vote_jersey_number(self, number: int, confidence: float) -> None:
         """Add a confidence-weighted vote for a jersey number detection."""
@@ -141,7 +154,7 @@ class PlayerTrack(Track):
         best_number = max(self.jersey_votes, key=self.jersey_votes.get)
         return best_number, self.jersey_votes[best_number]
 
-    def try_lock_number(self, threshold: float) -> bool:
+    def try_lock_number(self, threshold: float, frame_idx: Optional[int] = None) -> bool:
         """Lock jersey number once cumulative confidence crosses threshold."""
         number, score = self.get_best_vote()
         if number is None or score < threshold:
@@ -149,6 +162,7 @@ class PlayerTrack(Track):
         self.jersey_number = number
         self.jersey_locked = True
         self.jersey_lock_confidence = score
+        self.jersey_lock_frame = frame_idx
         return True
 
     def reset_jersey_identification(self) -> None:
@@ -157,7 +171,14 @@ class PlayerTrack(Track):
         self.jersey_votes.clear()
         self.jersey_locked = False
         self.jersey_lock_confidence = 0.0
+        self.jersey_lock_frame = None
+        self.jersey_display_number = None
+        self.jersey_display_confidence = 0.0
+        self.jersey_display_cumulative = 0.0
+        self.jersey_display_frame = None
+        self.jersey_display_totals = []
         self.last_identification_frame = None
+        self.player_name = None
 
     def get_confirmed_number(self, threshold: float = 0.0) -> Optional[int]:
         """Return locked jersey number or best vote above threshold."""

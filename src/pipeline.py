@@ -5,7 +5,7 @@ Orchestrates the detection, tracking, and output generation stages.
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 from collections import defaultdict, deque
 import logging
 import math
@@ -219,6 +219,9 @@ class Pipeline:
         self.match_data: Optional[MatchData] = None
         # Runtime team palette (can be overridden by clustering or config)
         self.team_colors = TEAM_COLORS.copy()
+        # Jersey identification helpers
+        self.jersey_name_map: dict[int, str] = {}
+        self.locked_jersey_registry: dict[int, int] = {}
 
     @property
     def player_detector(self) -> PlayerDetector:
@@ -379,6 +382,7 @@ class Pipeline:
         jersey_classifier_conf = jersey_cfg.get("classifier_confidence", 0.55)
         jersey_frame_stride = max(1, int(jersey_cfg.get("frame_stride", 5)))
         jersey_lock_threshold = float(jersey_cfg.get("lock_threshold", 18.0))
+        self.jersey_name_map = self._build_jersey_name_map(jersey_cfg.get("name_map"))
 
         ball_cfg = self.config.get("ball_detection", {})
         ball_temporal_cfg = ball_cfg.get("temporal_filter", {}) if isinstance(ball_cfg.get("temporal_filter", {}), dict) else {}
@@ -1313,6 +1317,18 @@ class Pipeline:
                             # Ensure track exists in history
                             if track_id not in track_histories:
                                 track_histories[track_id] = PlayerTrack(track_id=track_id, detections=[])
+
+                            track_info = track_histories.get(track_id)
+                            if track_info is not None:
+                                det.player_name = track_info.player_name
+                                if track_info.jersey_locked and track_info.jersey_number is not None:
+                                    det.jersey_number = track_info.jersey_number
+                                    det.jersey_confidence = track_info.jersey_lock_confidence
+                                    det.jersey_vote_number = track_info.jersey_number
+                                    det.jersey_vote_confidence = track_info.jersey_lock_confidence
+                                    det.jersey_vote_cumulative = track_info.jersey_lock_confidence
+                                    det.jersey_vote_locked = True
+
                             track_histories[track_id].detections.append(det)
 
                             # Add to current_frame_state and active set
@@ -2010,24 +2026,26 @@ class Pipeline:
 
         classifier = self.jersey_classifier
 
-        for track_id, state in current_frame_state.items():
+        for track_id, state in list(current_frame_state.items()):
             track = track_histories.get(track_id)
             detection = state.get("detection")
             if track is None or detection is None:
                 continue
 
             if track.jersey_locked and track.jersey_number is not None:
-                detection.jersey_number = track.jersey_number
-                detection.jersey_confidence = track.jersey_lock_confidence
+                self._sync_locked_identity(track, detection)
                 continue
 
-            best_number, best_score = track.get_best_vote()
-            if best_number is not None and best_score > 0:
-                detection.jersey_number = best_number
-                detection.jersey_confidence = best_score
-            else:
-                detection.jersey_number = None
-                detection.jersey_confidence = 0.0
+            detection.jersey_number = None
+            detection.jersey_confidence = 0.0
+            detection.player_name = None
+            detection.jersey_vote_number = None
+            detection.jersey_vote_confidence = 0.0
+            detection.jersey_vote_cumulative = 0.0
+            detection.jersey_vote_locked = False
+            detection.jersey_vote_totals = []
+            if not track.jersey_locked:
+                track.player_name = None
 
             if getattr(detection, "is_interpolated", False):
                 continue
@@ -2045,21 +2063,52 @@ class Pipeline:
             track.last_identification_frame = frame_idx
 
             if number is None or confidence < classifier_min_conf:
+                detection.player_name = None
+                detection.jersey_vote_number = None
+                detection.jersey_vote_confidence = 0.0
+                detection.jersey_vote_cumulative = 0.0
+                detection.jersey_vote_locked = False
+                detection.jersey_vote_totals = []
+                if not track.jersey_locked:
+                    track.player_name = None
                 continue
 
             track.vote_jersey_number(number, confidence)
+            cumulative_for_number = track.jersey_votes.get(number, 0.0)
+            vote_totals = sorted(
+                ((num, score) for num, score in track.jersey_votes.items() if score > 0),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+            detection.jersey_vote_number = number
+            detection.jersey_vote_confidence = confidence
+            detection.jersey_vote_cumulative = cumulative_for_number
+            detection.jersey_vote_locked = False
+            detection.jersey_vote_totals = vote_totals
+
+            track.jersey_display_number = number
+            track.jersey_display_confidence = confidence
+            track.jersey_display_cumulative = cumulative_for_number
+            track.jersey_display_frame = frame_idx
+            track.jersey_display_totals = vote_totals
+
             best_number, best_score = track.get_best_vote()
             if best_number is not None:
-                detection.jersey_number = best_number
-                detection.jersey_confidence = best_score
                 print(
                     f"[JERSEY] Frame {frame_idx}: Track {track_id} vote {number}"
-                    f" conf={confidence:.2f} cumulative={best_score:.2f}"
+                    f" conf={confidence:.2f} cumulative={track.jersey_votes[number]:.2f}"
+                    f" best={best_number} ({best_score:.2f})"
                 )
 
-            if track.try_lock_number(lock_threshold):
-                detection.jersey_number = track.jersey_number
-                detection.jersey_confidence = track.jersey_lock_confidence
+            if track.try_lock_number(lock_threshold, frame_idx):
+                track.jersey_display_number = track.jersey_number
+                if track.jersey_display_confidence <= 0.0:
+                    track.jersey_display_confidence = confidence
+                track.jersey_display_cumulative = track.jersey_lock_confidence
+                track.jersey_display_frame = frame_idx
+                track.jersey_display_totals = vote_totals
+                self._sync_locked_identity(track, detection)
+                self._register_locked_number(track)
                 print(
                     f"[JERSEY] Frame {frame_idx}: Track {track_id} LOCKED"
                     f" jersey {track.jersey_number} (score={track.jersey_lock_confidence:.2f})"
@@ -2073,8 +2122,23 @@ class Pipeline:
             if track is None or detection is None:
                 continue
             if track.jersey_locked and track.jersey_number is not None:
-                detection.jersey_number = track.jersey_number
-                detection.jersey_confidence = track.jersey_lock_confidence
+                self._sync_locked_identity(track, detection)
+            else:
+                detection.jersey_number = None
+                detection.jersey_confidence = 0.0
+                detection.player_name = None
+                if track.jersey_display_number is not None:
+                    detection.jersey_vote_number = track.jersey_display_number
+                    detection.jersey_vote_confidence = track.jersey_display_confidence
+                    detection.jersey_vote_cumulative = track.jersey_display_cumulative
+                    detection.jersey_vote_locked = False
+                    detection.jersey_vote_totals = list(track.jersey_display_totals)
+                else:
+                    detection.jersey_vote_number = None
+                    detection.jersey_vote_confidence = 0.0
+                    detection.jersey_vote_cumulative = 0.0
+                    detection.jersey_vote_locked = False
+                    detection.jersey_vote_totals = []
 
     @staticmethod
     def _passes_jersey_gate(
@@ -2094,6 +2158,134 @@ class Pipeline:
         aspect_ratio = height / max(width, 1e-6)
         return aspect_ratio >= min_aspect_ratio
 
+    @staticmethod
+    def _normalize_jersey_key(key: Any) -> Optional[int]:
+        """Normalize config keys (digits or words) into jersey numbers."""
+        if isinstance(key, int):
+            return key
+
+        if isinstance(key, str):
+            normalized = key.strip().lower()
+            if not normalized:
+                return None
+
+            alias_map = {
+                "0": 0,
+                "zero": 0,
+                "1": 1,
+                "one": 1,
+                "2": 2,
+                "two": 2,
+                "3": 3,
+                "three": 3,
+                "4": 4,
+                "four": 4,
+                "5": 5,
+                "five": 5,
+                "6": 6,
+                "six": 6,
+                "7": 7,
+                "seven": 7,
+                "8": 8,
+                "eight": 8,
+                "9": 9,
+                "nine": 9,
+                "10": 10,
+                "ten": 10,
+                "11": 11,
+                "eleven": 11,
+                "12": 12,
+                "twelve": 12,
+            }
+
+            if normalized in alias_map:
+                return alias_map[normalized]
+
+            digits = "".join(ch for ch in normalized if ch.isdigit())
+            if digits:
+                try:
+                    return int(digits)
+                except ValueError:
+                    return None
+
+        return None
+
+    def _build_jersey_name_map(self, raw_map: Any) -> dict[int, str]:
+        """Convert config mapping into jersey number -> player name dictionary."""
+        mapping: dict[int, str] = {}
+        if not isinstance(raw_map, dict):
+            return mapping
+
+        for key, value in raw_map.items():
+            number = self._normalize_jersey_key(key)
+            if number is None:
+                continue
+            mapping[number] = str(value)
+
+        return mapping
+
+    def _register_locked_number(self, track: PlayerTrack) -> None:
+        """Remember which track currently owns a locked jersey number."""
+        if track.jersey_number is None:
+            return
+        self.locked_jersey_registry[track.jersey_number] = track.track_id
+
+    def _unregister_locked_number(self, track: PlayerTrack) -> None:
+        """Remove track ownership for a jersey number if it matches the registry."""
+        number = track.jersey_number
+        if number is None:
+            return
+        if self.locked_jersey_registry.get(number) == track.track_id:
+            del self.locked_jersey_registry[number]
+
+    def _sync_locked_identity(
+        self,
+        track: PlayerTrack,
+        detection: Optional[PlayerDetection],
+    ) -> None:
+        """Apply locked jersey identity (number + name) to the active detection."""
+        if not (track.jersey_locked and track.jersey_number is not None):
+            if detection is not None:
+                detection.player_name = None
+            return
+
+        name = self.jersey_name_map.get(track.jersey_number)
+        track.player_name = name
+
+        if track.jersey_display_number is None:
+            track.jersey_display_number = track.jersey_number
+        if track.jersey_display_confidence <= 0.0:
+            track.jersey_display_confidence = track.jersey_lock_confidence
+        if track.jersey_display_cumulative <= 0.0:
+            track.jersey_display_cumulative = track.jersey_lock_confidence
+        if track.jersey_display_frame is None:
+            track.jersey_display_frame = track.jersey_lock_frame
+
+        if detection is not None:
+            detection.jersey_number = track.jersey_number
+            detection.jersey_confidence = track.jersey_lock_confidence
+            detection.player_name = name
+            detection.jersey_vote_number = track.jersey_number
+            detection.jersey_vote_confidence = track.jersey_display_confidence
+            detection.jersey_vote_cumulative = track.jersey_display_cumulative
+            detection.jersey_vote_totals = list(track.jersey_display_totals)
+            lock_frame = track.jersey_lock_frame
+            detection.jersey_vote_locked = (
+                lock_frame is not None and detection.frame_idx >= lock_frame
+            )
+
+        if not track.jersey_display_totals:
+            track.jersey_display_totals = sorted(
+                (
+                    (num, score)
+                    for num, score in track.jersey_votes.items()
+                    if score > 0
+                ),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+
+
     def _resolve_jersey_conflicts(
         self,
         track_histories: dict[int, PlayerTrack],
@@ -2111,7 +2303,9 @@ class Pipeline:
 
             tracks.sort(key=lambda t: t.jersey_lock_confidence, reverse=True)
             winner = tracks[0]
+            self.locked_jersey_registry[number] = winner.track_id
             for loser in tracks[1:]:
+                self._unregister_locked_number(loser)
                 logger.debug(
                     "Resetting jersey number %s for track %s (conflict with track %s)",
                     number,
@@ -2124,6 +2318,12 @@ class Pipeline:
                     if detection is not None:
                         detection.jersey_number = None
                         detection.jersey_confidence = 0.0
+                        detection.player_name = None
+                        detection.jersey_vote_number = None
+                        detection.jersey_vote_confidence = 0.0
+                        detection.jersey_vote_cumulative = 0.0
+                        detection.jersey_vote_locked = False
+                        detection.jersey_vote_totals = []
 
     def _generate_debug_video(
         self,
@@ -2143,6 +2343,8 @@ class Pipeline:
             max_age_seconds=2.0,
             fps=reader.fps,
         )
+        jersey_cfg = self.config.get("jersey_identification", {})
+        jersey_lock_threshold = float(jersey_cfg.get("lock_threshold", 0.0))
 
         # Scale down for faster rendering (0.5 = half resolution)
         scale = self.config.get("output", {}).get("debug_scale", 0.5)
@@ -2178,6 +2380,7 @@ class Pipeline:
                     homography=self.homography,
                     ball_annotator=ball_annotator,
                     team_colors=self.team_colors,
+                    jersey_lock_threshold=jersey_lock_threshold,
                 )
                 # Scale down for output
                 if scale != 1.0:
@@ -2270,6 +2473,49 @@ class Pipeline:
                                 jersey_number=track.jersey_number,
                                 is_interpolated=True,
                             )
+
+                            if (
+                                track.jersey_locked
+                                and track.jersey_number is not None
+                                and not track.player_name
+                            ):
+                                track.player_name = self.jersey_name_map.get(track.jersey_number)
+
+                            if track.player_name:
+                                interp_det.player_name = track.player_name
+
+                            if track.jersey_locked and track.jersey_number is not None:
+                                interp_det.jersey_number = track.jersey_number
+                                interp_det.jersey_confidence = track.jersey_lock_confidence
+                                interp_det.jersey_vote_number = track.jersey_number
+                                interp_det.jersey_vote_confidence = (
+                                    track.jersey_display_confidence or track.jersey_lock_confidence
+                                )
+                                interp_det.jersey_vote_cumulative = (
+                                    track.jersey_display_cumulative or track.jersey_lock_confidence
+                                )
+                                display_totals = track.jersey_display_totals or sorted(
+                                    (
+                                        (num, score)
+                                        for num, score in track.jersey_votes.items()
+                                        if score > 0
+                                    ),
+                                    key=lambda item: item[1],
+                                    reverse=True,
+                                )
+                                interp_det.jersey_vote_totals = list(display_totals)
+                                lock_frame = track.jersey_lock_frame
+                                interp_det.jersey_vote_locked = (
+                                    lock_frame is not None and frame_idx >= lock_frame
+                                )
+                            elif track.jersey_display_number is not None:
+                                interp_det.jersey_vote_number = track.jersey_display_number
+                                interp_det.jersey_vote_confidence = track.jersey_display_confidence
+                                interp_det.jersey_vote_cumulative = track.jersey_display_cumulative
+                                display_totals = track.jersey_display_totals or []
+                                interp_det.jersey_vote_totals = list(display_totals)
+                                interp_det.jersey_vote_locked = False
+
                             new_detections.append(interp_det)
 
             # Update track with interpolated detections

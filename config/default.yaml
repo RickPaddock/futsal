@@ -80,13 +80,17 @@ team_classification:
 # Jersey identification (YOLO classification)
 jersey_identification:
   enabled: true
-  model: "models/yolo11n-cls.pt"
+  model: "models/JERSEY_MODEL_best_v1.pt"
   gate_confidence: 0.75     # Minimum detector confidence before triggering classification
   gate_min_aspect_ratio: 1.3  # Height/width ratio to ensure tall, back-facing views
   classifier_confidence: 0.55 # Minimum confidence returned by classifier to accept a digit
   frame_stride: 5           # Run classifier every N frames for unlocked tracks
   lock_threshold: 18.0      # Cumulative confidence required to lock a jersey number
-  top_crop_ratio: 0.5       # Portion of bbox height to feed into classifier (top x%)
+  top_crop_ratio: 0.6       # Portion of bbox height to feed into classifier (top x%)
+  name_map:
+    10: "Kikis"
+    7: "Rick"
+    4: "Spyros"
 
 # Jersey OCR (PaddleOCR)
 jersey_ocr:
