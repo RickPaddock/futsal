@@ -1,7 +1,8 @@
 """
-Player detection module supporting both local YOLO and Roboflow models.
+Player detection module using local YOLO models (Pass 1).
 
-Detects players (persons) in video frames using supervision for detection handling.
+Detects players (persons) in video frames using Ultralytics YOLO.
+Simplified for Pass 1: Roboflow support removed.
 """
 
 import os
@@ -23,17 +24,14 @@ except ImportError:
 
 
 class PlayerDetector:
-    """Player detector supporting local YOLO or Roboflow models."""
+    """Player detector using Ultralytics YOLO (Pass 1 version)."""
 
     def __init__(
         self,
         model_path: str = "yolov8x.pt",
         confidence_threshold: float = 0.5,
         iou_threshold: float = 0.45,
-        device: str = "cuda",
         classes: list[int] = None,
-        use_roboflow: bool = False,
-        roboflow_model_id: str = None,
         max_detections: int = 12,
         input_scale: float = 1.0,
     ):
@@ -41,65 +39,33 @@ class PlayerDetector:
         Initialize the player detector.
 
         Args:
-            model_path: Path to YOLO weights or model name (for local mode)
+            model_path: Path to YOLO weights or model name
             confidence_threshold: Minimum confidence for detections
-            iou_threshold: IoU threshold for NMS (lower = more aggressive duplicate suppression)
-            device: Device to run inference on ('cuda' or 'cpu')
+            iou_threshold: IoU threshold for NMS
             classes: List of class IDs to detect (default [0] for person in COCO)
-            use_roboflow: If True, use Roboflow inference API
-            roboflow_model_id: Roboflow model ID (e.g., "football-players-detection-3zvbc/20")
             max_detections: Maximum number of detections per frame
-            input_scale: Scale factor for input frames (0.5 = half resolution, faster)
+            input_scale: Scale factor for input frames (e.g., 0.33 for 4K → 720p)
         """
         self.confidence_threshold = confidence_threshold
         self.iou_threshold = iou_threshold
-        self.device = device
         self.classes = classes if classes is not None else [0]
-        self.use_roboflow = use_roboflow
         self.max_detections = max_detections
         self.input_scale = input_scale
-        self.model = None
-        self.class_names = {}
 
-        if use_roboflow and roboflow_model_id:
-            self._init_roboflow(roboflow_model_id)
-        else:
-            self._init_ultralytics(model_path)
-
-    def _init_ultralytics(self, model_path: str):
-        """Initialize local Ultralytics YOLO model."""
+        # Initialize Ultralytics YOLO
         try:
             from ultralytics import YOLO
         except ImportError:
             raise ImportError("Ultralytics is required. Install with: pip install ultralytics")
 
         self.model = YOLO(model_path)
-        self.model.to(self.device)
+        self.model.to('cuda')
+        print(f"[Player Detector] Loaded model from {model_path} on device cuda")
         self.class_names = self.model.names
-        self.use_roboflow = False
-
-    def _init_roboflow(self, model_id: str):
-        """Initialize Roboflow inference model."""
-        try:
-            from inference import get_model
-        except ImportError:
-            raise ImportError("Roboflow inference is required. Install with: pip install inference")
-
-        api_key = os.getenv("ROBOFLOW_API_KEY")
-        if not api_key:
-            raise ValueError("ROBOFLOW_API_KEY not found in environment. Add it to .env file.")
-
-        self.model = get_model(model_id=model_id, api_key=api_key)
-        self.roboflow_model_id = model_id
-        self.use_roboflow = True
-
-        # Roboflow football models typically have these classes
-        # Will be populated from first inference
-        self.class_names = {}
 
     def detect(self, frame: np.ndarray, frame_idx: int = 0) -> list[PlayerDetection]:
         """
-        Detect players in a single frame.
+        Detect players in a single frame using Ultralytics YOLO.
 
         Args:
             frame: RGB numpy array (H, W, 3)
@@ -108,13 +74,6 @@ class PlayerDetector:
         Returns:
             List of PlayerDetection objects
         """
-        if self.use_roboflow:
-            return self._detect_roboflow(frame, frame_idx)
-        else:
-            return self._detect_ultralytics(frame, frame_idx)
-
-    def _detect_ultralytics(self, frame: np.ndarray, frame_idx: int) -> list[PlayerDetection]:
-        """Detect using local Ultralytics model."""
         # Scale down input for faster inference
         if self.input_scale != 1.0:
             h, w = frame.shape[:2]
@@ -158,43 +117,6 @@ class PlayerDetector:
 
         return detections
 
-    def _detect_roboflow(self, frame: np.ndarray, frame_idx: int) -> list[PlayerDetection]:
-        """Detect using Roboflow inference API with supervision."""
-        import supervision as sv
-
-        result = self.model.infer(
-            frame,
-            confidence=self.confidence_threshold,
-            iou_threshold=self.iou_threshold
-        )[0]
-
-        # Use supervision for cleaner detection handling
-        sv_detections = sv.Detections.from_inference(result)
-
-        # Convert all detections to PlayerDetection objects
-        detections = []
-        for i in range(len(sv_detections)):
-            x1, y1, x2, y2 = sv_detections.xyxy[i]
-            confidence = sv_detections.confidence[i]
-
-            bbox = BoundingBox(
-                x1=float(x1),
-                y1=float(y1),
-                x2=float(x2),
-                y2=float(y2),
-                confidence=float(confidence),
-            )
-
-            detection = PlayerDetection(
-                frame_idx=frame_idx,
-                bbox=bbox,
-                class_id=2,  # Normalize all to player
-                class_name="player",
-            )
-            detections.append(detection)
-
-        return detections
-
     def detect_batch(
         self,
         frames: list[np.ndarray],
@@ -210,11 +132,6 @@ class PlayerDetector:
         Returns:
             List of detection lists, one per frame
         """
-        if self.use_roboflow:
-            # Roboflow doesn't support true batch inference in the same way
-            # Process frames one by one
-            return [self.detect(frame, idx) for frame, idx in zip(frames, frame_indices)]
-
         # Scale down input for faster inference
         if self.input_scale != 1.0:
             h, w = frames[0].shape[:2]

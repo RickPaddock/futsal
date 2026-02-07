@@ -265,6 +265,32 @@ class TeamClustering:
         })
         return hist
 
+    def add_sample_hist(self, hist: np.ndarray) -> None:
+        """
+        [2-PASS ARCHITECTURE] Add a histogram directly without frame/bbox.
+        Used in Pass 2 when we already have histograms from Pass 1.
+        """
+        if self.sample_count >= self.max_samples:
+            return
+
+        self.samples.append({
+            "hist": hist,
+            "mean_bgr": np.zeros(3, dtype=np.float32),  # Placeholder
+            "crop": None,
+            "frame": None,
+            "track_id": None,
+        })
+
+    def clear_samples(self) -> None:
+        """
+        [2-PASS ARCHITECTURE] Clear all samples.
+        Used in Pass 2 to reset before rebuilding from clean frames.
+        """
+        self.samples = []
+        self.kmeans = None
+        self.cluster_labels = None
+        self.cluster_colors = []
+
     def _vividify(self, bgr: np.ndarray) -> tuple[int, int, int]:
         if not self.vividify:
             return tuple(int(x) for x in bgr)

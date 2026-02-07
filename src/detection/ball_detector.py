@@ -77,8 +77,7 @@ class BallDetector:
         model_path: str = "models/futsal_ball_detector.pt",
         confidence_threshold: float = 0.3,
         iou_threshold: float = 0.1,
-        device: str = "cuda",
-        max_detections: int = 100,  # Allow all detections to see raw model performance
+        max_detections: int = 100,
         input_scale: float = 1.0,
         use_inference_slicer: bool = False,
     ):
@@ -87,18 +86,16 @@ class BallDetector:
 
         Args:
             model_path: Path to YOLOv11 ball detector weights
-            confidence_threshold: Minimum confidence for detections (0.3 per Roboflow blog)
-            iou_threshold: IoU threshold for NMS (0.1 per Roboflow blog)
-            device: Device to run inference on ('cuda' or 'cpu')
-            max_detections: Maximum detections per frame (allow multiples, tracker filters to 1)
+            confidence_threshold: Minimum confidence for detections
+            iou_threshold: IoU threshold for NMS
+            max_detections: Maximum detections per frame
             input_scale: Input image scale (1.0 = full resolution for InferenceSlicer)
             use_inference_slicer: Use overlapping tiles at inference for small object detection
         """
         self.model_path = model_path
         self.confidence_threshold = confidence_threshold
         self.iou_threshold = iou_threshold
-        self.device = device
-        self.max_detections = max_detections  # Allow all detections, no restriction
+        self.max_detections = max_detections
         self.input_scale = input_scale
         self.use_inference_slicer = use_inference_slicer
 
@@ -107,15 +104,15 @@ class BallDetector:
             raise FileNotFoundError(f"Ball detector model not found at {model_path}")
 
         self.model = YOLO(model_path)
-        self.model.to(device)
-        
+        self.model.to('cuda')
+
         # Slicer will be lazily initialized on first frame (needs frame dimensions)
         self.slicer = None
-        
+
         # Initialize ball tracker to filter anomalies
         self.tracker = BallTracker(buffer_size=10, max_distance=500.0)
 
-        print(f"[Ball Detector] Loaded model from {model_path} on device {device}")
+        print(f"[Ball Detector] Loaded model from {model_path} on device cuda")
         if self.use_inference_slicer:
             print(f"[Ball Detector] InferenceSlicer enabled (will init on first frame)")
 

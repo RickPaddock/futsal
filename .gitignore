@@ -177,4 +177,7 @@ pyrightconfig.json
 
 nul
 
+ARCHIVE
+videos\output\archive
+
 # End of https://www.toptal.com/developers/gitignore/api/python

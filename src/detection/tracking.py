@@ -1,8 +1,15 @@
 """
-Multi-object tracking module using ByteTrack.
+Multi-object tracking module using ByteTrack (adapted for Pass 1).
 
 Implements ByteTrack algorithm for persistent player tracking across frames.
-Uses IoU + velocity consistency for association, with distance and team gating.
+Uses ONLY IoU + velocity consistency + distance gating for association.
+
+**CRITICAL FOR PASS 1:**
+- NO team gating (removed)
+- NO appearance matching (removed)
+- Track IDs are TEMPORARY and disposable
+- All identity assignment happens in Pass 3
+
 Based on: https://github.com/ifzhang/ByteTrack
 """
 
@@ -101,11 +108,14 @@ class STrack:
 
 class ByteTracker:
     """
-    ByteTrack multi-object tracker.
+    ByteTrack multi-object tracker (adapted for Pass 1).
 
     Implements the ByteTrack algorithm which associates both high and low
     confidence detections to maintain tracks through occlusions.
-    Uses IoU + velocity consistency + distance/team gating for matching.
+    Uses IoU + velocity consistency + distance gating for matching.
+
+    **CRITICAL:** NO team gating or appearance matching for Pass 1.
+    All identity assignment happens in Pass 3.
     """
 
     def __init__(
@@ -165,20 +175,16 @@ class ByteTracker:
         self,
         detections: np.ndarray,
         frame_id: int,
-        team_preds: Optional[list[Optional[TeamID]]] = None,
-        track_team_map: Optional[dict[int, TeamID]] = None,
     ) -> list[STrack]:
         """
-        Update tracker with new detections.
+        Update tracker with new detections (Pass 1 version - NO team gating).
 
         Args:
             detections: Array of shape (N, 5) with [x1, y1, x2, y2, score]
             frame_id: Current frame number
-            team_preds: Optional list of team predictions per detection (aligned to detections)
-            track_team_map: Optional map of track_id -> locked TeamID for gating associations
 
         Returns:
-            List of active tracks
+            List of active tracks (track IDs are TEMPORARY)
         """
         self.frame_id = frame_id
         # Clear per-frame removal log
@@ -196,17 +202,9 @@ class ByteTracker:
 
             detections_high = detections[high_mask]
             detections_low = detections[low_mask]
-
-            team_preds_high = None
-            team_preds_low = None
-            if team_preds is not None:
-                team_preds_high = [p for i, p in enumerate(team_preds) if high_mask[i]]
-                team_preds_low = [p for i, p in enumerate(team_preds) if low_mask[i]]
         else:
             detections_high = np.empty((0, 5))
             detections_low = np.empty((0, 5))
-            team_preds_high = None
-            team_preds_low = None
 
         # First association: high confidence detections with tracked tracks
         unmatched_tracks = []
@@ -216,8 +214,6 @@ class ByteTracker:
             cost_matrix = self._compute_cost_matrix(
                 self.tracked_stracks,
                 detections_high[:, :4],
-                det_team_preds=team_preds_high,
-                track_team_map=track_team_map,
             )
             matched_indices, unmatched_track_idx, unmatched_det_idx = self._linear_assignment(
                 cost_matrix, self.match_thresh
@@ -232,8 +228,6 @@ class ByteTracker:
 
             unmatched_tracks = [self.tracked_stracks[i] for i in unmatched_track_idx]
             unmatched_detections_high = detections_high[unmatched_det_idx]
-            if team_preds_high is not None:
-                team_preds_high = [team_preds_high[i] for i in unmatched_det_idx]
         else:
             unmatched_tracks = self.tracked_stracks.copy()
             unmatched_detections_high = detections_high
@@ -243,8 +237,6 @@ class ByteTracker:
             cost_matrix = self._compute_cost_matrix(
                 unmatched_tracks,
                 detections_low[:, :4],
-                det_team_preds=team_preds_low,
-                track_team_map=track_team_map,
             )
             matched_indices, unmatched_track_idx, _ = self._linear_assignment(
                 cost_matrix, self.match_thresh
@@ -267,8 +259,6 @@ class ByteTracker:
             cost_matrix = self._compute_cost_matrix(
                 self.lost_stracks,
                 unmatched_detections_high[:, :4],
-                det_team_preds=team_preds_high,
-                track_team_map=track_team_map,
             )
             matched_indices, _, unmatched_det_idx = self._linear_assignment(
                 cost_matrix, self.match_thresh
@@ -317,8 +307,6 @@ class ByteTracker:
             unmatched_det_idx = [i for i in range(len(unmatched_detections_high))
                                  if i not in valid_det_indices and i in set(unmatched_det_idx)]
             unmatched_detections_high = unmatched_detections_high[unmatched_det_idx] if unmatched_det_idx else np.empty((0, 5))
-            if team_preds_high is not None:
-                team_preds_high = [team_preds_high[i] for i in unmatched_det_idx] if unmatched_det_idx else []
 
         # Mark unmatched tracks as lost
         for track in unmatched_tracks:
@@ -420,21 +408,19 @@ class ByteTracker:
         self,
         tracks: list[STrack],
         detections: np.ndarray,
-        det_team_preds: Optional[list[Optional[TeamID]]] = None,
-        track_team_map: Optional[dict[int, TeamID]] = None,
     ) -> np.ndarray:
         """
-        Compute cost matrix: IoU + velocity consistency, with distance and team gating.
+        Compute cost matrix: IoU + velocity consistency + distance gating ONLY.
+
+        **CRITICAL FOR PASS 1:** NO team gating, NO appearance matching.
 
         Args:
             tracks: List of STrack objects
             detections: Detection array (N, 4) with [x1, y1, x2, y2]
-            det_team_preds: Optional team predictions per detection
-            track_team_map: Optional map of track_id -> locked TeamID
 
         Returns:
             Cost matrix (M, N) blending IoU and velocity consistency.
-            Entries gated by distance or team mismatch are set to 0.
+            Entries gated by distance are set to 0.
         """
         iou_matrix = self._compute_iou_matrix(
             [t.tlbr for t in tracks],
@@ -453,17 +439,8 @@ class ByteTracker:
                 too_far = distance_matrix[i, :] > scaled_gate
                 iou_matrix[i, too_far] = 0.0
 
-        # Team gating: heavily penalize matches between different locked teams
-        if det_team_preds is not None and track_team_map is not None:
-            for i, track in enumerate(tracks):
-                locked_team = track_team_map.get(track.track_id)
-                if locked_team not in (TeamID.TEAM_A, TeamID.TEAM_B):
-                    continue
-                for j, team_pred in enumerate(det_team_preds):
-                    if team_pred in (TeamID.TEAM_A, TeamID.TEAM_B) and team_pred != locked_team:
-                        # Use large negative penalty to make cross-team matches extremely unlikely
-                        # This prevents ID swaps when players from different teams get close
-                        iou_matrix[i, j] = -999.0
+        # ❌ REMOVED: Team gating (NO team-based gating in Pass 1)
+        # All identity assignment happens in Pass 3
 
         # Velocity consistency: penalize matches that contradict Kalman-predicted motion
         if self.velocity_weight > 0 and len(tracks) > 0 and len(detections) > 0:

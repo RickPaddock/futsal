@@ -76,15 +76,36 @@ class VideoReader:
             timestamp = int(start_frame / self.fps / stream.time_base)
             container.seek(timestamp, stream=stream)
 
-        frame_idx = 0
+        decoded_index = 0
+        base_idx = None
+        last_idx = None
+        max_idx = self.total_frames - 1 if self.total_frames else None
         for frame in container.decode(video=0):
-            # After seeking, calculate actual frame index from PTS
-            if frame.pts is not None:
-                frame_idx = int(frame.pts * stream.time_base * self.fps)
+            # Use PTS only once to establish a base index after seeking.
+            # Per-frame PTS rounding can cause jumps/duplicates, so avoid it here.
+            if base_idx is None:
+                if frame.pts is not None:
+                    base_idx = int(round(frame.pts * stream.time_base * self.fps))
+                else:
+                    base_idx = 0
+
+                if base_idx < 0:
+                    base_idx = 0
+                if max_idx is not None and base_idx > max_idx:
+                    base_idx = max_idx
+
+            frame_idx = base_idx + decoded_index
+
+            # Enforce monotonic, non-duplicated indices
+            if last_idx is not None and frame_idx <= last_idx:
+                frame_idx = last_idx + 1
+
+            if max_idx is not None and frame_idx > max_idx:
+                break
 
             # Skip frames before start (seek may land before target)
             if frame_idx < start_frame:
-                frame_idx += 1
+                decoded_index += 1
                 continue
 
             # Stop at end frame
@@ -97,7 +118,8 @@ class VideoReader:
                 img = frame.to_ndarray(format="rgb24")
                 yield frame_idx, img
 
-            frame_idx += 1
+            decoded_index += 1
+            last_idx = frame_idx
 
         container.close()
 
