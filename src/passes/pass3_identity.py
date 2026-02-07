@@ -458,37 +458,25 @@ def _validate_single_owner_invariant(
     pass
 
 
-def _is_bib_like_crop(crop_bgr: np.ndarray) -> bool:
-    """
-    Detect if crop is bib-like (high saturation, low hue variance).
-
-    Args:
-        crop_bgr: Crop image in BGR format
-
-    Returns:
-        True if crop has characteristics of a uniform bib (high saturation, low hue variance)
-    """
+def _get_bib_stats(crop_bgr: np.ndarray) -> dict[str, float]:
+    """Get crop color statistics for debugging."""
     if crop_bgr is None or crop_bgr.size == 0:
-        return False
+        return {"mean_hue": 0, "mean_sat": 0}
 
-    # Convert to HSV
     hsv = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2HSV)
     h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+    mask_valid = (s > 20) & (v > 20)
 
-    # Need enough valid pixels to compute stats
-    mask_valid = s > 0
     if np.count_nonzero(mask_valid) < 10:
-        return False
+        return {"mean_hue": 0, "mean_sat": 0}
 
-    # Compute saturation and hue statistics
-    mean_sat = np.mean(s[mask_valid])
-    hue_variance = np.var(h[mask_valid])
+    mean_hue = float(np.mean(h[mask_valid]))
+    mean_sat = float(np.mean(s[mask_valid]))
 
-    # Bib-like: high saturation (vivid color) + low hue variance (uniform color)
-    # Relaxed for futsal lighting: S>100 (was 120), hue_var<20 (was 15)
-    # Green bibs: S>100, hue_var<20
-    # Orange bibs: S>100, hue_var<20
-    return (mean_sat > 100) and (hue_variance < 20)
+    return {
+        "mean_hue": mean_hue,
+        "mean_sat": mean_sat,
+    }
 
 
 def _crop_jersey_region(
@@ -676,15 +664,18 @@ def _export_team_crops(
     team_a_dir.mkdir(parents=True, exist_ok=True)
     team_b_dir.mkdir(parents=True, exist_ok=True)
 
+    # Diagnostic: Save candidate crops for debugging
+    debug_candidates_dir = crops_root / "DEBUG_candidates"
+    debug_candidates_dir.mkdir(parents=True, exist_ok=True)
+
     # Crop export configuration (all from pass3)
     crops_per_fragment = int(pass3_cfg.get("crops_per_fragment", 6))
     min_per_team = int(pass3_cfg.get("min_crops_per_team", 15))
     crop_mode = pass3_cfg.get("crop_mode", "jersey")
     proximity_thresh = float(pass3_cfg.get("proximity_threshold_px", 24.0))
 
-    # Quality thresholds (futsal-tuned)
-    quality_threshold_bib = float(pass3_cfg.get("quality_threshold_bib", 0.30))
-    quality_threshold_standard = float(pass3_cfg.get("quality_threshold_standard", 0.45))
+    # Quality thresholds (color-agnostic)
+    quality_threshold = float(pass3_cfg.get("quality_threshold", 0.35))
     quality_threshold_high_confidence = float(pass3_cfg.get("quality_threshold_high_confidence", 0.70))
 
     # Isolation checks
@@ -761,6 +752,7 @@ def _export_team_crops(
         candidates = []
         fallback_samples = []
         rejection_stats = {}  # Track rejection reasons for logging
+        debug_crop_count = 0  # Limit diagnostic crops to ~10 per fragment
 
         for sample_pos in sample_indices:
             frame_idx, bbox, hist = samples[sample_pos]
@@ -815,13 +807,21 @@ def _export_team_crops(
                     candidates.append((quality, frame_idx, crop_bgr, sample_pos, "high_quality_accept"))
                     continue
 
-                # Adaptive quality threshold based on bib-like characteristics
-                # Use raw jersey_crop (torso only) for bib detection, not masked crop_bgr
-                is_bib = _is_bib_like_crop(jersey_crop)
-                adaptive_threshold = quality_threshold_bib if is_bib else quality_threshold_standard
+                # DIAGNOSTIC: Save candidate crops with metadata (limit to 10 per fragment)
+                if debug_crop_count < 10:
+                    color_stats = _get_bib_stats(jersey_crop)
+                    debug_filename = (
+                        f"{fragment_id}_f{frame_idx}_"
+                        f"q{quality:.2f}_t{quality_threshold:.2f}_"
+                        f"h{color_stats['mean_hue']:.0f}_s{color_stats['mean_sat']:.0f}_"
+                        f"{team}.jpg"
+                    )
+                    cv2.imwrite(str(debug_candidates_dir / debug_filename), jersey_crop)
+                    debug_crop_count += 1
 
-                if quality < adaptive_threshold:
-                    rejection_reason = f"quality_too_low_q{quality:.2f}_t{adaptive_threshold:.2f}"
+                # Quality check (same threshold for all players, regardless of color/team)
+                if quality < quality_threshold:
+                    rejection_reason = f"quality_too_low_q{quality:.2f}_t{quality_threshold:.2f}"
                     rejection_stats[rejection_reason] = rejection_stats.get(rejection_reason, 0) + 1
                     continue
 
@@ -829,8 +829,8 @@ def _export_team_crops(
                     rejection_stats["empty_crop"] = rejection_stats.get("empty_crop", 0) + 1
                     continue
 
-                # Standard accept with adaptive threshold
-                accept_reason = "bib_accept" if is_bib else "standard_accept"
+                # Accept (standard quality threshold passed)
+                accept_reason = f"{team}_accept"
                 candidates.append((quality, frame_idx, crop_bgr, sample_pos, accept_reason))
             else:
                 # Full mode - use jersey region crop (not full bbox)

@@ -56,10 +56,9 @@ pass3:
   crop_mode: "jersey"  # histogram_source | jersey | full
   crops_input_dir: "videos/input"
 
-  # Quality thresholds (futsal-relaxed for tight spacing)
-  quality_threshold_bib: 0.30  # Adaptive threshold for bib-like crops (was hardcoded 0.35)
-  quality_threshold_standard: 0.45  # Standard threshold (was quality_threshold: 0.5 in team_clustering)
-  quality_threshold_high_confidence: 0.70  # Immediate accept threshold (was hardcoded 0.7)
+  # Quality thresholds (futsal-tuned, color-agnostic)
+  quality_threshold: 0.35  # Standard threshold for all crops (futsal-relaxed)
+  quality_threshold_high_confidence: 0.70  # Immediate accept threshold (skip other checks)
 
   # Isolation checks (futsal-relaxed for tight player spacing)
   proximity_threshold_px: 24  # Minimum distance between crops (reduced from 28 for futsal)

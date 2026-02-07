@@ -18,9 +18,9 @@ from src.utils.data_models import BoundingBox
 
 # Team colors (BGR format for OpenCV)
 TEAM_COLORS = {
-    "team_a": (255, 153, 51),    # Orange (bibbed team)
-    "team_b": (0, 0, 0),  # Black (non-bibbed team)
-    "unknown": (255, 0, 255), # Pink
+    "team_a": (0, 140, 255),    # Orange (bibbed team)
+    "team_b": (40, 40, 40),  # Black (diverse team)
+    "unknown": (200, 200, 200), # Light gray
 }
 
 class BallAnnotator:
@@ -399,6 +399,9 @@ def visualize_clip(
 
             # Get team color
             color = TEAM_COLORS.get(team, TEAM_COLORS["unknown"])
+            b, g, r = color
+            luminance = 0.114 * b + 0.587 * g + 0.299 * r
+            text_color = (255, 255, 255) if luminance < 128 else (0, 0, 0)
 
             # Draw ellipse around player (archive style)
             det = sv.Detections(
@@ -432,9 +435,30 @@ def visualize_clip(
             font_scale = max(0.35, 0.5 * output_scale)
             thickness = max(1, int(2 * output_scale))
 
-            top_y = y1
+            if label:
+                # Draw top label background (track + fragment)
+                (text_width, text_height), baseline = cv2.getTextSize(
+                    label, font, font_scale, thickness
+                )
 
-            jersey_label = None
+                cv2.rectangle(
+                    frame_bgr,
+                    (x1, y1 - text_height - 8),
+                    (x1 + text_width + 4, y1),
+                    color,
+                    -1,
+                )
+                cv2.putText(
+                    frame_bgr,
+                    label,
+                    (x1 + 2, y1 - 5),
+                    font,
+                    font_scale,
+                    text_color,
+                    thickness,
+                )
+
+            # Draw jersey number/name near feet (bottom of bbox)
             if jersey is not None:
                 jersey_int = int(jersey)
                 if jersey_int in rendered_jerseys:
@@ -445,50 +469,26 @@ def visualize_clip(
                     if jersey_name is not None:
                         jersey_label = f"{jersey_label} : {jersey_name}"
 
-            if jersey_label:
-                (j_text_w, j_text_h), j_base = cv2.getTextSize(
-                    jersey_label, font, font_scale, thickness
-                )
-                cv2.rectangle(
-                    frame_bgr,
-                    (x1, top_y - j_text_h - 8),
-                    (x1 + j_text_w + 4, top_y),
-                    color,
-                    -1,
-                )
-                cv2.putText(
-                    frame_bgr,
-                    jersey_label,
-                    (x1 + 2, top_y - 5),
-                    font,
-                    font_scale,
-                    (0, 0, 0),
-                    thickness,
-                )
-                top_y = top_y - j_text_h - 8
-
-            if label:
-                # Draw top label background (track + fragment)
-                (text_width, text_height), baseline = cv2.getTextSize(
-                    label, font, font_scale, thickness
-                )
-
-                cv2.rectangle(
-                    frame_bgr,
-                    (x1, top_y - text_height - 8),
-                    (x1 + text_width + 4, top_y),
-                    color,
-                    -1,
-                )
-                cv2.putText(
-                    frame_bgr,
-                    label,
-                    (x1 + 2, top_y - 5),
-                    font,
-                    font_scale,
-                    (0, 0, 0),  # Black text
-                    thickness,
-                )
+                    (j_text_w, j_text_h), j_base = cv2.getTextSize(
+                        jersey_label, font, font_scale, thickness
+                    )
+                    y_bottom = min(output_height - 2, y2 + j_text_h + 6)
+                    cv2.rectangle(
+                        frame_bgr,
+                        (x1, y_bottom - j_text_h - 6),
+                        (x1 + j_text_w + 4, y_bottom),
+                        color,
+                        -1,
+                    )
+                    cv2.putText(
+                        frame_bgr,
+                        jersey_label,
+                        (x1 + 2, y_bottom - 4),
+                        font,
+                        font_scale,
+                        text_color,
+                        thickness,
+                    )
 
         # Draw frame counter
         cv2.putText(
