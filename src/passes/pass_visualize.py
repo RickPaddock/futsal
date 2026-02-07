@@ -18,9 +18,9 @@ from src.utils.data_models import BoundingBox
 
 # Team colors (BGR format for OpenCV)
 TEAM_COLORS = {
-    "team_a": (0, 140, 255),    # Orange (bibbed team)
-    "team_b": (128, 128, 128),  # Gray (diverse team)
-    "unknown": (200, 200, 200), # Light gray
+    "team_a": (255, 153, 51),    # Orange (bibbed team)
+    "team_b": (0, 0, 0),  # Black (non-bibbed team)
+    "unknown": (255, 0, 255), # Pink
 }
 
 class BallAnnotator:
@@ -217,28 +217,37 @@ def visualize_clip(
     pass3_dir = run_dir / "pass3_final"
     pass3_file = pass3_dir / f"{Path(clip_name).stem}.json"
     name_map = config.get("jersey", {}).get("name_map", {}) if config else {}
-    fragment_identity_map = {}  # fragment_id → (team, jersey)
+    visualize_cfg = config.get("visualize", {}) if config else {}
+    debug_mode = bool(visualize_cfg.get("debug", False))
+    fragment_identity_map: dict[str, dict[str, object]] = {}  # fragment_id → {team, jersey, confidence}
     if pass3_file.exists():
         with open(pass3_file, 'r', encoding='utf-8') as f:
             pass3_data = json.load(f)
         print(f"  Pass 3: {len(pass3_data.get('identities', []))} identities")
 
-        # Build identity map: fragment_id → (team, jersey)
+        # Build identity map: fragment_id → {team, jersey, confidence}
         # Pass 3 outputs ONE identity per fragment (not one per player)
         identities = pass3_data.get("identities", [])
         for identity in identities:
             frag_id = identity.get("fragment_id")  # Single fragment ID
             if frag_id:
                 team = identity.get("team", "unknown")
-                jersey = identity.get("jersey_number")
-                fragment_identity_map[frag_id] = (team, jersey)
+                jersey = identity.get("assigned_jersey_number", identity.get("jersey_number"))
+                confidence = identity.get("confidence", 0.0)
+                fragment_identity_map[frag_id] = {
+                    "team": team,
+                    "jersey": jersey,
+                    "confidence": confidence,
+                }
 
         print(f"  Fragment→Identity mappings: {len(fragment_identity_map)}")
 
         # Count team assignments
         team_breakdown = {"team_a": 0, "team_b": 0, "unknown": 0}
         jersey_breakdown = {}
-        for team, jersey in fragment_identity_map.values():
+        for identity in fragment_identity_map.values():
+            team = identity.get("team", "unknown")
+            jersey = identity.get("jersey")
             team_breakdown[team] = team_breakdown.get(team, 0) + 1
             if jersey is not None:
                 jersey_breakdown[jersey] = jersey_breakdown.get(jersey, 0) + 1
@@ -253,7 +262,7 @@ def visualize_clip(
     if pass2_data:
         for fragment in pass2_data.get("fragments", []):
             frag_id = fragment["fragment_id"]
-            track_id = fragment["original_track_id"]
+            track_id = str(fragment["original_track_id"])
             start_frame = fragment["start_frame"]
             end_frame = fragment["end_frame"]
             for frame_idx in range(start_frame, end_frame + 1):
@@ -273,31 +282,19 @@ def visualize_clip(
     for track_id, track_data in tracks.items():
         frames = track_data.get("frames", [])
         bboxes = track_data.get("bboxes", [])
-        jersey_decisions = track_data.get("jersey_decisions", [])
-        cumulative_jersey_scores: dict[int, float] = {}
-
         for i, frame_idx in enumerate(frames):
             bbox = bboxes[i]
 
-            if i < len(jersey_decisions):
-                decision = jersey_decisions[i]
-                if decision and len(decision) == 2:
-                    jersey_id, jersey_conf = decision
-                    if jersey_id is not None and jersey_conf is not None and jersey_conf > 0:
-                        jersey_id_int = int(jersey_id)
-                        cumulative_jersey_scores[jersey_id_int] = cumulative_jersey_scores.get(jersey_id_int, 0.0) + float(jersey_conf)
-
-            live_jersey = None
-            live_score = None
-            if cumulative_jersey_scores:
-                live_jersey, live_score = max(cumulative_jersey_scores.items(), key=lambda kv: kv[1])
-
             # Lookup fragment and identity
-            frag_id = track_frame_to_fragment.get((track_id, frame_idx))
+            frag_id = track_frame_to_fragment.get((str(track_id), frame_idx))
             team = "unknown"
             jersey = None
+            jersey_confidence = 0.0
             if frag_id and frag_id in fragment_identity_map:
-                team, jersey = fragment_identity_map[frag_id]
+                identity = fragment_identity_map[frag_id]
+                team = identity.get("team", "unknown")
+                jersey = identity.get("jersey")
+                jersey_confidence = float(identity.get("confidence", 0.0))
 
             # Track stats
             team_counts[team] = team_counts.get(team, 0) + 1
@@ -311,8 +308,7 @@ def visualize_clip(
                 "bbox": bbox,
                 "team": team,
                 "jersey": jersey,
-                "jersey_live": live_jersey,
-                "jersey_score": live_score,
+                "jersey_confidence": jersey_confidence,
                 "fragment_id": frag_id,
             }
 
@@ -348,6 +344,7 @@ def visualize_clip(
     trail_radius = max(2, int(9 * output_scale))
     trail_thickness = max(1, int(2 * output_scale))
     ball_annotator = BallAnnotator(fps=fps, radius=trail_radius, thickness=trail_thickness)
+    fragment_debug_shown: set[str] = set()
     for frame_idx, frame in tqdm(reader.frames(), total=reader.total_frames, desc="Rendering"):
         # Convert RGB to BGR for OpenCV
         frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
@@ -386,12 +383,13 @@ def visualize_clip(
 
         # Draw player annotations
         annotations = frame_annotations.get(frame_idx, {})
+        rendered_jerseys: set[int] = set()
         for track_id, data in annotations.items():
             bbox = data["bbox"]
             team = data["team"]
             jersey = data["jersey"]
-            live_jersey = data.get("jersey_live")
-            live_score = data.get("jersey_score")
+            jersey_confidence = float(data.get("jersey_confidence", 0.0))
+            frag_id = data.get("fragment_id")
 
             # Scale bbox to output size
             x1 = int(bbox[0] * output_scale)
@@ -410,47 +408,93 @@ def visualize_clip(
             ellipse_color = sv.Color(color[2], color[1], color[0])
             frame_bgr = sv.EllipseAnnotator(color=ellipse_color, thickness=2).annotate(frame_bgr, det)
 
-            # Build label
+            # Build label (always show track id; jersey overlay is Pass 3 assigned ONLY)
             label_parts = [f"T{track_id}"]
-            if live_jersey is not None and live_score is not None:
-                label_parts.append(f"J{live_jersey}({live_score:.2f})")
+            if frag_id:
+                frag_suffix = frag_id.replace("frag_", "F")
+                label_parts.append(f": {frag_suffix}")
             if jersey is not None:
-                jersey_name = name_map.get(jersey)
-                if jersey_name is None:
-                    jersey_name = name_map.get(str(jersey))
-                label_parts.append(str(jersey_name) if jersey_name is not None else f"LOCK{jersey}")
+                jersey_int = int(jersey)
+                if jersey_int not in rendered_jerseys:
+                    rendered_jerseys.add(jersey_int)
+                    jersey_name = name_map.get(jersey_int)
+                    if jersey_name is None:
+                        jersey_name = name_map.get(str(jersey_int))
+                    if debug_mode and frag_id and frag_id not in fragment_debug_shown:
+                        label_parts.append(f"(assigned={jersey_int}, conf={jersey_confidence:.2f})")
+                        fragment_debug_shown.add(frag_id)
+            elif debug_mode:
+                label_parts.append("?")
+
             label = " ".join(label_parts)
 
-            # Draw label background
             font = cv2.FONT_HERSHEY_SIMPLEX
             font_scale = max(0.35, 0.5 * output_scale)
             thickness = max(1, int(2 * output_scale))
-            (text_width, text_height), baseline = cv2.getTextSize(
-                label, font, font_scale, thickness
-            )
 
-            cv2.rectangle(
-                frame_bgr,
-                (x1, y1 - text_height - 8),
-                (x1 + text_width + 4, y1),
-                color,
-                -1,
-            )
-            cv2.putText(
-                frame_bgr,
-                label,
-                (x1 + 2, y1 - 5),
-                font,
-                font_scale,
-                (0, 0, 0),  # Black text
-                thickness,
-            )
+            top_y = y1
+
+            jersey_label = None
+            if jersey is not None:
+                jersey_int = int(jersey)
+                if jersey_int in rendered_jerseys:
+                    jersey_name = name_map.get(jersey_int)
+                    if jersey_name is None:
+                        jersey_name = name_map.get(str(jersey_int))
+                    jersey_label = f"#{jersey_int}"
+                    if jersey_name is not None:
+                        jersey_label = f"{jersey_label} : {jersey_name}"
+
+            if jersey_label:
+                (j_text_w, j_text_h), j_base = cv2.getTextSize(
+                    jersey_label, font, font_scale, thickness
+                )
+                cv2.rectangle(
+                    frame_bgr,
+                    (x1, top_y - j_text_h - 8),
+                    (x1 + j_text_w + 4, top_y),
+                    color,
+                    -1,
+                )
+                cv2.putText(
+                    frame_bgr,
+                    jersey_label,
+                    (x1 + 2, top_y - 5),
+                    font,
+                    font_scale,
+                    (0, 0, 0),
+                    thickness,
+                )
+                top_y = top_y - j_text_h - 8
+
+            if label:
+                # Draw top label background (track + fragment)
+                (text_width, text_height), baseline = cv2.getTextSize(
+                    label, font, font_scale, thickness
+                )
+
+                cv2.rectangle(
+                    frame_bgr,
+                    (x1, top_y - text_height - 8),
+                    (x1 + text_width + 4, top_y),
+                    color,
+                    -1,
+                )
+                cv2.putText(
+                    frame_bgr,
+                    label,
+                    (x1 + 2, top_y - 5),
+                    font,
+                    font_scale,
+                    (0, 0, 0),  # Black text
+                    thickness,
+                )
 
         # Draw frame counter
         cv2.putText(
             frame_bgr,
             f"Frame: {frame_idx}",
-            (10, output_height - 20),
+            (10, 84),
             cv2.FONT_HERSHEY_SIMPLEX,
             max(0.5, 0.7 * output_scale),
             (255, 255, 255),

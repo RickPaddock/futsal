@@ -23,7 +23,7 @@ def cli():
 
 @cli.command()
 @click.option('--input-dir', type=Path, required=True, help='Folder with pre-split video clips')
-@click.option('--output-dir', type=Path, default='output', help='Base output directory')
+@click.option('--output-dir', type=Path, default='videos/output', help='Base output directory')
 @click.option('--config', type=Path, default='config/default.yaml', help='Pipeline config file')
 def run_full(input_dir, output_dir, config):
     """Run the complete 3-pass pipeline (Pass 0 → Pass 1 → Pass 2 → Pass 3)"""

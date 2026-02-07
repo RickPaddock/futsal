@@ -105,8 +105,29 @@ class TeamClustering:
         #    Orange bibs are H≈10-20 so H≥25 cleanly avoids them.
         #    IMPORTANT: Only suppress LOW SATURATION green to preserve green jerseys.
         #    Court is desaturated (S~47), jerseys are vivid (S>70).
-        court_h_range = (hsv[:, :, 0] >= 25) & (hsv[:, :, 0] <= 90)
-        court_low_sat = hsv[:, :, 1] < 70  # Court S~47, green jerseys S>70
+        #
+        #    GREEN-AWARE EXCEPTION: Detect bib-like samples (high saturation, low hue variance)
+        #    and use relaxed threshold (S<40 instead of S<70) to preserve vivid green bibs.
+        H, S, V = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+
+        # Detect bib-like samples: high saturation + low hue variance
+        mask_valid = S > 0  # Valid pixels (non-zero saturation)
+        if np.count_nonzero(mask_valid) > 10:  # Need enough pixels to compute stats
+            mean_sat = np.mean(S[mask_valid])
+            hue_variance = np.var(H[mask_valid])
+            is_bib_like = (mean_sat > 120) and (hue_variance < 15)
+        else:
+            is_bib_like = False
+
+        # Apply adaptive court suppression threshold
+        court_h_range = (H >= 25) & (H <= 90)
+        if is_bib_like:
+            # Relaxed threshold for bibs: allows vivid green (S>40)
+            court_low_sat = S < 40  # Court S~47, vivid green bibs S>120
+        else:
+            # Original threshold
+            court_low_sat = S < 70  # Court S~47, green jerseys S>70
+
         court_mask = (court_h_range & court_low_sat).astype(np.uint8) * 255
         jersey_mask = cv2.bitwise_and(jersey_mask, cv2.bitwise_not(court_mask))
 
@@ -118,9 +139,9 @@ class TeamClustering:
         #    - green jersey pixels (H 60-90, S > 70) to preserve green jerseys
         ycrcb = cv2.cvtColor(roi_rgb, cv2.COLOR_RGB2YCrCb)
         skin_mask = cv2.inRange(ycrcb, (0, 133, 77), (255, 173, 127))
-        vivid = hsv[:, :, 1] > 110
-        orange_hue = (hsv[:, :, 0] >= 5) & (hsv[:, :, 0] <= 22)
-        green_jersey = (hsv[:, :, 0] >= 60) & (hsv[:, :, 0] <= 90) & (hsv[:, :, 1] > 70)
+        vivid = S > 110
+        orange_hue = (H >= 5) & (H <= 22)
+        green_jersey = (H >= 60) & (H <= 90) & (S > 70)
         skin_mask[vivid | orange_hue | green_jersey] = 0
         jersey_mask = cv2.bitwise_and(jersey_mask, cv2.bitwise_not(skin_mask))
 

@@ -28,18 +28,18 @@ tracking:
 pass1:
   hsv_sample_stride: 5  # Store HSV histogram every N frames
 
-# Team Clustering (Pass 3 - run once at start)
+# Team Clustering (Pass 3 - K-means only, run once at start)
 team_clustering:
   n_clusters: 2
-  min_samples: 10
-  max_samples: 60
+  kmeans_sample_limit: 50  # Max samples per fragment for K-means (was max_samples)
   bins: 32  # HSV histogram bins per channel (96 total = 32 × 3)
-  quality_threshold: 0.5
   team_cap: 6  # Max 6 players per team
 
 # Jersey Inference (Pass 3 - bibbed team only)
 jersey:
   lock_threshold: 1.5  # Cumulative confidence for jersey lock
+  min_detections: 3  # Minimum number of jersey detections required
+  min_coverage_pct: 0.15  # Minimum temporal coverage (detections/frames)
   min_stability_frames: 30  # Minimum frames for stable inference
   frame_stride: 5  # Classify every N frames
   name_map:
@@ -47,15 +47,27 @@ jersey:
     7: "Rick"
     4: "Spyros"
 
-# Pass 3: Team Clustering + Crop Export
+# Pass 3: Crop Export (futsal-tuned for green bib preservation)
 pass3:
-  team_samples_per_fragment: 8
+  # Crop selection strategy
   save_team_crops: true
-  team_crops_per_fragment: 6
-  team_crops_min_per_team: 20
-  team_crop_mode: "jersey"  # histogram_source | jersey | full
-  team_crop_proximity_px: 40
+  crops_per_fragment: 6  # Target crops per fragment (was team_crops_per_fragment)
+  min_crops_per_team: 15  # Minimum total crops per team (reduced from 20 for futsal)
+  crop_mode: "jersey"  # histogram_source | jersey | full
   crops_input_dir: "videos/input"
+
+  # Quality thresholds (futsal-relaxed for tight spacing)
+  quality_threshold_bib: 0.30  # Adaptive threshold for bib-like crops (was hardcoded 0.35)
+  quality_threshold_standard: 0.45  # Standard threshold (was quality_threshold: 0.5 in team_clustering)
+  quality_threshold_high_confidence: 0.70  # Immediate accept threshold (was hardcoded 0.7)
+
+  # Isolation checks (futsal-relaxed for tight player spacing)
+  proximity_threshold_px: 24  # Minimum distance between crops (reduced from 28 for futsal)
+  iou_threshold: 0.010  # Maximum IoU overlap (increased from hardcoded 0.005)
+
+  # Candidate selection
+  candidate_multiplier: 3  # Collect N×target candidates before filtering (was hardcoded)
+  fallback_promotion_threshold: 3  # Promote best fallback if ≥N fallbacks exist (was hardcoded)
 
 # Homography (Pass 2)
 homography:
