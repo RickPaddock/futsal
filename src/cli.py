@@ -210,7 +210,8 @@ def pass3(run_dir, config, min_confidence):
 @click.option('--input-dir', type=Path, default='videos/input', help='Directory with original video files')
 @click.option('--output-scale', type=float, default=1.0, help='Output video scale (1.0 = full size)')
 @click.option('--config', type=Path, default='config/default.yaml', help='Pipeline config file')
-def visualize(run_dir, clip, input_dir, output_scale, config):
+@click.option('--2d', 'mode_2d', type=str, default=None, help='2D pitch views: B=birdseye, V=voronoi (e.g., "B", "V", "BV")')
+def visualize(run_dir, clip, input_dir, output_scale, config, mode_2d):
     """Generate annotated video from Pass 3 output
 
     Automatically detects clips from Pass 1 JSON files.
@@ -220,6 +221,12 @@ def visualize(run_dir, clip, input_dir, output_scale, config):
     - Jersey numbers (locked identities only)
     - Divergence markers (from Pass 2)
     - Track IDs and fragment IDs
+
+    2D Pitch Options (--2d):
+    - B: Birdseye view (2D pitch with player positions)
+    - V: Voronoi overlay (spatial dominance regions)
+    - BV or VB: Both birdseye and voronoi views
+    - (none): Video only (default)
     """
     from src.passes.pass_visualize import visualize_run
 
@@ -243,12 +250,29 @@ def visualize(run_dir, clip, input_dir, output_scale, config):
         click.echo(f"Error: Pass 1 output not found in {pass1_dir}")
         sys.exit(1)
 
+    # Parse 2D mode flags
+    render_birdseye = False
+    render_voronoi = False
+    if mode_2d:
+        mode_2d_upper = mode_2d.upper()
+        render_birdseye = 'B' in mode_2d_upper
+        render_voronoi = 'V' in mode_2d_upper
+
+        if render_birdseye or render_voronoi:
+            click.echo(f"\n2D Pitch Rendering:")
+            if render_birdseye:
+                click.echo("  ✓ Birdseye view (player positions)")
+            if render_voronoi:
+                click.echo("  ✓ Voronoi overlay (spatial dominance)")
+
     visualize_run(
         run_dir=run_dir,
         clip_filter=clip,
         input_dir=input_dir,
         output_scale=output_scale,
         config=cfg,
+        render_2d_birdseye=render_birdseye,
+        render_2d_voronoi=render_voronoi,
     )
 
     click.echo(f"\nVisualization complete! Output: {run_dir / 'pass3_final'}")

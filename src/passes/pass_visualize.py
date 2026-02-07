@@ -15,6 +15,9 @@ from tqdm import tqdm
 from src.utils.video_io import VideoReader, VideoWriter
 from src.utils.data_models import BoundingBox
 
+# Import homography for 2D pitch visualization (copied from ARCHIVE to src/)
+from src.geometry.homography import create_homography_from_config
+
 
 # Team colors (BGR format for OpenCV)
 TEAM_COLORS = {
@@ -77,6 +80,8 @@ def visualize_run(
     input_dir: Path,
     output_scale: float,
     config: dict,
+    render_2d_birdseye: bool = False,
+    render_2d_voronoi: bool = False,
 ):
     """
     Visualize all clips (or a specific clip) from a run directory.
@@ -89,6 +94,8 @@ def visualize_run(
         input_dir: Directory with original video files
         output_scale: Output video scale (0.5 = half size)
         config: Configuration dictionary
+        render_2d_birdseye: Whether to render 2D birdseye view
+        render_2d_voronoi: Whether to render 2D voronoi overlay
     """
     run_dir = Path(run_dir)
     pass1_dir = run_dir / "pass1_raw"
@@ -135,6 +142,8 @@ def visualize_run(
             input_dir=input_dir,
             output_scale=output_scale,
             config=config,
+            render_2d_birdseye=render_2d_birdseye,
+            render_2d_voronoi=render_2d_voronoi,
         )
 
     print(f"\n{'='*60}")
@@ -148,6 +157,8 @@ def visualize_clip(
     input_dir: Path,
     output_scale: float,
     config: dict,
+    render_2d_birdseye: bool = False,
+    render_2d_voronoi: bool = False,
 ):
     """
     Generate annotated video from Pass 3 output.
@@ -158,6 +169,8 @@ def visualize_clip(
         input_dir: Directory with original video files
         output_scale: Output video scale (0.5 = half size)
         config: Configuration dictionary
+        render_2d_birdseye: Whether to render 2D birdseye view
+        render_2d_voronoi: Whether to render 2D voronoi overlay
     """
     run_dir = Path(run_dir)
     input_dir = Path(input_dir)
@@ -509,3 +522,112 @@ def visualize_clip(
 
     writer.close()
     print(f"\nVisualization saved: {output_path}")
+
+    # Render 2D pitch views (if requested)
+    if render_2d_birdseye or render_2d_voronoi:
+        print(f"\n{'='*60}")
+        print("Rendering 2D Pitch Views")
+        print(f"{'='*60}")
+
+        # Get pass3_data if available
+        pass3_data_for_render = None
+        if pass3_file.exists():
+            with open(pass3_file, 'r', encoding='utf-8') as f:
+                pass3_data_for_render = json.load(f)
+
+        _render_2d_pitch_views(
+            run_dir=run_dir,
+            clip_name=clip_name,
+            pass1_data=pass1_data,
+            pass2_data=pass2_data,
+            pass3_data=pass3_data_for_render,
+            config=config,
+            render_birdseye=render_2d_birdseye,
+            render_voronoi=render_2d_voronoi,
+        )
+
+
+def _render_2d_pitch_views(
+    run_dir: Path,
+    clip_name: str,
+    pass1_data: dict,
+    pass2_data: dict | None,
+    pass3_data: dict | None,
+    config: dict,
+    render_birdseye: bool,
+    render_voronoi: bool,
+):
+    """
+    Render 2D pitch views (birdseye and/or voronoi).
+
+    Args:
+        run_dir: Run output directory
+        clip_name: Clip name (e.g., "clip_001.mp4")
+        pass1_data: Pass 1 JSON data
+        pass2_data: Pass 2 JSON data (or None if not available)
+        pass3_data: Pass 3 JSON data (or None if not available)
+        config: Configuration dictionary
+        render_birdseye: Whether to render birdseye view
+        render_voronoi: Whether to render voronoi overlay
+    """
+    from src.viz.pitch_2d_positions import export_mp4, PitchRenderer2D
+
+    # Create homography
+    homography = create_homography_from_config(config)
+    if homography is None:
+        print("ERROR: Homography not configured, skipping 2D pitch rendering")
+        return
+
+    if pass2_data is None:
+        print("ERROR: Pass 2 data not available, skipping 2D pitch rendering")
+        return
+
+    if pass3_data is None:
+        print("WARNING: Pass 3 data not available, rendering with unknown teams")
+        # Create empty Pass 3 data
+        pass3_data = {"identities": []}
+
+    # Get frame range from Pass 1
+    fps = pass1_data.get("fps", 30.0)
+    total_frames = pass1_data.get("total_frames", 0)
+
+    if total_frames == 0:
+        print("ERROR: No frames found in Pass 1 data")
+        return
+
+    clip_stem = Path(clip_name).stem
+    output_dir = run_dir / "pass3_final"
+
+    # Render birdseye view (no Voronoi)
+    if render_birdseye:
+        print(f"\n  Rendering birdseye view (0-{total_frames-1} frames @ {fps} FPS)...")
+        output_path = output_dir / f"{clip_stem}_pitch_birdseye.mp4"
+        export_mp4(
+            output_path=output_path,
+            start_frame=0,
+            end_frame=total_frames - 1,
+            pass1_data=pass1_data,
+            pass2_data=pass2_data,
+            pass3_data=pass3_data,
+            homography=homography,
+            fps=fps,
+            draw_voronoi=False,
+        )
+        print(f"  ✓ Saved: {output_path}")
+
+    # Render voronoi view
+    if render_voronoi:
+        print(f"\n  Rendering voronoi view (0-{total_frames-1} frames @ {fps} FPS)...")
+        output_path = output_dir / f"{clip_stem}_pitch_voronoi.mp4"
+        export_mp4(
+            output_path=output_path,
+            start_frame=0,
+            end_frame=total_frames - 1,
+            pass1_data=pass1_data,
+            pass2_data=pass2_data,
+            pass3_data=pass3_data,
+            homography=homography,
+            fps=fps,
+            draw_voronoi=True,
+        )
+        print(f"  ✓ Saved: {output_path}")
