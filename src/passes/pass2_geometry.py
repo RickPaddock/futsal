@@ -403,12 +403,22 @@ def detect_jersey_temporal_conflicts(
                 # We only want to split when a jersey JUMPS from one track to another
                 same_track = frag_a["track_id"] == frag_b["track_id"]
 
+                # Filter out weak prior fragments (likely false positives)
+                # If prior fragment is short or has low confidence, it's probably a misdetection
+                frag_a_duration = frag_a["end_frame"] - frag_a["start_frame"]
+                frag_a_confidence = frag_a["max_conf"]
+                is_substantial_prior = frag_a_duration >= 30 and frag_a_confidence >= 0.6
+
                 # Only split if:
                 # 1. Jersey appears AFTER fragment A ends (frame_gap > 0)
                 # 2. Jersey appears SOON after (frame_gap < temporal_window)
                 # 3. Jersey appears AFTER fragment B starts (not at the very beginning)
                 # 4. Fragment A and B are DIFFERENT tracks (not same player briefly occluded)
-                if 0 < frame_gap < temporal_window and jersey_appear_frame > frag_b["start_frame"] and not same_track:
+                # 5. Fragment A is SUBSTANTIAL (not a brief false positive)
+                if (0 < frame_gap < temporal_window
+                    and jersey_appear_frame > frag_b["start_frame"]
+                    and not same_track
+                    and is_substantial_prior):
                     # Schedule fragment B for splitting at jersey appearance frame
                     fragments_to_split.append({
                         "fragment_idx": frag_b["fragment_idx"],
@@ -670,6 +680,62 @@ def detect_divergences(
 
                 # Trigger split if distance exceeds threshold
                 if distance > appearance_threshold:
+                    # ================================================================
+                    # JERSEY-AWARE APPEARANCE DRIFT SPLITTING
+                    # ================================================================
+                    # Only split if jersey was ALREADY visible and then changes/disappears,
+                    # indicating the track jumped to a different player.
+                    #
+                    # SUPPRESS split when:
+                    # 1. No jersey → Jersey appears: Player just turned around
+                    # 2. Same jersey in both windows: Lighting/angle change
+                    #
+                    # ALLOW split when:
+                    # 3. Jersey changes (e.g., #4 → #7): Track jumped to different player
+                    # 4. Jersey disappears (e.g., #4 → none): Track lost the player
+                    # ================================================================
+
+                    # Check baseline: does it have a jersey?
+                    # Use lower threshold (0.3) to catch cases where jersey is visible but not super clear
+                    baseline_has_jersey = False
+                    baseline_jersey_id = None
+                    for baseline_idx in baseline_indices:
+                        if baseline_idx < len(jersey_decisions):
+                            dec = jersey_decisions[baseline_idx]
+                            if dec and len(dec) == 2:
+                                jid, conf = dec
+                                if conf >= 0.3:  # Jersey visible in baseline (relaxed threshold)
+                                    baseline_has_jersey = True
+                                    baseline_jersey_id = jid
+                                    break
+
+                    # Check test: does it have a jersey?
+                    test_has_jersey = False
+                    test_jersey_id = None
+                    if track_idx < len(jersey_decisions):
+                        dec = jersey_decisions[track_idx]
+                        if dec and len(dec) == 2:
+                            jid, conf = dec
+                            if conf >= 0.3:  # Jersey visible in test (relaxed threshold)
+                                test_has_jersey = True
+                                test_jersey_id = jid
+
+                    # Case 1: Jersey first appearance (player turning around)
+                    # Baseline: no jersey → Test: jersey #X
+                    # This is NOT a track jump, just player becoming visible
+                    if not baseline_has_jersey and test_has_jersey:
+                        continue  # SUPPRESS: Player turned around
+
+                    # Case 2: Same jersey in both windows (lighting/angle change)
+                    # Baseline: jersey #X → Test: jersey #X
+                    # This is NOT a track jump, just appearance change
+                    if baseline_has_jersey and test_has_jersey and baseline_jersey_id == test_jersey_id:
+                        continue  # SUPPRESS: Same player, lighting change
+
+                    # Case 3: Jersey changes OR Case 4: Jersey disappears
+                    # - Baseline: jersey #4 → Test: jersey #7 (TRACK JUMPED to different player)
+                    # - Baseline: jersey #4 → Test: no jersey (TRACK LOST the player)
+                    # These indicate track identity swap, so ALLOW split
                     divergences.append({
                         "frame_idx": frames[track_idx],
                         "reason": "appearance_drift",
@@ -727,24 +793,21 @@ def detect_divergences(
             test_jersey, test_conf = get_dominant_jersey(test_decisions)
 
             # Trigger split if jersey state changed significantly
+            # NOTE: We do NOT split when jersey first appears (None → #X)
+            # because that's a normal case (player turns around).
+            # We ONLY split when jersey disappears or changes number.
             if baseline_jersey != test_jersey:
-                # Case 1: Jersey appeared (None → #4)
-                if baseline_jersey is None and test_jersey is not None and test_conf > jersey_appear_threshold:
-                    divergences.append({
-                        "frame_idx": frames[i],
-                        "reason": "jersey_inconsistency",
-                        "metric": float(test_conf),
-                    })
-
-                # Case 2: Jersey disappeared (#4 → None)
-                elif baseline_jersey is not None and test_jersey is None and baseline_conf > jersey_appear_threshold:
+                # Case 1: Jersey disappeared (#4 → None)
+                # This indicates the track lost the player
+                if baseline_jersey is not None and test_jersey is None and baseline_conf > jersey_appear_threshold:
                     divergences.append({
                         "frame_idx": frames[i],
                         "reason": "jersey_inconsistency",
                         "metric": float(baseline_conf),
                     })
 
-                # Case 3: Jersey number changed (#7 → #4)
+                # Case 2: Jersey number changed (#7 → #4)
+                # This indicates the track jumped to a different player
                 elif baseline_jersey is not None and test_jersey is not None:
                     if baseline_conf > jersey_appear_threshold and test_conf > jersey_appear_threshold:
                         divergences.append({
