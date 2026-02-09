@@ -365,82 +365,77 @@ def detect_jersey_temporal_conflicts(
                   f"fragment frames {entry['start_frame']}-{entry['end_frame']}, "
                   f"jersey first appears at frame {entry['jersey_first_frame']}, avg_conf={entry['max_conf']:.2f}")
 
-    # Detect conflicts: jersey appears on Fragment B shortly after disappearing from Fragment A
+    # ========================================================================
+    # DETECT TEMPORAL OVERLAPS: Same jersey on different tracks simultaneously
+    # ========================================================================
+    # More robust than threshold-based filtering: directly detect when two
+    # fragments from different tracks claim the same jersey during overlapping time.
+    # Split the fragment that "stole" the jersey (had it appear later).
+    # ========================================================================
     fragments_to_split = []  # List of (fragment_idx, split_frame, reason)
 
     for jersey_id, timeline in jersey_timeline.items():
-        for i in range(len(timeline) - 1):
-            frag_a = timeline[i]
-            frag_b = timeline[i + 1]
+        # Check all pairs of fragments (not just sequential)
+        for i in range(len(timeline)):
+            for j in range(i + 1, len(timeline)):
+                frag_a = timeline[i]
+                frag_b = timeline[j]
 
-            # Get original Pass 1 track data for Fragment B
-            fragment_b = fragments[frag_b["fragment_idx"]]
-            original_track_id = fragment_b.get("original_track_id")
+                # Skip if same track (same player, brief occlusion is normal)
+                if frag_a["track_id"] == frag_b["track_id"]:
+                    continue
 
-            if original_track_id not in pass1_tracks:
-                continue
+                # Check if fragments overlap in time
+                overlap_start = max(frag_a["start_frame"], frag_b["start_frame"])
+                overlap_end = min(frag_a["end_frame"], frag_b["end_frame"])
 
-            track_data = pass1_tracks[original_track_id]
-            frames = track_data.get("frames", [])
-            jersey_decisions = track_data.get("jersey_decisions", [])
+                if overlap_start <= overlap_end:
+                    # OVERLAP DETECTED: Both fragments claim same jersey during overlap period
+                    overlap_duration = overlap_end - overlap_start + 1
 
-            # Find FIRST frame in Fragment B where jersey appears with high confidence
-            jersey_appear_frame = None
-            for frame_idx, decision in zip(frames, jersey_decisions):
-                if frame_idx >= frag_b["start_frame"] and frame_idx <= frag_b["end_frame"]:
-                    if decision and len(decision) == 2:
-                        jid, conf = decision
-                        if jid == jersey_id and conf >= appear_threshold:
-                            jersey_appear_frame = frame_idx
-                            break
+                    # Decide which fragment to split:
+                    # Split the one where the jersey appears LATER (it "stole" the jersey)
+                    if frag_a["jersey_first_frame"] < frag_b["jersey_first_frame"]:
+                        # Fragment A had jersey first, split Fragment B at its jersey appearance
+                        split_target = frag_b
+                        split_frame = frag_b["jersey_first_frame"]
+                        prior_frag = frag_a
+                    else:
+                        # Fragment B had jersey first, split Fragment A at its jersey appearance
+                        split_target = frag_a
+                        split_frame = frag_a["jersey_first_frame"]
+                        prior_frag = frag_b
 
-            # Check temporal proximity using JERSEY APPEARANCE FRAME, not fragment start
-            if jersey_appear_frame is not None:
-                frame_gap = jersey_appear_frame - frag_a["end_frame"]
+                    # Only split if jersey appears AFTER fragment starts (not at the very beginning)
+                    # This prevents splitting when jersey is visible from the start
+                    if split_frame > split_target["start_frame"]:
+                        # Get track data to verify split frame
+                        fragment_to_split = fragments[split_target["fragment_idx"]]
+                        original_track_id = fragment_to_split.get("original_track_id")
 
-                # CRITICAL: Don't split if Fragment A and Fragment B are the same track_id
-                # This prevents false positives when a player is briefly occluded (jersey disappears/reappears)
-                # We only want to split when a jersey JUMPS from one track to another
-                same_track = frag_a["track_id"] == frag_b["track_id"]
-
-                # Filter out weak prior fragments (likely false positives)
-                # If prior fragment is short or has low confidence, it's probably a misdetection
-                frag_a_duration = frag_a["end_frame"] - frag_a["start_frame"]
-                frag_a_confidence = frag_a["max_conf"]
-                is_substantial_prior = frag_a_duration >= 30 and frag_a_confidence >= 0.6
-
-                # Only split if:
-                # 1. Jersey appears AFTER fragment A ends (frame_gap > 0)
-                # 2. Jersey appears SOON after (frame_gap < temporal_window)
-                # 3. Jersey appears AFTER fragment B starts (not at the very beginning)
-                # 4. Fragment A and B are DIFFERENT tracks (not same player briefly occluded)
-                # 5. Fragment A is SUBSTANTIAL (not a brief false positive)
-                if (0 < frame_gap < temporal_window
-                    and jersey_appear_frame > frag_b["start_frame"]
-                    and not same_track
-                    and is_substantial_prior):
-                    # Schedule fragment B for splitting at jersey appearance frame
-                    fragments_to_split.append({
-                        "fragment_idx": frag_b["fragment_idx"],
-                        "split_frame": jersey_appear_frame,
-                        "reason": f"jersey_temporal_conflict",
-                        "jersey_id": jersey_id,
-                        "prior_fragment_idx": frag_a["fragment_idx"],
-                        "frame_gap": frame_gap,
-                    })
+                        if original_track_id in pass1_tracks:
+                            fragments_to_split.append({
+                                "fragment_idx": split_target["fragment_idx"],
+                                "split_frame": split_frame,
+                                "reason": "jersey_overlap_conflict",
+                                "jersey_id": jersey_id,
+                                "prior_fragment_idx": prior_frag["fragment_idx"],
+                                "overlap_duration": overlap_duration,
+                            })
 
     # If no conflicts detected, return fragments unchanged
     if not fragments_to_split:
         return fragments
 
     # Debug: Print detected conflicts
-    print(f"    Detected {len(fragments_to_split)} jersey temporal conflict(s):")
+    print(f"    Detected {len(fragments_to_split)} jersey overlap conflict(s):")
     for split_info in fragments_to_split:
         frag_idx = split_info["fragment_idx"]
         fragment = fragments[frag_idx]
+        prior_frag = fragments[split_info["prior_fragment_idx"]]
         print(f"      - Fragment {fragment.get('fragment_id')} (track {fragment.get('original_track_id')}): "
-              f"jersey #{split_info['jersey_id']} appears at frame {split_info['split_frame']} "
-              f"(gap={split_info['frame_gap']} frames from prior fragment)")
+              f"jersey #{split_info['jersey_id']} conflicts with {prior_frag.get('fragment_id')} "
+              f"(overlap={split_info['overlap_duration']} frames, split at {split_info['split_frame']})")
 
     # Apply splits (process in reverse order to maintain indices)
     fragments_to_split.sort(key=lambda x: x["fragment_idx"], reverse=True)
