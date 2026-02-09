@@ -46,6 +46,40 @@ def _dequantize_histogram(hist_quantized: list[int]) -> np.ndarray:
     return np.array(hist_quantized, dtype=np.float32) / 255.0
 
 
+def compute_appearance_distance(hist1: np.ndarray, hist2: np.ndarray) -> float:
+    """
+    Compute appearance distance between two HSV histograms using chi-squared distance.
+
+    This is the CORE appearance-consistency metric for divergence detection.
+    Chi-squared is robust for histogram comparison and handles normalization well.
+
+    Args:
+        hist1: First HSV histogram (96 elements, float32, normalized)
+        hist2: Second HSV histogram (96 elements, float32, normalized)
+
+    Returns:
+        Distance in [0, ∞), where:
+        - 0.0 = identical appearance
+        - ~0.3 = same player, different lighting/angle
+        - ~0.5+ = different player (identity swap)
+        - inf = invalid histograms
+    """
+    if hist1 is None or hist2 is None or hist1.size == 0 or hist2.size == 0:
+        return float('inf')
+
+    if hist1.shape != hist2.shape or hist1.size != 96:
+        return float('inf')
+
+    # Chi-squared distance: Σ (h1[i] - h2[i])² / (h1[i] + h2[i] + eps)
+    # Robust to histogram normalization and handles zero bins gracefully
+    eps = 1e-10
+    numerator = (hist1 - hist2) ** 2
+    denominator = hist1 + hist2 + eps
+    chi_squared = np.sum(numerator / denominator)
+
+    return float(chi_squared)
+
+
 def run_pass2(run_dir: Path, config: dict):
     """
     Run Pass 2: Divergence Detection + Track Fragment Splitting.
@@ -149,11 +183,13 @@ def process_clip_pass2(
             court_positions.append([court_x, court_y])
 
         # Detect divergence points (frame indices where track should split)
+        # NOW INCLUDES APPEARANCE DRIFT DETECTION (critical for identity swap fix)
         divergence_points = detect_divergences(
             frames=frames,
             court_positions=court_positions,
             confidences=confidences,
             occlusion_scores=occlusion_scores,
+            hsv_histograms=hsv_histograms,
             fps=fps,
             crossing_threshold=crossing_threshold,
             velocity_threshold=velocity_threshold,
@@ -161,6 +197,8 @@ def process_clip_pass2(
             bbox_jump_threshold=bbox_jump_threshold,
             occlusion_threshold=occlusion_threshold,
             occlusion_window=occlusion_window,
+            appearance_threshold=div_cfg.get("appearance_threshold", 0.5),
+            appearance_window=div_cfg.get("appearance_window", 3),
         )
 
         # Split track into fragments at divergence points
@@ -210,6 +248,7 @@ def detect_divergences(
     court_positions: list[list[float]],
     confidences: list[float],
     occlusion_scores: list[float],
+    hsv_histograms: list[list[int] | None],
     fps: float,
     crossing_threshold: float,
     velocity_threshold: float,
@@ -217,14 +256,19 @@ def detect_divergences(
     bbox_jump_threshold: float,
     occlusion_threshold: float,
     occlusion_window: int,
+    appearance_threshold: float,
+    appearance_window: int,
 ) -> list[dict[str, Any]]:
     """
     Detect divergence points (frame indices where track should split).
 
+    CRITICAL: Appearance drift is now a FIRST-CLASS divergence signal.
+    This fixes identity swaps during close contact (T5 orange→white bug).
+
     Returns:
         List of divergence dicts with:
         - frame_idx: Frame where divergence occurred
-        - reason: Type of divergence (crossing, velocity_spike, bbox_jump, occlusion_spike)
+        - reason: Type of divergence (velocity_spike, bbox_jump, occlusion_spike, appearance_drift)
         - metric: Numeric value that triggered the detection
     """
     divergences = []
@@ -293,8 +337,73 @@ def detect_divergences(
                         "metric": float(mean_occlusion),
                     })
 
-    # Sort divergences by frame index
+    # ========================================================================
+    # APPEARANCE DRIFT DETECTION (CRITICAL FOR IDENTITY SWAP BUG FIX)
+    # ========================================================================
+    # Strategy: Build rolling appearance centroid and detect when new samples
+    # drift too far from the established appearance baseline.
+    #
+    # This catches cases like T5 (orange→white) where motion is smooth but
+    # appearance suddenly changes during close contact.
+    # ========================================================================
+
+    # Build list of valid histogram indices (skip None entries from sparse sampling)
+    valid_hist_indices = [i for i, h in enumerate(hsv_histograms) if h is not None and len(h) == 96]
+
+    if len(valid_hist_indices) >= appearance_window + 1:
+        # Slide window through valid histograms
+        for window_start_idx in range(len(valid_hist_indices) - appearance_window):
+            # Get indices of first half of window (baseline appearance)
+            baseline_end_idx = window_start_idx + max(1, appearance_window // 2)
+            baseline_indices = valid_hist_indices[window_start_idx:baseline_end_idx]
+
+            # Compute baseline appearance centroid
+            baseline_hists = [_dequantize_histogram(hsv_histograms[i]) for i in baseline_indices]
+            baseline_centroid = np.mean(baseline_hists, axis=0)
+
+            # Check each histogram in second half of window against baseline
+            test_start_idx = baseline_end_idx
+            test_end_idx = min(window_start_idx + appearance_window + 1, len(valid_hist_indices))
+
+            for test_idx in range(test_start_idx, test_end_idx):
+                track_idx = valid_hist_indices[test_idx]
+                test_hist = _dequantize_histogram(hsv_histograms[track_idx])
+
+                # Compute appearance distance
+                distance = compute_appearance_distance(baseline_centroid, test_hist)
+
+                # Trigger split if distance exceeds threshold
+                if distance > appearance_threshold:
+                    divergences.append({
+                        "frame_idx": frames[track_idx],
+                        "reason": "appearance_drift",
+                        "metric": float(distance),
+                    })
+
+    # Sort divergences by frame index and deduplicate
     divergences.sort(key=lambda d: d["frame_idx"])
+
+    # Deduplicate: if multiple divergences at same frame, keep one with highest metric
+    if divergences:
+        deduped = []
+        last_frame = None
+        last_div = None
+
+        for div in divergences:
+            if div["frame_idx"] != last_frame:
+                if last_div is not None:
+                    deduped.append(last_div)
+                last_frame = div["frame_idx"]
+                last_div = div
+            else:
+                # Same frame - keep divergence with higher metric
+                if div["metric"] > last_div["metric"]:
+                    last_div = div
+
+        if last_div is not None:
+            deduped.append(last_div)
+
+        divergences = deduped
 
     return divergences
 
@@ -315,6 +424,10 @@ def split_track_into_fragments(
     """
     Split a track into fragments at divergence points.
 
+    CRITICAL: Primary fragment assignment ensures the original track ID
+    stays with the fragment that maintains appearance consistency.
+    This fixes the T5 identity swap bug.
+
     Args:
         track_id: Original track ID from Pass 1
         frames: Frame indices
@@ -329,12 +442,30 @@ def split_track_into_fragments(
         min_fragment_length: Minimum frames for a valid fragment
 
     Returns:
-        List of fragment dicts
+        List of fragment dicts with "is_primary_fragment" flag
     """
     fragments = []
 
     # Extract divergence frame indices
     split_frames = [d["frame_idx"] for d in divergence_points]
+
+    # ========================================================================
+    # COMPUTE PRE-SPLIT APPEARANCE CENTROID
+    # ========================================================================
+    # This is the ground truth appearance BEFORE any identity swap.
+    # The fragment closest to this centroid gets flagged as primary
+    # (keeps original track identity), others are secondary (ID jumps).
+    # ========================================================================
+    pre_split_histograms = []
+    first_split_frame = split_frames[0] if split_frames else float('inf')
+
+    for i, hist in enumerate(hsv_histograms):
+        if hist is not None and len(hist) == 96 and frames[i] < first_split_frame:
+            pre_split_histograms.append(_dequantize_histogram(hist))
+
+    pre_split_centroid = None
+    if pre_split_histograms:
+        pre_split_centroid = np.mean(pre_split_histograms, axis=0)
 
     # Split track at divergence points
     start_idx = 0
@@ -362,6 +493,16 @@ def split_track_into_fragments(
             fragment["split_reason"] = next(
                 (d for d in divergence_points if d["frame_idx"] == split_frame), None
             )
+
+            # Compute appearance distance to pre-split centroid
+            if pre_split_centroid is not None and fragment.get("mean_hsv_histogram"):
+                fragment_hist = np.array(fragment["mean_hsv_histogram"], dtype=np.float32)
+                fragment["appearance_distance_to_origin"] = compute_appearance_distance(
+                    pre_split_centroid, fragment_hist
+                )
+            else:
+                fragment["appearance_distance_to_origin"] = float('inf')
+
             fragments.append(fragment)
 
         start_idx = split_idx
@@ -380,7 +521,46 @@ def split_track_into_fragments(
             jersey_decisions=jersey_decisions[start_idx:],
         )
         fragment["split_reason"] = None  # No divergence (end of track)
+
+        # Compute appearance distance to pre-split centroid
+        if pre_split_centroid is not None and fragment.get("mean_hsv_histogram"):
+            fragment_hist = np.array(fragment["mean_hsv_histogram"], dtype=np.float32)
+            fragment["appearance_distance_to_origin"] = compute_appearance_distance(
+                pre_split_centroid, fragment_hist
+            )
+        else:
+            fragment["appearance_distance_to_origin"] = float('inf')
+
         fragments.append(fragment)
+
+    # ========================================================================
+    # ASSIGN PRIMARY FRAGMENT FLAG
+    # ========================================================================
+    # The fragment with MINIMUM appearance distance to pre-split centroid
+    # is the PRIMARY fragment (keeps original track identity).
+    # All others are SECONDARY (identity jumps/swaps).
+    #
+    # For T5 case:
+    #   - Fragment with orange appearance → is_primary_fragment=True
+    #   - Fragment with white appearance → is_primary_fragment=False
+    # ========================================================================
+    if fragments and pre_split_centroid is not None:
+        min_distance = float('inf')
+        primary_idx = 0
+
+        for i, frag in enumerate(fragments):
+            dist = frag.get("appearance_distance_to_origin", float('inf'))
+            if dist < min_distance:
+                min_distance = dist
+                primary_idx = i
+
+        # Mark primary and secondary fragments
+        for i, frag in enumerate(fragments):
+            frag["is_primary_fragment"] = (i == primary_idx)
+    else:
+        # No pre-split centroid (no valid histograms) - mark first as primary
+        for i, frag in enumerate(fragments):
+            frag["is_primary_fragment"] = (i == 0)
 
     return fragments
 

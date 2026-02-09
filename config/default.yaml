@@ -37,10 +37,10 @@ team_clustering:
 
 # Jersey Inference (Pass 3 - bibbed team only)
 jersey:
-  lock_threshold: 1.5  # Cumulative confidence for jersey lock
-  min_detections: 3  # Minimum number of jersey detections required
-  min_coverage_pct: 0.15  # Minimum temporal coverage (detections/frames)
-  min_stability_frames: 30  # Minimum frames for stable inference
+  lock_threshold: 1.0  # Cumulative confidence for jersey lock (relaxed for short fragments)
+  min_detections: 2  # Minimum number of jersey detections required (relaxed from 3)
+  min_coverage_pct: 0.10  # Minimum temporal coverage (relaxed from 0.15)
+  min_stability_frames: 15  # Minimum frames for stable inference (relaxed from 30)
   frame_stride: 5  # Classify every N frames
   name_map:
     10: "Kikis"
@@ -67,18 +67,6 @@ pass3:
   # Candidate selection
   candidate_multiplier: 3  # Collect N×target candidates before filtering (was hardcoded)
   fallback_promotion_threshold: 3  # Promote best fallback if ≥N fallbacks exist (was hardcoded)
-
-# Homography (Pass 2)
-homography:
-  config_file: "config/homography_points.yaml"
-  court_length: 40.0  # meters
-  court_width: 20.0   # meters
-
-# Pass 3: Divergence Detection (Narrow Criteria - ALL must be true)
-divergence:
-  appearance_threshold: 0.5  # Appearance distance threshold
-  spatial_proximity_meters: 2.0  # Max spatial distance for divergence
-  temporal_proximity_frames: 10  # Max frame gap for divergence
 
 # Homography - Pixel to Court Coordinate Mapping
 homography:
@@ -135,6 +123,11 @@ divergence:
   # Occlusion spike detection
   occlusion_threshold: 0.6  # Confidence drop indicating occlusion (1 - confidence)
   occlusion_window_frames: 5  # Check for sustained occlusion over N frames
+
+  # APPEARANCE DRIFT DETECTION (for T5 orange→white swap bug)
+  # Conservative threshold to catch identity swaps (orange→white) without over-splitting
+  appearance_threshold: 6.0  # Chi-squared distance threshold for appearance-based splits. Lower = more splits
+  appearance_window: 7  # Number of histogram samples to compare (baseline vs test)
 
   # Fragment splitting
   min_fragment_length: 10  # Minimum frames for a valid fragment

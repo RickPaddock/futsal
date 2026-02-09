@@ -21,6 +21,82 @@ except ImportError:
     orjson = None
 
 
+def validate_team_size_constraint(fragments: list[dict], max_per_team: int = 6) -> None:
+    """
+    Enforce hard team size constraint: max 6 concurrent players per team.
+
+    This is a SAFETY NET to catch fragmentation bugs. If violated, it indicates
+    that appearance-based splitting failed to trigger correctly (or team clustering
+    is wrong). This should NEVER happen in correct implementation.
+
+    Args:
+        fragments: List of fragment dicts with team assignments
+        max_per_team: Maximum concurrent players per team (default: 6 for futsal)
+
+    Raises:
+        No exceptions - violations are logged as warnings for debugging
+    """
+    team_timelines = {"team_a": [], "team_b": []}
+
+    # Build timeline for each team
+    for fragment in fragments:
+        team = fragment.get("team")
+        if team in team_timelines:
+            team_timelines[team].append({
+                "fragment_id": fragment["fragment_id"],
+                "start": fragment["start_frame"],
+                "end": fragment["end_frame"],
+            })
+
+    # Check for temporal overlaps exceeding max_per_team
+    violations_found = False
+    for team, timeline in team_timelines.items():
+        if not timeline:
+            continue
+
+        # Get all frames covered by this team
+        all_frames = set()
+        for frag in timeline:
+            all_frames.update(range(frag["start"], frag["end"] + 1))
+
+        # For each frame, count concurrent fragments
+        max_concurrent = 0
+        worst_frame = None
+
+        for frame in sorted(all_frames):
+            concurrent = [
+                frag for frag in timeline
+                if frag["start"] <= frame <= frag["end"]
+            ]
+
+            if len(concurrent) > max_concurrent:
+                max_concurrent = len(concurrent)
+                worst_frame = frame
+
+            if len(concurrent) > max_per_team:
+                if not violations_found:
+                    print(f"\n⚠️  TEAM SIZE CONSTRAINT VIOLATION DETECTED!")
+                    violations_found = True
+
+                print(f"    {team.upper()}: {len(concurrent)} concurrent players at frame {frame} (max={max_per_team})")
+                print(f"       Fragments: {[f['fragment_id'] for f in concurrent]}")
+
+                # Mark fragments for review
+                for frag_info in concurrent:
+                    for fragment in fragments:
+                        if fragment["fragment_id"] == frag_info["fragment_id"]:
+                            fragment["team_constraint_violation"] = True
+
+        if max_concurrent > 0:
+            print(f"  [{team.upper()}] Max concurrent players: {max_concurrent} at frame {worst_frame}")
+
+    if violations_found:
+        print(f"\n⚠️  This indicates an appearance-based splitting bug or team clustering error.")
+        print(f"    Review fragments marked with 'team_constraint_violation': true")
+    else:
+        print(f"  ✅ Team size constraint satisfied (max {max_per_team} per team)")
+
+
 def run_pass3(run_dir: Path, config: dict):
     run_dir = Path(run_dir)
     pass2_dir = run_dir / "pass2_identity"
@@ -96,6 +172,14 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
         else:
             fragments[i]["team"] = "team_b"
 
+    # ========================================================================
+    # VALIDATE TEAM SIZE CONSTRAINT (SAFETY NET)
+    # ========================================================================
+    # Ensure no more than 6 concurrent players per team at any frame.
+    # This catches fragmentation bugs that slipped through appearance-based splitting.
+    # ========================================================================
+    print(f"\n  Validating team size constraint...")
+    validate_team_size_constraint(fragments, max_per_team=6)
 
     # Get detailed jersey assignments (returns dict with assignment details)
     jersey_assignments_detailed = _infer_jersey_numbers_detailed(

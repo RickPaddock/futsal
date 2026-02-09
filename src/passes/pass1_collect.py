@@ -273,15 +273,20 @@ def process_clip(
                 if jersey_probs:
                     jersey_id, jersey_conf = max(jersey_probs.items(), key=lambda kv: kv[1])
 
-            # Extract HSV histogram (sampled every N frames for storage efficiency)
+            # Compute occlusion score (1.0 - confidence as proxy)
+            occlusion_score = 1.0 - track.score
+
+            # Extract HSV histogram with ADAPTIVE SAMPLING
+            # Sample every N frames normally, BUT also sample during high occlusion (close contact)
+            # This densifies appearance data exactly when identity swaps are most likely
+            adaptive_occlusion_threshold = config.get('pass1', {}).get('adaptive_occlusion_threshold', 0.3)
+            should_sample = (frame_idx_int % hsv_sample_stride == 0) or (occlusion_score > adaptive_occlusion_threshold)
+
             hsv_hist_quantized = None
-            if frame_idx_int % hsv_sample_stride == 0:
+            if should_sample:
                 hsv_hist, _, _, quality = jersey_hist_extractor.extract_features(frame, bbox_obj)
                 if quality >= jersey_hist_quality_threshold and hsv_hist.size == 96:
                     hsv_hist_quantized = _quantize_histogram(hsv_hist)
-
-            # Compute occlusion score (1.0 - confidence as proxy)
-            occlusion_score = 1.0 - track.score
 
             track_data["frames"].append(frame_idx_int)
             track_data["bboxes"].append(bbox_list)
