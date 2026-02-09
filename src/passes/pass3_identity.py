@@ -75,7 +75,7 @@ def validate_team_size_constraint(fragments: list[dict], max_per_team: int = 6) 
 
             if len(concurrent) > max_per_team:
                 if not violations_found:
-                    print(f"\n⚠️  TEAM SIZE CONSTRAINT VIOLATION DETECTED!")
+                    print(f"\n[WARNING] TEAM SIZE CONSTRAINT VIOLATION DETECTED!")
                     violations_found = True
 
                 print(f"    {team.upper()}: {len(concurrent)} concurrent players at frame {frame} (max={max_per_team})")
@@ -91,10 +91,10 @@ def validate_team_size_constraint(fragments: list[dict], max_per_team: int = 6) 
             print(f"  [{team.upper()}] Max concurrent players: {max_concurrent} at frame {worst_frame}")
 
     if violations_found:
-        print(f"\n⚠️  This indicates an appearance-based splitting bug or team clustering error.")
+        print(f"\n[WARNING] This indicates an appearance-based splitting bug or team clustering error.")
         print(f"    Review fragments marked with 'team_constraint_violation': true")
     else:
-        print(f"  ✅ Team size constraint satisfied (max {max_per_team} per team)")
+        print(f"  [OK] Team size constraint satisfied (max {max_per_team} per team)")
 
 
 def run_pass3(run_dir: Path, config: dict):
@@ -188,6 +188,18 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
         min_detections=jersey_min_detections,
         min_coverage_pct=jersey_min_coverage,
         frame_stride=jersey_frame_stride,
+    )
+
+    # ========================================================================
+    # JERSEY INHERITANCE (TRACK CONTINUITY)
+    # ========================================================================
+    # A jersey number can't just disappear! If a track loses its jersey but
+    # reappears later (same track_id), inherit the jersey from the previous fragment.
+    # This handles brief occlusions/gaps where tracking is lost and re-acquired.
+    # ========================================================================
+    print(f"\n  Applying jersey inheritance (track continuity)...")
+    jersey_assignments_detailed = _apply_jersey_inheritance(
+        fragments, jersey_assignments_detailed
     )
 
     # Display assignment summary with statistics
@@ -371,6 +383,7 @@ def _infer_jersey_numbers_detailed(
 
     # Step 4: Resolve conflicts using greedy algorithm
     # Process jerseys one at a time, assign to non-overlapping fragments with highest evidence
+    # Note: Jersey inheritance (Step 5) handles track continuity after initial assignment
     assignments = {}
     assigned_fragments = set()  # Track which fragments have been assigned
 
@@ -439,6 +452,92 @@ def _infer_jersey_numbers_detailed(
 
     # Return detailed assignments with reasons
     return assignments
+
+
+def _apply_jersey_inheritance(
+    fragments: list[dict[str, Any]],
+    assignments: dict[str, dict[str, Any]]
+) -> dict[str, dict[str, Any]]:
+    """
+    Apply jersey inheritance based on track continuity.
+
+    Logic: A jersey number can't just disappear! If a track loses its jersey but
+    reappears later with the same track_id, inherit the jersey from the previous fragment.
+
+    This handles:
+    - Brief occlusions where tracking is lost and re-acquired
+    - Track gaps where the player temporarily leaves detection range
+
+    Args:
+        fragments: List of fragment dicts from Pass 2
+        assignments: Current jersey assignments from _infer_jersey_numbers_detailed()
+
+    Returns:
+        Updated assignments with inherited jerseys
+    """
+    # Group fragments by original_track_id
+    tracks = {}  # track_id -> list of (fragment_id, start_frame, end_frame, team)
+    for fragment in fragments:
+        track_id = fragment.get("original_track_id")
+        fragment_id = fragment.get("fragment_id")
+        start_frame = fragment.get("start_frame")
+        end_frame = fragment.get("end_frame")
+        team = fragment.get("team", "unknown")
+
+        if track_id not in tracks:
+            tracks[track_id] = []
+        tracks[track_id].append({
+            "fragment_id": fragment_id,
+            "start_frame": start_frame,
+            "end_frame": end_frame,
+            "team": team,
+        })
+
+    # Sort each track's fragments by start_frame
+    for track_id in tracks:
+        tracks[track_id].sort(key=lambda f: f["start_frame"])
+
+    # Apply inheritance: if fragment N has jersey J and fragment N+1 (same track) has no jersey,
+    # inherit J to N+1 if nobody else claimed J in between
+    inheritance_count = 0
+    new_assignments = dict(assignments)  # Copy to avoid modifying original
+
+    for track_id, track_fragments in tracks.items():
+        for i in range(len(track_fragments) - 1):
+            curr_frag = track_fragments[i]
+            next_frag = track_fragments[i + 1]
+
+            # Check if current fragment has a jersey
+            curr_assignment = new_assignments.get(curr_frag["fragment_id"], {})
+            curr_jersey = curr_assignment.get("jersey_number")
+
+            if curr_jersey is None:
+                continue  # No jersey to inherit
+
+            # Check if next fragment has no jersey
+            next_assignment = new_assignments.get(next_frag["fragment_id"], {})
+            next_jersey = next_assignment.get("jersey_number")
+
+            if next_jersey is not None:
+                continue  # Next fragment already has a jersey
+
+            # SIMPLIFIED INHERITANCE: A jersey can't just disappear!
+            # If the same track had a jersey earlier, it keeps it in later fragments.
+            # This overrides single-owner invariant because track continuity is more reliable.
+            new_assignments[next_frag["fragment_id"]] = {
+                "jersey_number": curr_jersey,
+                "confidence": curr_assignment.get("confidence", 0.0),
+                "reason": f"inherited_from_{curr_frag['fragment_id']} (track_continuity)",
+            }
+            inheritance_count += 1
+            print(f"    Inherited jersey #{curr_jersey}: {curr_frag['fragment_id']} (track {track_id}) -> {next_frag['fragment_id']}")
+
+    if inheritance_count == 0:
+        print(f"    No jersey inheritance needed")
+    else:
+        print(f"    Applied {inheritance_count} jersey inheritance(s)")
+
+    return new_assignments
 
 
 def _print_assignment_summary(

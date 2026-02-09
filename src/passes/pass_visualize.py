@@ -295,6 +295,7 @@ def visualize_clip(
     for track_id, track_data in tracks.items():
         frames = track_data.get("frames", [])
         bboxes = track_data.get("bboxes", [])
+        jersey_decisions = track_data.get("jersey_decisions", [])
         for i, frame_idx in enumerate(frames):
             bbox = bboxes[i]
 
@@ -308,6 +309,14 @@ def visualize_clip(
                 team = identity.get("team", "unknown")
                 jersey = identity.get("jersey")
                 jersey_confidence = float(identity.get("confidence", 0.0))
+
+            # Get raw jersey detection from Pass 1 (per-frame)
+            raw_jersey_id = None
+            raw_jersey_conf = 0.0
+            if i < len(jersey_decisions):
+                decision = jersey_decisions[i]
+                if decision and len(decision) == 2:
+                    raw_jersey_id, raw_jersey_conf = decision
 
             # Track stats
             team_counts[team] = team_counts.get(team, 0) + 1
@@ -323,6 +332,8 @@ def visualize_clip(
                 "jersey": jersey,
                 "jersey_confidence": jersey_confidence,
                 "fragment_id": frag_id,
+                "raw_jersey_id": raw_jersey_id,
+                "raw_jersey_conf": raw_jersey_conf,
             }
 
     print(f"  Team assignments: {team_counts}")
@@ -403,6 +414,8 @@ def visualize_clip(
             jersey = data["jersey"]
             jersey_confidence = float(data.get("jersey_confidence", 0.0))
             frag_id = data.get("fragment_id")
+            raw_jersey_id = data.get("raw_jersey_id")
+            raw_jersey_conf = float(data.get("raw_jersey_conf", 0.0))
 
             # Scale bbox to output size
             x1 = int(bbox[0] * output_scale)
@@ -447,6 +460,42 @@ def visualize_clip(
             font = cv2.FONT_HERSHEY_SIMPLEX
             font_scale = max(0.35, 0.5 * output_scale)
             thickness = max(1, int(2 * output_scale))
+
+            # Draw raw jersey detection (per-frame from Pass 1) on right side of bbox
+            if raw_jersey_id is not None and raw_jersey_conf > 0.0:
+                jersey_detect_label = f"J:{int(raw_jersey_id)} ({raw_jersey_conf:.2f})"
+                (jd_width, jd_height), _ = cv2.getTextSize(
+                    jersey_detect_label, font, font_scale * 0.8, thickness
+                )
+
+                # Position on right side of bbox
+                jd_x = x2 + 5
+                jd_y = y1 + jd_height + 5
+
+                # Background color: green if high conf (>0.5), yellow if medium (>0.3), red if low
+                if raw_jersey_conf >= 0.5:
+                    jd_bg_color = (0, 200, 0)  # Green
+                elif raw_jersey_conf >= 0.3:
+                    jd_bg_color = (0, 200, 200)  # Yellow
+                else:
+                    jd_bg_color = (0, 0, 200)  # Red
+
+                cv2.rectangle(
+                    frame_bgr,
+                    (jd_x, jd_y - jd_height - 4),
+                    (jd_x + jd_width + 4, jd_y + 2),
+                    jd_bg_color,
+                    -1,
+                )
+                cv2.putText(
+                    frame_bgr,
+                    jersey_detect_label,
+                    (jd_x + 2, jd_y),
+                    font,
+                    font_scale * 0.8,
+                    (255, 255, 255),
+                    thickness,
+                )
 
             if label:
                 # Draw top label background (track + fragment)
@@ -503,15 +552,32 @@ def visualize_clip(
                         thickness,
                     )
 
-        # Draw frame counter
+        # Draw frame counter with black background
+        frame_text = f"Frame: {frame_idx}"
+        frame_font_scale = max(0.5, 0.7 * output_scale)
+        frame_thickness = max(1, int(2 * output_scale))
+        (frame_text_width, frame_text_height), frame_baseline = cv2.getTextSize(
+            frame_text, cv2.FONT_HERSHEY_SIMPLEX, frame_font_scale, frame_thickness
+        )
+
+        # Black background
+        cv2.rectangle(
+            frame_bgr,
+            (5, 68),
+            (15 + frame_text_width, 90 + frame_text_height),
+            (0, 0, 0),
+            -1,
+        )
+
+        # White text
         cv2.putText(
             frame_bgr,
-            f"Frame: {frame_idx}",
+            frame_text,
             (10, 84),
             cv2.FONT_HERSHEY_SIMPLEX,
-            max(0.5, 0.7 * output_scale),
+            frame_font_scale,
             (255, 255, 255),
-            max(1, int(2 * output_scale)),
+            frame_thickness,
         )
 
         # Convert back to RGB for writer

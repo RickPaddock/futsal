@@ -183,13 +183,14 @@ def process_clip_pass2(
             court_positions.append([court_x, court_y])
 
         # Detect divergence points (frame indices where track should split)
-        # NOW INCLUDES APPEARANCE DRIFT DETECTION (critical for identity swap fix)
+        # NOW INCLUDES APPEARANCE DRIFT + JERSEY INCONSISTENCY DETECTION
         divergence_points = detect_divergences(
             frames=frames,
             court_positions=court_positions,
             confidences=confidences,
             occlusion_scores=occlusion_scores,
             hsv_histograms=hsv_histograms,
+            jersey_decisions=jersey_decisions,
             fps=fps,
             crossing_threshold=crossing_threshold,
             velocity_threshold=velocity_threshold,
@@ -199,6 +200,10 @@ def process_clip_pass2(
             occlusion_window=occlusion_window,
             appearance_threshold=div_cfg.get("appearance_threshold", 0.5),
             appearance_window=div_cfg.get("appearance_window", 3),
+            jersey_enabled=div_cfg.get("jersey_inconsistency_enabled", True),
+            jersey_appear_threshold=div_cfg.get("jersey_appear_threshold", 0.5),
+            jersey_disappear_threshold=div_cfg.get("jersey_disappear_threshold", 0.3),
+            jersey_window=div_cfg.get("jersey_consistency_window", 10),
         )
 
         # Split track into fragments at divergence points
@@ -222,6 +227,40 @@ def process_clip_pass2(
             fragment_id_counter += 1
             output_data["fragments"].append(fragment)
 
+    # ========================================================================
+    # JERSEY TEMPORAL EXCLUSIVITY POST-PROCESSING (ITERATIVE)
+    # ========================================================================
+    # Detect when a jersey disappears from one fragment and appears on another.
+    # This catches track jumps that appearance-based detection may miss
+    # (e.g., black #4 → black no-number jump at frame ~700).
+    #
+    # Run iteratively because a single fragment may jump between multiple people:
+    # Person 1 (no jersey) → Person 2 (no jersey) → Person 3 (jersey #4)
+    # Each jump needs to be detected and split separately.
+    # ========================================================================
+    jersey_temporal_cfg = div_cfg.get("jersey_temporal_exclusivity", {})
+    if jersey_temporal_cfg.get("enabled", True):
+        max_iterations = 5  # Safety limit to prevent infinite loops
+        iteration = 0
+        while iteration < max_iterations:
+            iteration += 1
+            fragments_before = output_data["fragments"]
+            output_data["fragments"] = detect_jersey_temporal_conflicts(
+                fragments=output_data["fragments"],
+                pass1_tracks=tracks,
+                homography=homography,
+                min_fragment_length=min_fragment_length,
+                appear_threshold=jersey_temporal_cfg.get("appear_threshold", 0.5),
+                temporal_window=jersey_temporal_cfg.get("temporal_window_frames", 50),
+            )
+            # Stop if no new splits were made
+            if len(output_data["fragments"]) == len(fragments_before):
+                print(f"  Jersey temporal exclusivity: converged after {iteration} iteration(s)")
+                break
+        else:
+            print(f"  Jersey temporal exclusivity: stopped after {max_iterations} iterations (max reached)")
+
+
     # Save JSON
     output_path = output_dir / f"{pass1_file.stem}_fragments.json"
     pretty_json = config.get("pass2", {}).get("pretty_json", True)
@@ -243,12 +282,265 @@ def process_clip_pass2(
     print(f"  Fragments: {len(output_data['fragments'])}")
 
 
+def detect_jersey_temporal_conflicts(
+    fragments: list[dict[str, Any]],
+    pass1_tracks: dict[str, Any],
+    homography: CourtHomography,
+    min_fragment_length: int,
+    appear_threshold: float,
+    temporal_window: int,
+) -> list[dict[str, Any]]:
+    """
+    Post-process fragments to detect jersey temporal exclusivity violations.
+
+    This function addresses the scenario where:
+    1. Jersey #X disappears from Fragment A at frame F
+    2. Jersey #X appears on Fragment B at frame F+delta (delta < temporal_window)
+    3. Split Fragment B at the jersey appearance frame
+
+    This catches track jumps that appearance-based detection may miss when
+    both players have similar appearance (e.g., black shirt → black shirt #4).
+
+    Args:
+        fragments: List of fragment dicts
+        pass1_tracks: Original Pass 1 track data (for re-splitting)
+        homography: CourtHomography instance
+        min_fragment_length: Minimum frames for a valid fragment
+        appear_threshold: Min confidence for jersey appearance
+        temporal_window: Max frame gap to consider jersey jump
+
+    Returns:
+        Updated list of fragments with temporal conflicts resolved
+    """
+    # Build jersey timeline: jersey_id -> [(fragment_idx, start_frame, end_frame, max_conf)]
+    jersey_timeline = {}
+
+    for frag_idx, fragment in enumerate(fragments):
+        jersey_probs = fragment.get("jersey_prob_timeline", {})
+        start_frame = fragment.get("start_frame", 0)
+        end_frame = fragment.get("end_frame", 0)
+        original_track_id = fragment.get("original_track_id")
+
+        for jersey_id, stats in jersey_probs.items():
+            count = stats.get("count", 0)
+            total_conf = stats.get("total", 0.0)
+            avg_conf = total_conf / count if count > 0 else 0.0
+
+            if avg_conf >= appear_threshold:
+                # Find FIRST frame where this jersey appears in this fragment
+                jersey_first_frame = start_frame  # Default to fragment start
+                if original_track_id in pass1_tracks:
+                    track_data = pass1_tracks[original_track_id]
+                    frames = track_data.get("frames", [])
+                    jersey_decisions = track_data.get("jersey_decisions", [])
+                    for frame_idx, decision in zip(frames, jersey_decisions):
+                        if start_frame <= frame_idx <= end_frame:
+                            if decision and len(decision) == 2:
+                                jid, conf = decision
+                                if jid == jersey_id and conf >= appear_threshold:
+                                    jersey_first_frame = frame_idx
+                                    break
+
+                if jersey_id not in jersey_timeline:
+                    jersey_timeline[jersey_id] = []
+                jersey_timeline[jersey_id].append({
+                    "fragment_idx": frag_idx,
+                    "start_frame": start_frame,
+                    "end_frame": end_frame,
+                    "jersey_first_frame": jersey_first_frame,  # CRITICAL: actual appearance frame
+                    "max_conf": avg_conf,
+                    "fragment_id": fragment.get("fragment_id", "unknown"),
+                    "track_id": fragment.get("original_track_id", "unknown"),
+                })
+
+    # Sort timeline by JERSEY FIRST APPEARANCE FRAME (not fragment start)
+    for jersey_id in jersey_timeline:
+        jersey_timeline[jersey_id].sort(key=lambda x: x["jersey_first_frame"])
+
+    # Debug: Print jersey timeline for jersey #4
+    if 4 in jersey_timeline:
+        print(f"    [DEBUG] Jersey #4 timeline (sorted by first appearance):")
+        for entry in jersey_timeline[4]:
+            print(f"      - {entry['fragment_id']} (track {entry['track_id']}): "
+                  f"fragment frames {entry['start_frame']}-{entry['end_frame']}, "
+                  f"jersey first appears at frame {entry['jersey_first_frame']}, avg_conf={entry['max_conf']:.2f}")
+
+    # Detect conflicts: jersey appears on Fragment B shortly after disappearing from Fragment A
+    fragments_to_split = []  # List of (fragment_idx, split_frame, reason)
+
+    for jersey_id, timeline in jersey_timeline.items():
+        for i in range(len(timeline) - 1):
+            frag_a = timeline[i]
+            frag_b = timeline[i + 1]
+
+            # Get original Pass 1 track data for Fragment B
+            fragment_b = fragments[frag_b["fragment_idx"]]
+            original_track_id = fragment_b.get("original_track_id")
+
+            if original_track_id not in pass1_tracks:
+                continue
+
+            track_data = pass1_tracks[original_track_id]
+            frames = track_data.get("frames", [])
+            jersey_decisions = track_data.get("jersey_decisions", [])
+
+            # Find FIRST frame in Fragment B where jersey appears with high confidence
+            jersey_appear_frame = None
+            for frame_idx, decision in zip(frames, jersey_decisions):
+                if frame_idx >= frag_b["start_frame"] and frame_idx <= frag_b["end_frame"]:
+                    if decision and len(decision) == 2:
+                        jid, conf = decision
+                        if jid == jersey_id and conf >= appear_threshold:
+                            jersey_appear_frame = frame_idx
+                            break
+
+            # Check temporal proximity using JERSEY APPEARANCE FRAME, not fragment start
+            if jersey_appear_frame is not None:
+                frame_gap = jersey_appear_frame - frag_a["end_frame"]
+
+                # CRITICAL: Don't split if Fragment A and Fragment B are the same track_id
+                # This prevents false positives when a player is briefly occluded (jersey disappears/reappears)
+                # We only want to split when a jersey JUMPS from one track to another
+                same_track = frag_a["track_id"] == frag_b["track_id"]
+
+                # Only split if:
+                # 1. Jersey appears AFTER fragment A ends (frame_gap > 0)
+                # 2. Jersey appears SOON after (frame_gap < temporal_window)
+                # 3. Jersey appears AFTER fragment B starts (not at the very beginning)
+                # 4. Fragment A and B are DIFFERENT tracks (not same player briefly occluded)
+                if 0 < frame_gap < temporal_window and jersey_appear_frame > frag_b["start_frame"] and not same_track:
+                    # Schedule fragment B for splitting at jersey appearance frame
+                    fragments_to_split.append({
+                        "fragment_idx": frag_b["fragment_idx"],
+                        "split_frame": jersey_appear_frame,
+                        "reason": f"jersey_temporal_conflict",
+                        "jersey_id": jersey_id,
+                        "prior_fragment_idx": frag_a["fragment_idx"],
+                        "frame_gap": frame_gap,
+                    })
+
+    # If no conflicts detected, return fragments unchanged
+    if not fragments_to_split:
+        return fragments
+
+    # Debug: Print detected conflicts
+    print(f"    Detected {len(fragments_to_split)} jersey temporal conflict(s):")
+    for split_info in fragments_to_split:
+        frag_idx = split_info["fragment_idx"]
+        fragment = fragments[frag_idx]
+        print(f"      - Fragment {fragment.get('fragment_id')} (track {fragment.get('original_track_id')}): "
+              f"jersey #{split_info['jersey_id']} appears at frame {split_info['split_frame']} "
+              f"(gap={split_info['frame_gap']} frames from prior fragment)")
+
+    # Apply splits (process in reverse order to maintain indices)
+    fragments_to_split.sort(key=lambda x: x["fragment_idx"], reverse=True)
+    new_fragments = list(fragments)
+
+    for split_info in fragments_to_split:
+        frag_idx = split_info["fragment_idx"]
+        split_frame = split_info["split_frame"]
+
+        # Get original fragment
+        original_fragment = new_fragments[frag_idx]
+        original_track_id = original_fragment.get("original_track_id")
+
+        # Get original Pass 1 track data
+        if original_track_id not in pass1_tracks:
+            continue
+
+        track_data = pass1_tracks[original_track_id]
+        frames = track_data.get("frames", [])
+        bboxes = track_data.get("bboxes", [])
+        centroids = track_data.get("centroids", [])
+        confidences = track_data.get("confidences", [])
+        occlusion_scores = track_data.get("occlusion_scores", [])
+        hsv_histograms = track_data.get("hsv_histograms", [])
+        jersey_decisions = track_data.get("jersey_decisions", [])
+
+        # Find split index in original track data
+        start_frame = original_fragment.get("start_frame")
+        end_frame = original_fragment.get("end_frame")
+
+        try:
+            start_idx = frames.index(start_frame)
+            end_idx = frames.index(end_frame) + 1
+            split_idx_in_track = frames.index(split_frame)
+        except ValueError:
+            continue
+
+        # Ensure split is within fragment bounds
+        if split_idx_in_track <= start_idx or split_idx_in_track >= end_idx:
+            continue
+
+        # Compute relative split index within fragment
+        split_idx = split_idx_in_track - start_idx
+
+        # Convert pixel centroids to court coordinates
+        court_positions = []
+        for centroid in centroids[start_idx:end_idx]:
+            court_x, court_y = homography.pixel_to_court(centroid[0], centroid[1])
+            court_positions.append([court_x, court_y])
+
+        # Create two new fragments
+        fragment_before = create_fragment(
+            track_id=original_track_id,
+            frames=frames[start_idx:start_idx + split_idx],
+            bboxes=bboxes[start_idx:start_idx + split_idx],
+            centroids=centroids[start_idx:start_idx + split_idx],
+            court_positions=court_positions[:split_idx],
+            confidences=confidences[start_idx:start_idx + split_idx],
+            occlusion_scores=occlusion_scores[start_idx:start_idx + split_idx],
+            hsv_histograms=hsv_histograms[start_idx:start_idx + split_idx],
+            jersey_decisions=jersey_decisions[start_idx:start_idx + split_idx],
+        )
+        fragment_before["split_reason"] = {
+            "frame_idx": split_frame,
+            "reason": split_info["reason"],
+            "metric": split_info["jersey_id"],
+        }
+        fragment_before["fragment_id"] = original_fragment.get("fragment_id", "frag_unknown")
+        fragment_before["is_primary_fragment"] = original_fragment.get("is_primary_fragment", False)
+
+        fragment_after = create_fragment(
+            track_id=original_track_id,
+            frames=frames[start_idx + split_idx:end_idx],
+            bboxes=bboxes[start_idx + split_idx:end_idx],
+            centroids=centroids[start_idx + split_idx:end_idx],
+            court_positions=court_positions[split_idx:],
+            confidences=confidences[start_idx + split_idx:end_idx],
+            occlusion_scores=occlusion_scores[start_idx + split_idx:end_idx],
+            hsv_histograms=hsv_histograms[start_idx + split_idx:end_idx],
+            jersey_decisions=jersey_decisions[start_idx + split_idx:end_idx],
+        )
+        fragment_after["split_reason"] = None
+        fragment_after["fragment_id"] = f"{original_fragment.get('fragment_id', 'frag_unknown')}_split"
+        fragment_after["is_primary_fragment"] = False  # After split is secondary (jersey jump)
+
+        # Replace original fragment with two new fragments
+        # Only add fragments that meet minimum length requirement
+        replacement_fragments = []
+        if len(fragment_before.get("spatial_footprint", {}).get("court_positions", [])) >= min_fragment_length:
+            replacement_fragments.append(fragment_before)
+        if len(fragment_after.get("spatial_footprint", {}).get("court_positions", [])) >= min_fragment_length:
+            replacement_fragments.append(fragment_after)
+
+        # If both fragments are too short, keep original
+        if not replacement_fragments:
+            continue
+
+        # Replace in list
+        new_fragments[frag_idx:frag_idx+1] = replacement_fragments
+
+    return new_fragments
+
+
 def detect_divergences(
     frames: list[int],
     court_positions: list[list[float]],
     confidences: list[float],
     occlusion_scores: list[float],
     hsv_histograms: list[list[int] | None],
+    jersey_decisions: list[list[Any]],
     fps: float,
     crossing_threshold: float,
     velocity_threshold: float,
@@ -258,17 +550,21 @@ def detect_divergences(
     occlusion_window: int,
     appearance_threshold: float,
     appearance_window: int,
+    jersey_enabled: bool,
+    jersey_appear_threshold: float,
+    jersey_disappear_threshold: float,
+    jersey_window: int,
 ) -> list[dict[str, Any]]:
     """
     Detect divergence points (frame indices where track should split).
 
-    CRITICAL: Appearance drift is now a FIRST-CLASS divergence signal.
-    This fixes identity swaps during close contact (T5 orange→white bug).
+    CRITICAL: Appearance drift + jersey inconsistency are FIRST-CLASS divergence signals.
+    This fixes identity swaps during close contact (T5 orange→white, black #4 transitions).
 
     Returns:
         List of divergence dicts with:
         - frame_idx: Frame where divergence occurred
-        - reason: Type of divergence (velocity_spike, bbox_jump, occlusion_spike, appearance_drift)
+        - reason: Type of divergence (velocity_spike, bbox_jump, occlusion_spike, appearance_drift, jersey_inconsistency)
         - metric: Numeric value that triggered the detection
     """
     divergences = []
@@ -379,6 +675,83 @@ def detect_divergences(
                         "reason": "appearance_drift",
                         "metric": float(distance),
                     })
+
+    # ========================================================================
+    # JERSEY NUMBER INCONSISTENCY DETECTION (CRITICAL FOR INTRA-TEAM SWAPS)
+    # ========================================================================
+    # Strategy: Detect when jersey number appears/disappears/changes within a track.
+    #
+    # This catches cases like:
+    # - Black shirt (no number) → Black shirt #4 (identity swap within team)
+    # - Jersey #7 → Jersey #4 (number swap)
+    # - Jersey #4 → No number (player switches)
+    #
+    # Appearance drift alone can miss these if both players have similar base colors.
+    # ========================================================================
+    if jersey_enabled and len(jersey_decisions) >= jersey_window:
+        # Slide window through jersey decisions
+        for i in range(jersey_window, len(jersey_decisions)):
+            # Get baseline window (earlier frames)
+            baseline_start = max(0, i - jersey_window)
+            baseline_decisions = jersey_decisions[baseline_start:i]
+
+            # Get test window (current frame neighborhood)
+            test_start = i
+            test_end = min(i + jersey_window, len(jersey_decisions))
+            test_decisions = jersey_decisions[test_start:test_end]
+
+            # Compute dominant jersey state in each window
+            # State can be: None (no jersey), or jersey_id (e.g., 4, 7, 10)
+            def get_dominant_jersey(decisions: list) -> tuple[Any, float]:
+                """Return (jersey_id, avg_confidence) for dominant jersey in window."""
+                jersey_votes = {}  # jersey_id -> list of confidences
+                for dec in decisions:
+                    if dec is None or len(dec) < 2:
+                        jersey_votes[None] = jersey_votes.get(None, []) + [0.0]
+                    else:
+                        jid, conf = dec[0], dec[1]
+                        if conf < jersey_disappear_threshold:
+                            jersey_votes[None] = jersey_votes.get(None, []) + [0.0]
+                        else:
+                            jersey_votes[jid] = jersey_votes.get(jid, []) + [conf]
+
+                # Find dominant jersey (most votes with highest avg confidence)
+                if not jersey_votes:
+                    return None, 0.0
+
+                dominant_jid = max(jersey_votes.items(), key=lambda kv: len(kv[1]))[0]
+                avg_conf = float(np.mean(jersey_votes[dominant_jid]))
+                return dominant_jid, avg_conf
+
+            baseline_jersey, baseline_conf = get_dominant_jersey(baseline_decisions)
+            test_jersey, test_conf = get_dominant_jersey(test_decisions)
+
+            # Trigger split if jersey state changed significantly
+            if baseline_jersey != test_jersey:
+                # Case 1: Jersey appeared (None → #4)
+                if baseline_jersey is None and test_jersey is not None and test_conf > jersey_appear_threshold:
+                    divergences.append({
+                        "frame_idx": frames[i],
+                        "reason": "jersey_inconsistency",
+                        "metric": float(test_conf),
+                    })
+
+                # Case 2: Jersey disappeared (#4 → None)
+                elif baseline_jersey is not None and test_jersey is None and baseline_conf > jersey_appear_threshold:
+                    divergences.append({
+                        "frame_idx": frames[i],
+                        "reason": "jersey_inconsistency",
+                        "metric": float(baseline_conf),
+                    })
+
+                # Case 3: Jersey number changed (#7 → #4)
+                elif baseline_jersey is not None and test_jersey is not None:
+                    if baseline_conf > jersey_appear_threshold and test_conf > jersey_appear_threshold:
+                        divergences.append({
+                            "frame_idx": frames[i],
+                            "reason": "jersey_inconsistency",
+                            "metric": float(max(baseline_conf, test_conf)),
+                        })
 
     # Sort divergences by frame index and deduplicate
     divergences.sort(key=lambda d: d["frame_idx"])

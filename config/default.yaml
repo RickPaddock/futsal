@@ -124,10 +124,26 @@ divergence:
   occlusion_threshold: 0.6  # Confidence drop indicating occlusion (1 - confidence)
   occlusion_window_frames: 5  # Check for sustained occlusion over N frames
 
-  # APPEARANCE DRIFT DETECTION (for T5 orange→white swap bug)
-  # Conservative threshold to catch identity swaps (orange→white) without over-splitting
-  appearance_threshold: 6.0  # Chi-squared distance threshold for appearance-based splits. Lower = more splits
+  # APPEARANCE DRIFT DETECTION (for T5 orange→white swap bug + intra-team swaps)
+  # Lowered to catch intra-team identity swaps (T8 jumping to #4 player at frame 700)
+  appearance_threshold: 5.0  # Chi-squared distance threshold for appearance-based splits. Lower = more splits
   appearance_window: 7  # Number of histogram samples to compare (baseline vs test)
+
+  # JERSEY NUMBER INCONSISTENCY DETECTION (for same-color shirt, different numbers)
+  # DISABLED: Appearance alone may not distinguish same-color shirts with/without numbers
+  # Re-enable only if empirical testing shows appearance distance reliably > 3.0 for number changes
+  jersey_inconsistency_enabled: false  # DISABLED - too many false positives (camera angle changes)
+  jersey_appear_threshold: 0.5  # Min confidence for "jersey number appeared" signal
+  jersey_disappear_threshold: 0.3  # Max confidence for "jersey number disappeared" signal
+  jersey_consistency_window: 10  # Number of jersey samples to check for consistency
+
+  # JERSEY TEMPORAL EXCLUSIVITY POST-PROCESSING (for track jumps between same-appearance players)
+  # Detects when a jersey disappears from Fragment A and appears on Fragment B shortly after
+  # This catches cases like T8 (black no-number) → T8 (black #4) at frame ~700
+  jersey_temporal_exclusivity:
+    enabled: true  # Enable jersey temporal conflict detection
+    appear_threshold: 0.5  # Min confidence for jersey appearance
+    temporal_window_frames: 150  # Max frame gap to consider jersey jump (at 30 FPS = ~5 seconds)
 
   # Fragment splitting
   min_fragment_length: 10  # Minimum frames for a valid fragment
