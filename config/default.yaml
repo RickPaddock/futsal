@@ -8,18 +8,19 @@ models:
 
 # Detection Thresholds
 detection:
-  player_confidence: 0.5
+  player_confidence: 0.35  # Lowered from 0.5 to pick up partially occluded players in crowds
   ball_confidence: 0.3
   jersey_confidence: 0.4
   batch_size: 8
   max_detections: 12
+  player_iou_nms: 0.35  # NMS IoU threshold - lower = allow closer overlapping players (default 0.45)
 
 # Tracking Parameters (Pass 1 - IoU + motion only, NO team/appearance gating)
 tracking:
-  track_high_thresh: 0.6
-  track_low_thresh: 0.1
-  new_track_thresh: 0.4
-  match_thresh: 0.8
+  track_high_thresh: 0.5  # Lowered from 0.6 to start tracking partially occluded players
+  track_low_thresh: 0.1  # Keep tracks alive with low confidence (good for occlusion)
+  new_track_thresh: 0.35  # Lowered from 0.4 to pick up partially occluded players sooner
+  match_thresh: 0.6  # Lowered from 0.8 to maintain tracks through crowds (less strict IoU matching)
   track_buffer: 30
   max_center_distance: 100.0
   velocity_weight: 0.3
@@ -37,10 +38,10 @@ team_clustering:
 
 # Jersey Inference (Pass 3 - bibbed team only)
 jersey:
-  lock_threshold: 1.0  # Cumulative confidence for jersey lock (relaxed for short fragments)
-  min_detections: 2  # Minimum number of jersey detections required (relaxed from 3)
-  min_coverage_pct: 0.10  # Minimum temporal coverage (relaxed from 0.15)
-  min_stability_frames: 15  # Minimum frames for stable inference (relaxed from 30)
+  lock_threshold: 1.5  # Cumulative confidence for jersey lock (raised from 1.0 to reduce false positives)
+  min_detections: 3  # Minimum number of jersey detections required (raised from 2 for reliability)
+  min_coverage_pct: 0.15  # Minimum temporal coverage (raised from 0.10 to require more evidence)
+  min_stability_frames: 20  # Minimum frames for stable inference (raised from 15)
   frame_stride: 5  # Classify every N frames
   name_map:
     10: "Kikis"
@@ -140,9 +141,10 @@ divergence:
   # JERSEY TEMPORAL EXCLUSIVITY POST-PROCESSING (for track jumps between same-appearance players)
   # Detects when a jersey disappears from Fragment A and appears on Fragment B shortly after
   # This catches cases like T8 (black no-number) → T8 (black #4) at frame ~700
+  # CRITICAL: This threshold must be LOWER than Pass 3 thresholds to catch all potential duplicates
   jersey_temporal_exclusivity:
     enabled: true  # Enable jersey temporal conflict detection
-    appear_threshold: 0.5  # Min confidence for jersey appearance
+    appear_threshold: 0.5  # Must be lower than Pass 3 to catch all duplicates before team clustering
     temporal_window_frames: 150  # Max frame gap to consider jersey jump (at 30 FPS = ~5 seconds)
 
   # Fragment splitting

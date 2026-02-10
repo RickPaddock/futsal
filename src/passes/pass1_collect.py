@@ -126,6 +126,7 @@ def run_pass1(input_dir: Path | None, run_dir: Path, config: dict, video_files: 
     player_detector = PlayerDetector(
         model_path=config['models']['player'],
         confidence_threshold=config['detection']['player_confidence'],
+        iou_threshold=config['detection'].get('player_iou_nms', 0.45),  # NMS IoU threshold
         max_detections=config['detection']['max_detections'],
         input_scale=0.33,  # Scale 4K → ~720p for speed
     )

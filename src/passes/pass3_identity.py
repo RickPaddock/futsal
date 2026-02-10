@@ -459,22 +459,79 @@ def _apply_jersey_inheritance(
     assignments: dict[str, dict[str, Any]]
 ) -> dict[str, dict[str, Any]]:
     """
-    Apply jersey inheritance based on track continuity.
+    Apply bidirectional jersey inheritance based on track continuity.
 
-    Logic: A jersey number can't just disappear! If a track loses its jersey but
-    reappears later with the same track_id, inherit the jersey from the previous fragment.
+    Logic: A jersey number can't just disappear! Propagate jerseys both forward
+    and backward through track fragments to handle:
+    - FORWARD: Earlier fragment has jersey → later fragment inherits it
+    - BACKWARD: Later fragment has jersey → earlier fragment inherits it
 
     This handles:
-    - Brief occlusions where tracking is lost and re-acquired
-    - Track gaps where the player temporarily leaves detection range
+    - Player turns around (jersey appears later): backward inheritance
+    - Brief occlusions where tracking is lost and re-acquired: forward inheritance
+    - Track gaps where the player temporarily leaves detection range: both directions
+
+    CRITICAL: Jersey inheritance respects temporal exclusivity. A jersey can only
+    be inherited if it's NOT already in use by another fragment at overlapping times.
 
     Args:
         fragments: List of fragment dicts from Pass 2
         assignments: Current jersey assignments from _infer_jersey_numbers_detailed()
 
     Returns:
-        Updated assignments with inherited jerseys
+        Updated assignments with inherited jerseys (bidirectional)
     """
+    # Build fragment metadata lookup (fragment_id -> {start_frame, end_frame})
+    fragment_metadata = {}
+    for fragment in fragments:
+        fragment_id = fragment.get("fragment_id")
+        fragment_metadata[fragment_id] = {
+            "start_frame": fragment.get("start_frame"),
+            "end_frame": fragment.get("end_frame"),
+        }
+
+    # Helper function to check for temporal conflicts
+    def _has_temporal_conflict(
+        jersey_number: int,
+        target_fragment_id: str,
+        current_assignments: dict[str, dict[str, Any]],
+        fragment_metadata: dict[str, dict[str, int]]
+    ) -> bool:
+        """
+        Check if assigning jersey_number to target_fragment_id would create a temporal conflict.
+
+        Returns True if the jersey is already assigned to another fragment at overlapping times.
+        """
+        target_meta = fragment_metadata.get(target_fragment_id)
+        if not target_meta:
+            return False  # No metadata, can't check
+
+        target_start = target_meta["start_frame"]
+        target_end = target_meta["end_frame"]
+
+        # Check all current assignments
+        for frag_id, assignment in current_assignments.items():
+            if frag_id == target_fragment_id:
+                continue  # Skip self
+
+            assigned_jersey = assignment.get("jersey_number")
+            if assigned_jersey != jersey_number:
+                continue  # Different jersey, no conflict
+
+            # Same jersey on different fragment - check for temporal overlap
+            other_meta = fragment_metadata.get(frag_id)
+            if not other_meta:
+                continue  # No metadata, can't check
+
+            other_start = other_meta["start_frame"]
+            other_end = other_meta["end_frame"]
+
+            # Check for temporal overlap: [target_start, target_end] overlaps [other_start, other_end]
+            if target_start <= other_end and target_end >= other_start:
+                return True  # CONFLICT: Same jersey on different fragments at the same time
+
+        return False  # No conflict
+
     # Group fragments by original_track_id
     tracks = {}  # track_id -> list of (fragment_id, start_frame, end_frame, team)
     for fragment in fragments:
@@ -497,11 +554,23 @@ def _apply_jersey_inheritance(
     for track_id in tracks:
         tracks[track_id].sort(key=lambda f: f["start_frame"])
 
-    # Apply inheritance: if fragment N has jersey J and fragment N+1 (same track) has no jersey,
-    # inherit J to N+1 if nobody else claimed J in between
-    inheritance_count = 0
+    # ========================================================================
+    # BIDIRECTIONAL JERSEY INHERITANCE
+    # ========================================================================
+    # A jersey can't just disappear! Propagate jerseys both forward and backward
+    # through track fragments to handle cases where:
+    # 1. Jersey appears later (player turns around): F000000 (no jersey) ← F000001 (jersey #10)
+    # 2. Jersey disappears temporarily (brief occlusion): F000000 (jersey #10) → F000001 (no jersey)
+    #
+    # Strategy:
+    # 1. Forward pass: Inherit jerseys from earlier fragments to later fragments
+    # 2. Backward pass: Inherit jerseys from later fragments to earlier fragments
+    # ========================================================================
+    forward_count = 0
+    backward_count = 0
     new_assignments = dict(assignments)  # Copy to avoid modifying original
 
+    # FORWARD PASS: Inherit jerseys from earlier fragments to later fragments
     for track_id, track_fragments in tracks.items():
         for i in range(len(track_fragments) - 1):
             curr_frag = track_fragments[i]
@@ -521,21 +590,60 @@ def _apply_jersey_inheritance(
             if next_jersey is not None:
                 continue  # Next fragment already has a jersey
 
-            # SIMPLIFIED INHERITANCE: A jersey can't just disappear!
-            # If the same track had a jersey earlier, it keeps it in later fragments.
-            # This overrides single-owner invariant because track continuity is more reliable.
+            # CRITICAL: Check for temporal conflicts before inheriting
+            if _has_temporal_conflict(curr_jersey, next_frag["fragment_id"], new_assignments, fragment_metadata):
+                print(f"    [FORWARD] SKIPPED jersey #{curr_jersey}: {curr_frag['fragment_id']} (track {track_id}) -> {next_frag['fragment_id']} (temporal conflict)")
+                continue  # Skip inheritance - jersey already in use elsewhere
+
+            # Inherit forward: earlier fragment → later fragment
             new_assignments[next_frag["fragment_id"]] = {
                 "jersey_number": curr_jersey,
                 "confidence": curr_assignment.get("confidence", 0.0),
-                "reason": f"inherited_from_{curr_frag['fragment_id']} (track_continuity)",
+                "reason": f"inherited_forward_from_{curr_frag['fragment_id']} (track_continuity)",
             }
-            inheritance_count += 1
-            print(f"    Inherited jersey #{curr_jersey}: {curr_frag['fragment_id']} (track {track_id}) -> {next_frag['fragment_id']}")
+            forward_count += 1
+            print(f"    [FORWARD] Inherited jersey #{curr_jersey}: {curr_frag['fragment_id']} (track {track_id}) -> {next_frag['fragment_id']}")
 
-    if inheritance_count == 0:
+    # BACKWARD PASS: Inherit jerseys from later fragments to earlier fragments
+    for track_id, track_fragments in tracks.items():
+        # Iterate in reverse order (from end to beginning)
+        for i in range(len(track_fragments) - 1, 0, -1):
+            curr_frag = track_fragments[i]
+            prev_frag = track_fragments[i - 1]
+
+            # Check if current fragment has a jersey
+            curr_assignment = new_assignments.get(curr_frag["fragment_id"], {})
+            curr_jersey = curr_assignment.get("jersey_number")
+
+            if curr_jersey is None:
+                continue  # No jersey to inherit
+
+            # Check if previous fragment has no jersey
+            prev_assignment = new_assignments.get(prev_frag["fragment_id"], {})
+            prev_jersey = prev_assignment.get("jersey_number")
+
+            if prev_jersey is not None:
+                continue  # Previous fragment already has a jersey
+
+            # CRITICAL: Check for temporal conflicts before inheriting
+            if _has_temporal_conflict(curr_jersey, prev_frag["fragment_id"], new_assignments, fragment_metadata):
+                print(f"    [BACKWARD] SKIPPED jersey #{curr_jersey}: {curr_frag['fragment_id']} (track {track_id}) -> {prev_frag['fragment_id']} (temporal conflict)")
+                continue  # Skip inheritance - jersey already in use elsewhere
+
+            # Inherit backward: later fragment → earlier fragment
+            new_assignments[prev_frag["fragment_id"]] = {
+                "jersey_number": curr_jersey,
+                "confidence": curr_assignment.get("confidence", 0.0),
+                "reason": f"inherited_backward_from_{curr_frag['fragment_id']} (track_continuity)",
+            }
+            backward_count += 1
+            print(f"    [BACKWARD] Inherited jersey #{curr_jersey}: {curr_frag['fragment_id']} (track {track_id}) -> {prev_frag['fragment_id']}")
+
+    total_count = forward_count + backward_count
+    if total_count == 0:
         print(f"    No jersey inheritance needed")
     else:
-        print(f"    Applied {inheritance_count} jersey inheritance(s)")
+        print(f"    Applied {total_count} jersey inheritance(s) ({forward_count} forward, {backward_count} backward)")
 
     return new_assignments
 
