@@ -16,7 +16,8 @@
       "WebFetch(domain:supervision.roboflow.com)",
       "Bash(shuf:*)",
       "Bash(del \"\\\\.\\\\c:\\\\Users\\\\rickp\\\\Documents\\\\GitRepos\\\\futsal\\\\nul\")",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(python3:*)"
     ]
   }
 }

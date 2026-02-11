@@ -32,15 +32,15 @@ pass1:
 # Team Clustering (Pass 3 - K-means only, run once at start)
 team_clustering:
   n_clusters: 2
-  kmeans_sample_limit: 50  # Max samples per fragment for K-means (was max_samples)
+  kmeans_sample_limit: 20  # Max samples per fragment for K-means (reduced for speed)
   bins: 32  # HSV histogram bins per channel (96 total = 32 × 3)
   team_cap: 6  # Max 6 players per team
 
 # Jersey Inference (Pass 3 - bibbed team only)
 jersey:
   lock_threshold: 1.5  # Cumulative confidence for jersey lock (raised from 1.0 to reduce false positives)
-  min_detections: 3  # Minimum number of jersey detections required (raised from 2 for reliability)
-  min_coverage_pct: 0.15  # Minimum temporal coverage (raised from 0.10 to require more evidence)
+  min_detections: 5  # Minimum number of jersey detections required (raised from 3 to reduce false positives)
+  min_coverage_pct: 0.25  # Minimum temporal coverage (raised from 0.15 to require more evidence)
   min_stability_frames: 20  # Minimum frames for stable inference (raised from 15)
   frame_stride: 5  # Classify every N frames
   name_map:
@@ -51,7 +51,7 @@ jersey:
 # Pass 3: Crop Export (futsal-tuned for green bib preservation)
 pass3:
   # Crop selection strategy
-  save_team_crops: true
+  save_team_crops: false  # DISABLED for speed
   crops_per_fragment: 6  # Target crops per fragment (was team_crops_per_fragment)
   min_crops_per_team: 15  # Minimum total crops per team (reduced from 20 for futsal)
   crop_mode: "jersey"  # histogram_source | jersey | full
