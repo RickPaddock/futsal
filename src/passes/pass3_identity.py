@@ -270,14 +270,15 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
     print(f"  TEAM_A: {output_data['team_summary']['team_a_count']} fragments")
     print(f"  TEAM_B: {output_data['team_summary']['team_b_count']} fragments")
 
-    _export_team_crops(
-        run_dir=run_dir,
-        clip_name=clip_name,
-        output_dir=output_dir,
-        output_stem=output_stem,
-        fragments=fragments,
-        config=config,
-    )
+    # Crop export disabled - commented out to prevent disk writes
+    # _export_team_crops(
+    #     run_dir=run_dir,
+    #     clip_name=clip_name,
+    #     output_dir=output_dir,
+    #     output_stem=output_stem,
+    #     fragments=fragments,
+    #     config=config,
+    # )
 
 
 def _infer_jersey_numbers_detailed(

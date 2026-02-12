@@ -261,15 +261,17 @@ def process_clip(
                 _int_round((bbox[1] + bbox[3]) / 2),
             ]
 
+            # Create bbox_obj for jersey/HSV processing
+            from src.utils.data_models import BoundingBox as BBox
+            bbox_obj = BBox(
+                x1=bbox[0], y1=bbox[1], x2=bbox[2], y2=bbox[3],
+                confidence=track.score
+            )
+
             # Compressed jersey decision (id + confidence) sampled every N frames
             jersey_id = None
             jersey_conf = 0.0
             if frame_idx_int % frame_stride == 0:
-                from src.utils.data_models import BoundingBox as BBox
-                bbox_obj = BBox(
-                    x1=bbox[0], y1=bbox[1], x2=bbox[2], y2=bbox[3],
-                    confidence=track.score
-                )
                 jersey_probs = jersey_classifier.get_probabilities(frame, bbox_obj) or {}
                 if jersey_probs:
                     jersey_id, jersey_conf = max(jersey_probs.items(), key=lambda kv: kv[1])
