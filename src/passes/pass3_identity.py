@@ -9,7 +9,7 @@ import json
 import numpy as np
 from typing import Any
 import cv2
-from sklearn.cluster import KMeans, MiniBatchKMeans
+from sklearn.cluster import KMeans
 
 from src.utils.video_io import VideoReader
 from src.utils.data_models import BoundingBox
@@ -21,475 +21,9 @@ except ImportError:
     orjson = None
 
 
-def enforce_team_size_constraint(fragments: list[dict], max_per_team: int = 6) -> None:
-    """
-    ENFORCE hard team size constraint: max 6 concurrent players per team.
-
-    CRITICAL: Never auto-flip teams. Only downgrade to unknown.
-    Constraints may invalidate assignments, never invent new ones.
-
-    This actively fixes violations by marking lowest-confidence violators as "unknown".
-    Run FIRST in Pass 3, before smoothing or inheritance.
-
-    Args:
-        fragments: List of fragment dicts with team assignments
-        max_per_team: Maximum concurrent players per team (default: 6 for futsal)
-    """
-    # Get all frames covered by any fragment
-    all_frames = set()
-    for fragment in fragments:
-        all_frames.update(range(fragment["start_frame"], fragment["end_frame"] + 1))
-
-    violations_fixed = 0
-
-    # For each frame, check team sizes and fix violations
-    for frame_id in sorted(all_frames):
-        # Get concurrent fragments per team at this frame
-        team_a_concurrent = []
-        team_b_concurrent = []
-
-        for fragment in fragments:
-            if fragment["start_frame"] <= frame_id <= fragment["end_frame"]:
-                team = fragment.get("team")
-                if team == "team_a":
-                    team_a_concurrent.append(fragment)
-                elif team == "team_b":
-                    team_b_concurrent.append(fragment)
-
-        # Fix team_a violations
-        if len(team_a_concurrent) > max_per_team:
-            # Sort by confidence (lowest first) - use histogram confidence as proxy
-            team_a_concurrent.sort(key=lambda f: len(f.get("mean_hsv_histogram", [])) if f.get("mean_hsv_histogram") else 0)
-
-            # Mark lowest-confidence violators as unknown
-            num_violations = len(team_a_concurrent) - max_per_team
-            for fragment in team_a_concurrent[:num_violations]:
-                fragment["team"] = "unknown"
-                fragment["team_confidence"] = 0.0
-                fragment["team_constraint_violation"] = True
-                fragment["violation_reason"] = f"Exceeded max {max_per_team} players for team_a at frame {frame_id}"
-                violations_fixed += 1
-
-        # Fix team_b violations
-        if len(team_b_concurrent) > max_per_team:
-            team_b_concurrent.sort(key=lambda f: len(f.get("mean_hsv_histogram", [])) if f.get("mean_hsv_histogram") else 0)
-
-            num_violations = len(team_b_concurrent) - max_per_team
-            for fragment in team_b_concurrent[:num_violations]:
-                fragment["team"] = "unknown"
-                fragment["team_confidence"] = 0.0
-                fragment["team_constraint_violation"] = True
-                fragment["violation_reason"] = f"Exceeded max {max_per_team} players for team_b at frame {frame_id}"
-                violations_fixed += 1
-
-    if violations_fixed > 0:
-        print(f"  [ENFORCED] Fixed {violations_fixed} team size constraint violations (marked as unknown)")
-    else:
-        print(f"  [OK] No team size constraint violations found")
-
-
-def enforce_track_team_continuity(fragments: list[dict], max_gap_frames: int = 90) -> None:
-    """
-    Enforce team continuity within tracks: players can't change teams mid-game!
-
-    If consecutive fragments on the same track have different team assignments,
-    use majority vote to determine the correct team and fix wrong assignments.
-
-    This fixes K-means errors where a fragment gets assigned to the wrong team
-    despite being on the same track as correctly-assigned fragments.
-
-    Args:
-        fragments: List of fragment dicts with team assignments
-        max_gap_frames: Maximum gap for considering fragments as continuous (default: 90)
-    """
-    # Group fragments by track_id
-    track_fragments = {}
-    for fragment in fragments:
-        track_id = fragment.get("original_track_id")
-        if track_id is not None:
-            if track_id not in track_fragments:
-                track_fragments[track_id] = []
-            track_fragments[track_id].append(fragment)
-
-    # Sort fragments within each track by start_frame
-    for track_id in track_fragments:
-        track_fragments[track_id].sort(key=lambda f: f["start_frame"])
-
-    fixes_applied = 0
-
-    # For each track, enforce team continuity
-    for track_id, frags in track_fragments.items():
-        if len(frags) < 2:
-            continue
-
-        # Determine the track's true team by majority vote
-        team_votes = {}
-        for frag in frags:
-            team = frag.get("team")
-            if team in ("team_a", "team_b"):
-                team_votes[team] = team_votes.get(team, 0) + 1
-
-        if not team_votes:
-            continue  # No valid team assignments
-
-        # Get majority team
-        majority_team = max(team_votes, key=team_votes.get)
-
-        # Fix fragments that don't match majority
-        for i, frag in enumerate(frags):
-            current_team = frag.get("team")
-
-            # Check if this fragment has wrong team
-            if current_team in ("team_a", "team_b") and current_team != majority_team:
-                # Check gap to adjacent fragments
-                gap_ok = False
-                if i > 0:
-                    gap_prev = frag["start_frame"] - frags[i-1]["end_frame"]
-                    if gap_prev <= max_gap_frames:
-                        gap_ok = True
-                if i < len(frags) - 1:
-                    gap_next = frags[i+1]["start_frame"] - frag["end_frame"]
-                    if gap_next <= max_gap_frames:
-                        gap_ok = True
-
-                # Only fix if gap to adjacent fragments is small
-                if gap_ok:
-                    frag["team"] = majority_team
-                    frag["team_corrected"] = True
-                    frag["team_correction_reason"] = f"Track continuity: {current_team} -> {majority_team}"
-                    fixes_applied += 1
-
-    if fixes_applied > 0:
-        print(f"  [CONTINUITY] Fixed {fixes_applied} team assignment errors using track continuity")
-    else:
-        print(f"  [CONTINUITY] All tracks have consistent team assignments")
-
-    # After this step, team is LOCKED at track level
-    # All fragments on same track will have same team
-    # Downstream steps must NOT change team assignments
-
-
-def inherit_team_assignments(fragments: list[dict], max_per_team: int = 6, max_gap_frames: int = 90) -> None:
-    """
-    Apply bidirectional team inheritance for unknown fragments.
-
-    A player can't be "unknown" - if a fragment is temporarily unknown due to
-    constraint violations, but the same track has consistent team assignments
-    before/after, inherit that team assignment.
-
-    CRITICAL:
-    - Must still respect team size constraint during inheritance
-    - Only inherit across small gaps (< max_gap_frames) to avoid false positives
-    - Large gaps suggest track jumped to different player (don't inherit)
-
-    Args:
-        fragments: List of fragment dicts with team assignments
-        max_per_team: Maximum concurrent players per team (default: 6)
-        max_gap_frames: Maximum gap between fragments for inheritance (default: 90, ~3 sec)
-    """
-    # Group fragments by track_id
-    track_fragments = {}
-    for fragment in fragments:
-        track_id = fragment.get("track_id")
-        if track_id is not None:
-            if track_id not in track_fragments:
-                track_fragments[track_id] = []
-            track_fragments[track_id].append(fragment)
-
-    # Sort fragments within each track by start_frame
-    for track_id in track_fragments:
-        track_fragments[track_id].sort(key=lambda f: f["start_frame"])
-
-    inherited_count = 0
-
-    # For each track, apply bidirectional inheritance
-    for track_id, frags in track_fragments.items():
-        if len(frags) < 2:
-            continue
-
-        # Forward pass: inherit team from previous fragment
-        for i in range(1, len(frags)):
-            current = frags[i]
-            previous = frags[i - 1]
-
-            # Only inherit if gap is small (< max_gap_frames)
-            # Large gaps suggest track jumped to different player
-            gap = current["start_frame"] - previous["end_frame"]
-            if gap > max_gap_frames:
-                continue
-
-            if current.get("team") == "unknown" and previous.get("team") in ("team_a", "team_b"):
-                # Check if inheriting would violate constraint
-                proposed_team = previous["team"]
-
-                # Check all frames in current fragment
-                would_violate = False
-                for frame_id in range(current["start_frame"], current["end_frame"] + 1):
-                    # Count concurrent fragments with proposed team
-                    concurrent_count = sum(
-                        1 for f in fragments
-                        if f["start_frame"] <= frame_id <= f["end_frame"]
-                        and f.get("team") == proposed_team
-                        and f["fragment_id"] != current["fragment_id"]
-                    )
-
-                    if concurrent_count >= max_per_team:
-                        would_violate = True
-                        break
-
-                if not would_violate:
-                    current["team"] = proposed_team
-                    current["team_inherited"] = True
-                    current["inherited_from"] = "previous_fragment"
-                    inherited_count += 1
-
-        # Backward pass: inherit team from next fragment
-        for i in range(len(frags) - 2, -1, -1):
-            current = frags[i]
-            next_frag = frags[i + 1]
-
-            # Only inherit if gap is small (< max_gap_frames)
-            # Large gaps suggest track jumped to different player
-            gap = next_frag["start_frame"] - current["end_frame"]
-            if gap > max_gap_frames:
-                continue
-
-            if current.get("team") == "unknown" and next_frag.get("team") in ("team_a", "team_b"):
-                # Check if inheriting would violate constraint
-                proposed_team = next_frag["team"]
-
-                # Check all frames in current fragment
-                would_violate = False
-                for frame_id in range(current["start_frame"], current["end_frame"] + 1):
-                    # Count concurrent fragments with proposed team
-                    concurrent_count = sum(
-                        1 for f in fragments
-                        if f["start_frame"] <= frame_id <= f["end_frame"]
-                        and f.get("team") == proposed_team
-                        and f["fragment_id"] != current["fragment_id"]
-                    )
-
-                    if concurrent_count >= max_per_team:
-                        would_violate = True
-                        break
-
-                if not would_violate:
-                    current["team"] = proposed_team
-                    current["team_inherited"] = True
-                    current["inherited_from"] = "next_fragment"
-                    inherited_count += 1
-
-    if inherited_count > 0:
-        print(f"  [INHERITED] Applied team inheritance to {inherited_count} unknown fragments")
-    else:
-        print(f"  [OK] No team inheritance needed")
-
-
-def discover_appearance_modes(fragments: list[dict], variance_threshold: float = 0.005, max_modes: int = 3) -> None:
-    """
-    Discover appearance modes within mixed-shirt teams to prevent grey collapse.
-
-    CRITICAL INVARIANT: This NEVER changes team labels (locked from K-means).
-    Only assigns appearance modes for refined scoring. Team is track-level attribute.
-
-    EXECUTION ORDER: Must run IMMEDIATELY after K-means, BEFORE track continuity.
-    Bad centroids must not poison downstream steps.
-
-    DETECTION METHOD (ROBUST):
-    1. Calculate variance + jersey coverage for both teams
-    2. Mixed team signal = high variance + low jersey coverage
-    3. Bibbed team signal = low variance + high jersey coverage
-    4. Sub-cluster only one team (domain constraint: at least one bibbed)
-
-    SUB-CLUSTERING STRATEGY:
-    - Try k=2 first (conservative)
-    - Only go to k=3 if variance reduction > 30%
-    - Never change team labels, only assign appearance_mode field
-
-    Prevents "grey centroid poisoning" where mixed-shirt teams (black/green/white)
-    average to grey, causing K-means mis-assignments.
-
-    Args:
-        fragments: List of fragment dicts with team assignments from K-means
-        variance_threshold: Minimum floor variance (default: 0.005 for normalized histograms)
-        max_modes: Maximum appearance modes per team (default: 3, but start with 2)
-    """
-    # STEP 1: Calculate variance for BOTH teams first
-    team_variances = {}
-    team_data = {}
-
-    for team_name in ["team_a", "team_b"]:
-        team_fragments = [f for f in fragments if f.get("team") == team_name]
-
-        if len(team_fragments) < 5:  # Need minimum fragments for meaningful clustering
-            team_variances[team_name] = 0.0
-            team_data[team_name] = None
-            continue
-
-        # Extract HSV histograms
-        hsv_histograms = []
-        valid_indices = []
-        for i, frag in enumerate(team_fragments):
-            hist = frag.get("mean_hsv_histogram")
-            if hist and len(hist) == 96:
-                hsv_histograms.append(hist)
-                valid_indices.append(i)
-
-        if len(hsv_histograms) < 5:
-            team_variances[team_name] = 0.0
-            team_data[team_name] = None
-            continue
-
-        # Calculate variance
-        X = np.array(hsv_histograms, dtype=np.float32)
-        variance = np.var(X, axis=0).mean()
-
-        # Calculate jersey coverage (bibbed teams have higher jersey detection rate)
-        jersey_count = sum(1 for f in team_fragments if f.get("jersey_number") is not None)
-        jersey_coverage = jersey_count / len(team_fragments) if len(team_fragments) > 0 else 0.0
-
-        # Diagnostic: check histogram statistics
-        hist_min = X.min()
-        hist_max = X.max()
-        hist_std = X.std()
-
-        team_variances[team_name] = variance
-        team_data[team_name] = {
-            "fragments": team_fragments,
-            "hsv_histograms": hsv_histograms,
-            "valid_indices": valid_indices,
-            "X": X,
-            "jersey_coverage": jersey_coverage
-        }
-
-        print(f"    {team_name.upper()}: variance={variance:.4f}, jersey_coverage={jersey_coverage:.2f} "
-              f"(n={len(hsv_histograms)}, std={hist_std:.4f})")
-
-    # STEP 2: Determine which team(s) need sub-clustering
-    # CRITICAL: Use RELATIVE comparison + jersey coverage
-    # Bibbed team: low variance + HIGH jersey coverage
-    # Mixed team: high variance + LOW jersey coverage
-    # Sub-cluster only one team (domain constraint)
-    teams_needing_clustering = []
-
-    team_a_var = team_variances.get("team_a", 0.0)
-    team_b_var = team_variances.get("team_b", 0.0)
-    team_a_jersey = team_data.get("team_a", {}).get("jersey_coverage", 0.0) if team_data.get("team_a") else 0.0
-    team_b_jersey = team_data.get("team_b", {}).get("jersey_coverage", 0.0) if team_data.get("team_b") else 0.0
-
-    if team_a_var == 0.0 and team_b_var == 0.0:
-        # Both teams have no variance (shouldn't happen)
-        print(f"    → No variance detected in either team (uniform teams)")
-    elif team_a_var == 0.0:
-        # Only team_b has variance
-        if team_b_var > variance_threshold:
-            teams_needing_clustering = ["team_b"]
-            print(f"    → TEAM_B mixed (variance={team_b_var:.4f}, jersey={team_b_jersey:.2f}) → sub-clustering")
-        else:
-            print(f"    → Both teams uniform (variance below threshold)")
-    elif team_b_var == 0.0:
-        # Only team_a has variance
-        if team_a_var > variance_threshold:
-            teams_needing_clustering = ["team_a"]
-            print(f"    → TEAM_A mixed (variance={team_a_var:.4f}, jersey={team_a_jersey:.2f}) → sub-clustering")
-        else:
-            print(f"    → Both teams uniform (variance below threshold)")
-    else:
-        # Both teams have variance - use RELATIVE comparison + jersey coverage
-        variance_ratio = max(team_a_var, team_b_var) / min(team_a_var, team_b_var)
-
-        # FAST EXIT: variance ratio too low → both teams uniform
-        if variance_ratio < 1.5:
-            print(f"    → Both teams similar variance (ratio={variance_ratio:.2f}) → both uniform")
-            # Skip to uniform assignment for both
-            for team_name in ["team_a", "team_b"]:
-                data = team_data.get(team_name)
-                if data:
-                    for i in data["valid_indices"]:
-                        data["fragments"][i]["team_appearance_mode"] = f"{team_name}_mode_0"
-                        data["fragments"][i]["mode_confidence"] = 1.0
-            return
-
-        # Mixed team signal: higher variance AND lower jersey coverage
-        team_a_mixed_score = team_a_var * (1.0 - team_a_jersey)  # Higher = more mixed
-        team_b_mixed_score = team_b_var * (1.0 - team_b_jersey)  # Higher = more mixed
-
-        if variance_ratio >= 1.5:
-            # Significant variance difference - use variance as primary signal
-            if team_a_var > team_b_var:
-                teams_needing_clustering = ["team_a"]
-                print(f"    → TEAM_A mixed (var {variance_ratio:.2f}x higher, jersey={team_a_jersey:.2f}) → sub-clustering")
-            else:
-                teams_needing_clustering = ["team_b"]
-                print(f"    → TEAM_B mixed (var {variance_ratio:.2f}x higher, jersey={team_b_jersey:.2f}) → sub-clustering")
-        elif team_a_mixed_score > team_b_mixed_score * 1.2:
-            # Team A more likely mixed (higher variance, lower jersey coverage)
-            teams_needing_clustering = ["team_a"]
-            print(f"    → TEAM_A mixed (mixed_score={team_a_mixed_score:.4f}) → sub-clustering")
-        elif team_b_mixed_score > team_a_mixed_score * 1.2:
-            # Team B more likely mixed (higher variance, lower jersey coverage)
-            teams_needing_clustering = ["team_b"]
-            print(f"    → TEAM_B mixed (mixed_score={team_b_mixed_score:.4f}) → sub-clustering")
-        else:
-            # Similar signals → both teams uniform (conservative)
-            print(f"    → Both teams have similar signals (ratio={variance_ratio:.2f}) → both uniform")
-
-    # STEP 3: Apply sub-clustering or uniform assignment
-    for team_name in ["team_a", "team_b"]:
-        data = team_data.get(team_name)
-        if data is None:
-            continue
-
-        team_fragments = data["fragments"]
-        valid_indices = data["valid_indices"]
-
-        if team_name not in teams_needing_clustering:
-            # Uniform team (bibbed) - assign all to mode_0
-            print(f"    → {team_name.upper()}: Uniform team (no sub-clustering)")
-            for i in valid_indices:
-                team_fragments[i]["team_appearance_mode"] = f"{team_name}_mode_0"
-                team_fragments[i]["mode_confidence"] = 1.0
-            continue
-
-        # High variance → discover appearance modes
-        # CRITICAL: This NEVER changes team labels, only assigns appearance modes
-        # Team label stays locked from K-means. We're only refining scoring.
-        X = data["X"]
-        hsv_histograms = data["hsv_histograms"]
-
-        # FAST EXIT: Too few samples → cannot form reliable modes
-        if len(hsv_histograms) < 4:
-            print(f"    → {team_name.upper()}: Too few samples ({len(hsv_histograms)}) → uniform assignment")
-            for i in valid_indices:
-                team_fragments[i]["team_appearance_mode"] = f"{team_name}_mode_0"
-                team_fragments[i]["mode_confidence"] = 1.0
-            continue
-
-        # POC: Always use k=2 (prevents instability and runtime explosion)
-        n_modes = 2
-        print(f"    → {team_name.upper()}: Mixed shirts, discovering {n_modes} modes")
-
-        # Reduced iterations for speed
-        kmeans = MiniBatchKMeans(n_clusters=n_modes, batch_size=16, n_init=3, max_iter=50, random_state=42)
-        mode_labels = kmeans.fit_predict(X)
-
-        # Assign each fragment to its nearest mode
-        # CRITICAL: Team label NEVER changes, only appearance_mode is assigned
-        for idx, mode_id in zip(valid_indices, mode_labels):
-            frag = team_fragments[idx]
-            centroid = kmeans.cluster_centers_[mode_id]
-            hist = np.array(frag["mean_hsv_histogram"], dtype=np.float32)
-            distance = np.linalg.norm(hist - centroid)
-
-            frag["team_appearance_mode"] = f"{team_name}_mode_{mode_id}"
-            frag["mode_confidence"] = 1.0 / (1.0 + distance)
-            frag["mode_centroid"] = centroid.tolist()
-            # frag["team"] remains unchanged (locked from K-means)
-
-
 def validate_team_size_constraint(fragments: list[dict], max_per_team: int = 6) -> None:
     """
-    VALIDATE hard team size constraint: max 6 concurrent players per team.
+    Enforce hard team size constraint: max 6 concurrent players per team.
 
     This is a SAFETY NET to catch fragmentation bugs. If violated, it indicates
     that appearance-based splitting failed to trigger correctly (or team clustering
@@ -602,41 +136,22 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
     jersey_min_coverage = jersey_cfg.get("min_coverage_pct", 0.15)
     jersey_frame_stride = max(1, int(jersey_cfg.get("frame_stride", 1)))
 
-    # ========================================================================
-    # CLUSTER TRACKS, NOT FRAGMENTS (10× speedup)
-    # ========================================================================
-    # Group fragments by track, compute track-level appearance vector
-    track_to_fragments = {}
+    fragment_histograms = []
+    valid_fragment_indices = []
     for i, fragment in enumerate(fragments):
-        track_id = fragment.get("original_track_id")
-        if track_id not in track_to_fragments:
-            track_to_fragments[track_id] = []
-        track_to_fragments[track_id].append((i, fragment))
+        hist = fragment.get("mean_hsv_histogram")
+        if hist and len(hist) == 96:
+            fragment_histograms.append(hist)
+            valid_fragment_indices.append(i)
 
-    # Compute track-level appearance (mean of fragment appearances)
-    track_appearances = {}
-    valid_tracks = []
-    for track_id, frag_list in track_to_fragments.items():
-        valid_hists = []
-        for _, frag in frag_list:
-            hist = frag.get("mean_hsv_histogram")
-            if hist and len(hist) == 96:
-                valid_hists.append(np.array(hist, dtype=np.float32))
-
-        if valid_hists:
-            track_appearances[track_id] = np.mean(valid_hists, axis=0)
-            valid_tracks.append(track_id)
-
-    if len(valid_tracks) < n_clusters:
-        print(f"  Not enough valid tracks")
+    if len(fragment_histograms) < n_clusters:
+        print(f"  Not enough valid fragments")
         return
 
-    # Cluster tracks (not fragments) - use MiniBatchKMeans for speed
-    X = np.array([track_appearances[tid] for tid in valid_tracks], dtype=np.float32)
-    kmeans = MiniBatchKMeans(n_clusters=n_clusters, batch_size=16, n_init=3, max_iter=50, random_state=42)
+    X = np.array(fragment_histograms, dtype=np.float32)
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     cluster_labels = kmeans.fit_predict(X)
 
-    # Determine which cluster is bibbed (lower variance)
     cluster_variances = []
     for cluster_id in range(n_clusters):
         cluster_mask = cluster_labels == cluster_id
@@ -648,66 +163,14 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
     cluster_variances.sort(key=lambda x: x[1])
     bibbed_cluster_id = cluster_variances[0][0]
 
-    # Build track → team mapping
-    track_to_team = {}
-    for track_id, cluster_id in zip(valid_tracks, cluster_labels):
-        track_to_team[track_id] = "team_a" if cluster_id == bibbed_cluster_id else "team_b"
-
-    print(f"  K-Means: {len(valid_tracks)} tracks to 2 teams ({len(fragments)} fragments total)")
+    print(f"  K-Means: {len(fragments)} fragments to 2 teams")
     print(f"  TEAM_A (bibbed): cluster {bibbed_cluster_id}")
 
-    # Assign team to all fragments in each track
-    for fragment in fragments:
-        track_id = fragment.get("original_track_id")
-        if track_id in track_to_team:
-            fragment["team"] = track_to_team[track_id]
+    for i, cluster_id in zip(valid_fragment_indices, cluster_labels):
+        if cluster_id == bibbed_cluster_id:
+            fragments[i]["team"] = "team_a"
         else:
-            fragment["team"] = "unknown"
-
-    # ========================================================================
-    # INTRA-TEAM APPEARANCE SUB-CLUSTERING (GREY COLLAPSE FIX)
-    # ========================================================================
-    # CRITICAL: Run IMMEDIATELY after K-means, BEFORE track continuity.
-    # Bad team centroids must not poison downstream steps.
-    #
-    # Discovers 2-3 appearance modes within mixed-shirt teams.
-    # Prevents "grey centroid poisoning" where black/green/white average to grey.
-    # Uses RELATIVE variance + jersey coverage to detect mixed team.
-    # Sub-clustering NEVER flips teams - only refines appearance modes.
-    # ========================================================================
-    # OPTIMIZED: k=2 only, MiniBatchKMeans, fast exits for small teams/low variance
-    print(f"\n  Discovering appearance modes for mixed-shirt teams...")
-    discover_appearance_modes(fragments, variance_threshold=0.005, max_modes=3)
-
-    # ========================================================================
-    # ENFORCE TRACK TEAM CONTINUITY (LOCK TEAM AT TRACK LEVEL)
-    # ========================================================================
-    # CRITICAL INVARIANT: Team is a track-level attribute.
-    # Players can't change teams mid-game! Fix K-means errors where consecutive
-    # fragments on the same track get assigned to different teams.
-    # After this step, team assignments are LOCKED per track.
-    # ========================================================================
-    print(f"\n  Enforcing track team continuity (locking team at track level)...")
-    enforce_track_team_continuity(fragments, max_gap_frames=90)
-
-    # ========================================================================
-    # ENFORCE TEAM SIZE CONSTRAINT (TEMPORARILY DISABLED)
-    # ========================================================================
-    # DISABLED: Too aggressive - marks entire fragments as unknown when violation
-    # occurs at a single frame. Need to fix ID explosion (Step 1.1 ghost tracks) first.
-    # ========================================================================
-    # print(f"\n  Enforcing team size constraint (max {6} per team)...")
-    # enforce_team_size_constraint(fragments, max_per_team=6)
-
-    # ========================================================================
-    # INHERIT TEAM ASSIGNMENTS (BACKDATE UNKNOWN FRAGMENTS)
-    # ========================================================================
-    # A player can't be "unknown" - inherit team from adjacent fragments on same track.
-    # This "backdates" team assignments to fill gaps created by constraint enforcement.
-    # ========================================================================
-    # DISABLED: Not needed without constraint enforcement
-    # print(f"\n  Inheriting team assignments for unknown fragments...")
-    # inherit_team_assignments(fragments, max_per_team=6)
+            fragments[i]["team"] = "team_b"
 
     # ========================================================================
     # VALIDATE TEAM SIZE CONSTRAINT (SAFETY NET)
@@ -773,19 +236,6 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
             "start_frame": fragment.get("start_frame"),
             "end_frame": fragment.get("end_frame"),
         }
-
-        # Add constraint violation metadata if present
-        if fragment.get("team_constraint_violation"):
-            identity["team_constraint_violation"] = True
-            identity["violation_reason"] = fragment.get("violation_reason", "Unknown")
-        if fragment.get("team_confidence") is not None:
-            identity["team_confidence"] = fragment.get("team_confidence")
-
-        # Add team inheritance metadata if present
-        if fragment.get("team_inherited"):
-            identity["team_inherited"] = True
-            identity["inherited_from"] = fragment.get("inherited_from", "unknown")
-
         identities.append(identity)
 
     output_data = {
@@ -868,15 +318,6 @@ def _infer_jersey_numbers_detailed(
         jersey_timeline = fragment.get("jersey_prob_timeline", {})
         frame_count = fragment.get("frame_count", end_frame - start_frame + 1)
         expected_samples = max(1, int(np.ceil(frame_count / max(frame_stride, 1))))
-
-        # FAST EXIT: Skip fragments with low jersey detection confidence
-        if not jersey_timeline:
-            continue  # No jersey detections at all
-
-        max_jersey_conf = max((stats.get("total", 0.0) / stats.get("count", 1)
-                              for stats in jersey_timeline.values()), default=0.0)
-        if max_jersey_conf < 0.5:
-            continue  # All jersey detections too low confidence
 
         # Check eligibility for each jersey number
         eligible_jerseys = {}
@@ -1151,6 +592,7 @@ def _apply_jersey_inheritance(
 
             # CRITICAL: Check for temporal conflicts before inheriting
             if _has_temporal_conflict(curr_jersey, next_frag["fragment_id"], new_assignments, fragment_metadata):
+                print(f"    [FORWARD] SKIPPED jersey #{curr_jersey}: {curr_frag['fragment_id']} (track {track_id}) -> {next_frag['fragment_id']} (temporal conflict)")
                 continue  # Skip inheritance - jersey already in use elsewhere
 
             # Inherit forward: earlier fragment → later fragment
@@ -1160,6 +602,7 @@ def _apply_jersey_inheritance(
                 "reason": f"inherited_forward_from_{curr_frag['fragment_id']} (track_continuity)",
             }
             forward_count += 1
+            print(f"    [FORWARD] Inherited jersey #{curr_jersey}: {curr_frag['fragment_id']} (track {track_id}) -> {next_frag['fragment_id']}")
 
     # BACKWARD PASS: Inherit jerseys from later fragments to earlier fragments
     for track_id, track_fragments in tracks.items():
@@ -1184,6 +627,7 @@ def _apply_jersey_inheritance(
 
             # CRITICAL: Check for temporal conflicts before inheriting
             if _has_temporal_conflict(curr_jersey, prev_frag["fragment_id"], new_assignments, fragment_metadata):
+                print(f"    [BACKWARD] SKIPPED jersey #{curr_jersey}: {curr_frag['fragment_id']} (track {track_id}) -> {prev_frag['fragment_id']} (temporal conflict)")
                 continue  # Skip inheritance - jersey already in use elsewhere
 
             # Inherit backward: later fragment → earlier fragment
@@ -1193,6 +637,7 @@ def _apply_jersey_inheritance(
                 "reason": f"inherited_backward_from_{curr_frag['fragment_id']} (track_continuity)",
             }
             backward_count += 1
+            print(f"    [BACKWARD] Inherited jersey #{curr_jersey}: {curr_frag['fragment_id']} (track {track_id}) -> {prev_frag['fragment_id']}")
 
     total_count = forward_count + backward_count
     if total_count == 0:

@@ -393,40 +393,18 @@ def detect_jersey_temporal_conflicts(
                     # OVERLAP DETECTED: Both fragments claim same jersey during overlap period
                     overlap_duration = overlap_end - overlap_start + 1
 
-                    # Decide which fragment to keep vs split:
-                    # PRIMARY: Highest average confidence wins (most reliable detection)
-                    # SECONDARY: If confidence tied, earliest appearance wins (tiebreak only)
-                    # GUARDRAIL: Don't let low-confidence block high-confidence
-                    CONF_STRONG = 0.7
-
-                    conf_a = frag_a["max_conf"]
-                    conf_b = frag_b["max_conf"]
-
-                    # Determine winner based on confidence
-                    if conf_a > conf_b:
-                        winner = frag_a
-                        loser = frag_b
-                    elif conf_b > conf_a:
-                        winner = frag_b
-                        loser = frag_a
+                    # Decide which fragment to split:
+                    # Split the one where the jersey appears LATER (it "stole" the jersey)
+                    if frag_a["jersey_first_frame"] < frag_b["jersey_first_frame"]:
+                        # Fragment A had jersey first, split Fragment B at its jersey appearance
+                        split_target = frag_b
+                        split_frame = frag_b["jersey_first_frame"]
+                        prior_frag = frag_a
                     else:
-                        # Confidence tied - use earliest appearance as tiebreak
-                        if frag_a["jersey_first_frame"] < frag_b["jersey_first_frame"]:
-                            winner = frag_a
-                            loser = frag_b
-                        else:
-                            winner = frag_b
-                            loser = frag_a
-
-                    # GUARDRAIL: Don't let low-confidence winner block high-confidence loser
-                    # If winner is weak but loser is strong, swap them
-                    if winner["max_conf"] < CONF_STRONG and loser["max_conf"] >= CONF_STRONG:
-                        winner, loser = loser, winner
-
-                    # Split the loser at its jersey appearance
-                    split_target = loser
-                    split_frame = loser["jersey_first_frame"]
-                    prior_frag = winner
+                        # Fragment B had jersey first, split Fragment A at its jersey appearance
+                        split_target = frag_a
+                        split_frame = frag_a["jersey_first_frame"]
+                        prior_frag = frag_b
 
                     # Only split if jersey appears AFTER fragment starts (not at the very beginning)
                     # This prevents splitting when jersey is visible from the start
@@ -443,8 +421,6 @@ def detect_jersey_temporal_conflicts(
                                 "jersey_id": jersey_id,
                                 "prior_fragment_idx": prior_frag["fragment_idx"],
                                 "overlap_duration": overlap_duration,
-                                "loser_conf": loser["max_conf"],
-                                "winner_conf": winner["max_conf"],
                             })
 
     # If no conflicts detected, return fragments unchanged
@@ -457,12 +433,9 @@ def detect_jersey_temporal_conflicts(
         frag_idx = split_info["fragment_idx"]
         fragment = fragments[frag_idx]
         prior_frag = fragments[split_info["prior_fragment_idx"]]
-        loser_conf = split_info.get("loser_conf", 0.0)
-        winner_conf = split_info.get("winner_conf", 0.0)
         print(f"      - Fragment {fragment.get('fragment_id')} (track {fragment.get('original_track_id')}): "
               f"jersey #{split_info['jersey_id']} conflicts with {prior_frag.get('fragment_id')} "
-              f"(overlap={split_info['overlap_duration']} frames, split at {split_info['split_frame']}, "
-              f"loser_conf={loser_conf:.2f}, winner_conf={winner_conf:.2f})")
+              f"(overlap={split_info['overlap_duration']} frames, split at {split_info['split_frame']})")
 
     # Apply splits (process in reverse order to maintain indices)
     fragments_to_split.sort(key=lambda x: x["fragment_idx"], reverse=True)
@@ -549,24 +522,18 @@ def detect_jersey_temporal_conflicts(
         fragment_after["is_primary_fragment"] = False  # After split is secondary (jersey jump)
 
         # Replace original fragment with two new fragments
-        # CRITICAL: Keep BOTH fragments to prevent gaps (even if short)
-        # Fragment gaps are worse than having short fragments
+        # Only add fragments that meet minimum length requirement
         replacement_fragments = []
+        if len(fragment_before.get("spatial_footprint", {}).get("court_positions", [])) >= min_fragment_length:
+            replacement_fragments.append(fragment_before)
+        if len(fragment_after.get("spatial_footprint", {}).get("court_positions", [])) >= min_fragment_length:
+            replacement_fragments.append(fragment_after)
 
-        # Mark short fragments as low_quality
-        before_length = len(fragment_before.get("spatial_footprint", {}).get("court_positions", []))
-        if before_length < min_fragment_length:
-            fragment_before["low_quality"] = True
-            fragment_before["low_quality_reason"] = f"short_fragment_{before_length}_frames"
-        replacement_fragments.append(fragment_before)
+        # If both fragments are too short, keep original
+        if not replacement_fragments:
+            continue
 
-        after_length = len(fragment_after.get("spatial_footprint", {}).get("court_positions", []))
-        if after_length < min_fragment_length:
-            fragment_after["low_quality"] = True
-            fragment_after["low_quality_reason"] = f"short_fragment_{after_length}_frames"
-        replacement_fragments.append(fragment_after)
-
-        # Replace in list (always replace with both fragments)
+        # Replace in list
         new_fragments[frag_idx:frag_idx+1] = replacement_fragments
 
     return new_fragments
@@ -941,10 +908,7 @@ def split_track_into_fragments(
             continue
 
         # Create fragment from start_idx to split_idx
-        # CRITICAL: Use lower threshold (5 frames) to prevent gaps while avoiding 1-2 frame noise
-        # Fragments < 5 frames lack meaningful data (HSV, jersey) and cause unknown assignments
-        fragment_length = split_idx - start_idx
-        if fragment_length >= 5:  # Lower than min_fragment_length to keep meaningful fragments
+        if split_idx - start_idx >= min_fragment_length:
             fragment = create_fragment(
                 track_id=track_id,
                 frames=frames[start_idx:split_idx],
@@ -961,11 +925,6 @@ def split_track_into_fragments(
                 (d for d in divergence_points if d["frame_idx"] == split_frame), None
             )
 
-            # Mark short fragments as low_quality
-            if fragment_length < min_fragment_length:
-                fragment["low_quality"] = True
-                fragment["low_quality_reason"] = f"short_fragment_{fragment_length}_frames"
-
             # Compute appearance distance to pre-split centroid
             if pre_split_centroid is not None and fragment.get("mean_hsv_histogram"):
                 fragment_hist = np.array(fragment["mean_hsv_histogram"], dtype=np.float32)
@@ -980,10 +939,7 @@ def split_track_into_fragments(
         start_idx = split_idx
 
     # Create final fragment (from last split to end)
-    # CRITICAL: Use lower threshold (5 frames) to prevent gaps while avoiding 1-2 frame noise
-    # Fragments < 5 frames lack meaningful data (HSV, jersey) and cause unknown assignments
-    fragment_length = len(frames) - start_idx
-    if fragment_length >= 5:  # Lower than min_fragment_length to keep meaningful fragments
+    if len(frames) - start_idx >= min_fragment_length:
         fragment = create_fragment(
             track_id=track_id,
             frames=frames[start_idx:],
@@ -996,11 +952,6 @@ def split_track_into_fragments(
             jersey_decisions=jersey_decisions[start_idx:],
         )
         fragment["split_reason"] = None  # No divergence (end of track)
-
-        # Mark short fragments as low_quality
-        if fragment_length < min_fragment_length:
-            fragment["low_quality"] = True
-            fragment["low_quality_reason"] = f"short_fragment_{fragment_length}_frames"
 
         # Compute appearance distance to pre-split centroid
         if pre_split_centroid is not None and fragment.get("mean_hsv_histogram"):
@@ -1093,14 +1044,8 @@ def create_fragment(
 
     if valid_histograms:
         mean_hsv_histogram = np.mean(valid_histograms, axis=0).tolist()
-        appearance_var = float(np.var(valid_histograms))
     else:
         mean_hsv_histogram = np.zeros(96, dtype=np.float32).tolist()
-        appearance_var = 0.0
-
-    # Compute jersey coverage (fraction of fragment with jersey detections >= 0.3 conf)
-    jersey_frames = sum(1 for d in jersey_decisions if d and len(d) == 2 and d[1] >= 0.3)
-    jersey_coverage = jersey_frames / len(frames) if frames else 0.0
 
     # Compute visibility quality (1 - mean occlusion)
     visibility_quality = 1.0 - np.mean(occlusion_scores)
@@ -1116,8 +1061,6 @@ def create_fragment(
         "end_frame": frames[-1],
         "frame_count": len(frames),
         "mean_hsv_histogram": mean_hsv_histogram,
-        "appearance_var": appearance_var,
-        "jersey_coverage": jersey_coverage,
         "jersey_prob_timeline": jersey_prob_timeline,
         "spatial_footprint": {
             "court_positions": court_positions,
