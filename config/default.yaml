@@ -38,6 +38,13 @@ team_clustering:
   unknown_recovery_min_margin: 0.12
   unknown_recovery_min_ratio: 1.04
   unknown_recovery_anchor_gap_frames: 5
+  unknown_replacement_enabled: true
+  unknown_replacement_min_margin: 0.45
+  unknown_replacement_min_ratio: 1.20
+  unknown_replacement_max_loser_frames: 260
+  unknown_replacement_max_age_delta_frames: 90
+  retro_track_max_anchor_gap_frames: 5
+  retro_track_min_source_confidence: 3.0
   continuity_lock_window_frames: 12  # Lock fragments starting soon after identity jumps
   color_correction_min_duration_frames: 20
   color_correction_min_margin: 0.35
@@ -55,6 +62,9 @@ jersey:
   min_coverage_pct: 0.15  # Minimum temporal coverage (raised from 0.10 to require more evidence)
   min_stability_frames: 20  # Minimum frames for stable inference (raised from 15)
   frame_stride: 5  # Classify every N frames
+  cross_team_overlap_min_frames: 8
+  cross_team_weak_confidence_max: 5.0
+  cross_team_strong_confidence_min: 12.0
   name_map:
     10: "Kikis"
     7: "Rick"

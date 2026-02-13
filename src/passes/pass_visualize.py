@@ -27,6 +27,315 @@ TEAM_COLORS = {
 }
 
 
+def _bridge_micro_fragment_gaps(
+    fragments: list[dict[str, object]],
+    fragment_identity_map: dict[str, dict[str, object]],
+    max_gap_frames: int = 5,
+) -> dict[tuple[str, int], str]:
+    """
+    Build visualization-only fallback mapping for tiny fragment gaps.
+
+    This does NOT modify Pass2/Pass3 outputs. It only fills short holes in
+    (track_id, frame) → fragment_id lookup when adjacent fragments on the same
+    track have consistent team identity.
+    """
+    if max_gap_frames <= 0:
+        return {}
+
+    by_track: dict[str, list[dict[str, object]]] = {}
+    for fragment in fragments:
+        track_id = fragment.get("original_track_id")
+        fragment_id = fragment.get("fragment_id")
+        if track_id is None or not fragment_id:
+            continue
+        by_track.setdefault(str(track_id), []).append(fragment)
+
+    for track_fragments in by_track.values():
+        track_fragments.sort(key=lambda f: int(f.get("start_frame", -1)))
+
+    bridged: dict[tuple[str, int], str] = {}
+
+    for track_id, track_fragments in by_track.items():
+        for idx in range(len(track_fragments) - 1):
+            prev_fragment = track_fragments[idx]
+            next_fragment = track_fragments[idx + 1]
+
+            prev_id = str(prev_fragment.get("fragment_id"))
+            next_id = str(next_fragment.get("fragment_id"))
+
+            prev_identity = fragment_identity_map.get(prev_id)
+            next_identity = fragment_identity_map.get(next_id)
+            if not prev_identity or not next_identity:
+                continue
+
+            prev_team = prev_identity.get("team")
+            next_team = next_identity.get("team")
+            if prev_team != next_team or prev_team not in ("team_a", "team_b"):
+                continue
+
+            prev_jersey = prev_identity.get("jersey")
+            next_jersey = next_identity.get("jersey")
+            if prev_jersey is not None and next_jersey is not None and prev_jersey != next_jersey:
+                continue
+
+            prev_end = prev_fragment.get("end_frame")
+            next_start = next_fragment.get("start_frame")
+            if prev_end is None or next_start is None:
+                continue
+
+            gap_start = int(prev_end) + 1
+            gap_end = int(next_start) - 1
+            gap_size = gap_end - gap_start + 1
+            if gap_size <= 0 or gap_size > max_gap_frames:
+                continue
+
+            source_fragment_id = prev_id if prev_jersey is not None else next_id if next_jersey is not None else prev_id
+            for frame_idx in range(gap_start, gap_end + 1):
+                bridged[(track_id, frame_idx)] = source_fragment_id
+
+    return bridged
+
+
+def _build_pre_anchor_identity_backfill(
+    fragments: list[dict[str, object]],
+    fragment_identity_map: dict[str, dict[str, object]],
+    max_anchor_gap_frames: int = 5,
+    max_current_fragment_frames: int = 45,
+    backfill_tail_frames: int = 30,
+    min_next_confidence: float = 12.0,
+) -> dict[tuple[str, int], str]:
+    """
+    Visualization-only backfill from a strong *future* same-track anchor.
+
+    Use-case:
+    - Short unstable segment (often unknown / cap-enforced / transient wrong team)
+    - Immediately followed by strong known identity on same track
+    - Backfill only the tail of the unstable segment for smoother display
+    """
+    if backfill_tail_frames <= 0:
+        return {}
+
+    unstable_sources = {
+        "team_cap_enforced",
+        "replacement_demoted",
+        "unknown_recovered_anchor",
+        "unknown_recovered_color",
+        "unknown_recovered_replacement_anchor",
+        "unknown_recovered_replacement_color",
+    }
+
+    by_track: dict[str, list[dict[str, object]]] = {}
+    for fragment in fragments:
+        track_id = fragment.get("original_track_id")
+        fragment_id = fragment.get("fragment_id")
+        if track_id is None or not fragment_id:
+            continue
+        by_track.setdefault(str(track_id), []).append(fragment)
+
+    for track_fragments in by_track.values():
+        track_fragments.sort(key=lambda f: int(f.get("start_frame", -1)))
+
+    backfilled: dict[tuple[str, int], str] = {}
+
+    for track_id, track_fragments in by_track.items():
+        for idx in range(len(track_fragments) - 1):
+            current_fragment = track_fragments[idx]
+            next_fragment = track_fragments[idx + 1]
+
+            current_id = str(current_fragment.get("fragment_id"))
+            next_id = str(next_fragment.get("fragment_id"))
+
+            current_identity = fragment_identity_map.get(current_id)
+            next_identity = fragment_identity_map.get(next_id)
+            if not current_identity or not next_identity:
+                continue
+
+            next_team = next_identity.get("team")
+            next_jersey = next_identity.get("jersey")
+            next_confidence = float(next_identity.get("confidence", 0.0) or 0.0)
+            if next_team not in ("team_a", "team_b"):
+                continue
+            if next_jersey is None:
+                continue
+            if next_confidence < float(min_next_confidence):
+                continue
+
+            current_start = current_fragment.get("start_frame")
+            current_end = current_fragment.get("end_frame")
+            next_start = next_fragment.get("start_frame")
+            if current_start is None or current_end is None or next_start is None:
+                continue
+
+            current_duration = int(current_end) - int(current_start) + 1
+            if current_duration <= 0 or current_duration > int(max_current_fragment_frames):
+                continue
+
+            gap = int(next_start) - int(current_end) - 1
+            if gap < 0 or gap > int(max_anchor_gap_frames):
+                continue
+
+            current_team = current_identity.get("team")
+            current_jersey = current_identity.get("jersey")
+            current_source = str(current_identity.get("label_source") or "")
+            current_unstable = (
+                current_team == "unknown"
+                or current_source in unstable_sources
+                or (current_team in ("team_a", "team_b") and current_team != next_team and current_jersey is None)
+            )
+            if not current_unstable:
+                continue
+
+            tail_start = max(int(current_start), int(current_end) - int(backfill_tail_frames) + 1)
+            for frame_idx in range(tail_start, int(current_end) + 1):
+                backfilled[(track_id, frame_idx)] = next_id
+
+            gap_start = int(current_end) + 1
+            gap_end = int(next_start) - 1
+            if gap_start <= gap_end:
+                for frame_idx in range(gap_start, gap_end + 1):
+                    backfilled[(track_id, frame_idx)] = next_id
+
+    return backfilled
+
+
+def _build_track_jersey_persistence_map(
+    fragments: list[dict[str, object]],
+    fragment_identity_map: dict[str, dict[str, object]],
+    max_anchor_gap_frames: int = 8,
+    block_min_confidence: float = 4.0,
+    block_requires_assigned_reason: bool = True,
+    block_min_conf_ratio_to_source: float = 0.6,
+    track_frame_presence: dict[str, set[int]] | None = None,
+) -> dict[tuple[str, int], str]:
+    """
+    Visualization-only jersey persistence across same-track fragment splits.
+
+    Rule:
+    - If a track had jersey J on team T and subsequent same-track fragment(s)
+      lose jersey due to splitting, keep showing J frame-by-frame only while no
+      other fragment on team T claims J at that frame.
+    """
+    if max_anchor_gap_frames < 0:
+        return {}
+
+    by_track: dict[str, list[dict[str, object]]] = {}
+    for fragment in fragments:
+        track_id = fragment.get("original_track_id")
+        fragment_id = fragment.get("fragment_id")
+        if track_id is None or not fragment_id:
+            continue
+        by_track.setdefault(str(track_id), []).append(fragment)
+
+    for track_fragments in by_track.values():
+        track_fragments.sort(key=lambda f: int(f.get("start_frame", -1)))
+
+    # Build frame-level claim index from base fragment identities.
+    # key: (team, jersey, frame) -> {track_id: (confidence, assignment_reason)}
+    claim_index: dict[tuple[str, int, int], dict[str, tuple[float, str]]] = {}
+    for fragment in fragments:
+        fragment_id = fragment.get("fragment_id")
+        if not fragment_id:
+            continue
+        identity = fragment_identity_map.get(str(fragment_id), {})
+        team = identity.get("team")
+        jersey = identity.get("jersey")
+        confidence = float(identity.get("confidence", 0.0) or 0.0)
+        assignment_reason = str(identity.get("assignment_reason") or "")
+        if team not in ("team_a", "team_b") or jersey is None:
+            continue
+
+        start_frame = fragment.get("start_frame")
+        end_frame = fragment.get("end_frame")
+        track_id = fragment.get("original_track_id")
+        if start_frame is None or end_frame is None or track_id is None:
+            continue
+
+        jersey_i = int(jersey)
+        track_key = str(track_id)
+        for frame_idx in range(int(start_frame), int(end_frame) + 1):
+            if track_frame_presence is not None:
+                present_frames = track_frame_presence.get(track_key, set())
+                if frame_idx not in present_frames:
+                    continue
+            key = (str(team), jersey_i, frame_idx)
+            claim_index.setdefault(key, {})[track_key] = (confidence, assignment_reason)
+
+    persistence: dict[tuple[str, int], str] = {}
+
+    for track_id, track_fragments in by_track.items():
+        last_known_team: str | None = None
+        last_known_jersey: int | None = None
+        last_known_source_fragment_id: str | None = None
+        last_known_end: int | None = None
+
+        for fragment in track_fragments:
+            fragment_id = str(fragment.get("fragment_id"))
+            identity = fragment_identity_map.get(fragment_id, {})
+            team = identity.get("team")
+            jersey = identity.get("jersey")
+            start_frame = fragment.get("start_frame")
+            end_frame = fragment.get("end_frame")
+            if start_frame is None or end_frame is None:
+                continue
+
+            start_i = int(start_frame)
+            end_i = int(end_frame)
+
+            if team in ("team_a", "team_b") and jersey is not None:
+                last_known_team = str(team)
+                last_known_jersey = int(jersey)
+                last_known_source_fragment_id = fragment_id
+                last_known_end = end_i
+                continue
+
+            if team not in ("team_a", "team_b"):
+                continue
+
+            if (
+                last_known_team is None
+                or last_known_jersey is None
+                or last_known_source_fragment_id is None
+                or last_known_end is None
+            ):
+                continue
+
+            if str(team) != last_known_team:
+                continue
+
+            gap = start_i - int(last_known_end) - 1
+            if gap > int(max_anchor_gap_frames):
+                continue
+
+            # Persist only while nobody else on same team claims this jersey.
+            for frame_idx in range(start_i, end_i + 1):
+                claimers = claim_index.get((last_known_team, int(last_known_jersey), frame_idx), {})
+                source_identity = fragment_identity_map.get(last_known_source_fragment_id, {})
+                source_confidence = float(source_identity.get("confidence", 0.0) or 0.0)
+                required_confidence = max(
+                    float(block_min_confidence),
+                    float(source_confidence) * float(block_min_conf_ratio_to_source),
+                )
+
+                other_strong_claim_exists = False
+                for claim_track_id, (claim_confidence, claim_reason) in claimers.items():
+                    if claim_track_id == track_id:
+                        continue
+                    if float(claim_confidence) < required_confidence:
+                        continue
+                    if block_requires_assigned_reason and not str(claim_reason).startswith("assigned ("):
+                        continue
+                    other_strong_claim_exists = True
+                    break
+
+                if other_strong_claim_exists:
+                    continue
+                persistence[(track_id, frame_idx)] = last_known_source_fragment_id
+
+            last_known_end = end_i
+
+    return persistence
+
+
 def _bbox_iou_xyxy(a: list[float], b: list[float]) -> float:
     x1 = max(a[0], b[0])
     y1 = max(a[1], b[1])
@@ -105,6 +414,61 @@ def _dedupe_overlapping_annotations(
         return annotations
 
     return {track_id: ann for track_id, ann in annotations.items() if track_id not in suppressed}
+
+
+def _enforce_frame_jersey_exclusivity(
+    annotations: dict[str, dict],
+) -> dict[str, dict]:
+    """
+    Enforce single jersey owner per frame (global across all tracks).
+
+    When multiple tracks carry the same jersey at a frame, keep only the
+    strongest claim and suppress jersey display for the others.
+    """
+    if not annotations:
+        return annotations
+
+    by_jersey: dict[int, list[tuple[str, dict]]] = {}
+    for track_id, ann in annotations.items():
+        jersey = ann.get("jersey")
+        if jersey is None:
+            continue
+        try:
+            jersey_i = int(jersey)
+        except (TypeError, ValueError):
+            continue
+        by_jersey.setdefault(jersey_i, []).append((track_id, ann))
+
+    if not by_jersey:
+        return annotations
+
+    updated = {track_id: dict(ann) for track_id, ann in annotations.items()}
+
+    def _claim_rank(item: tuple[str, dict]) -> tuple[float, float, float, int]:
+        _, ann = item
+        base_rank = _annotation_rank(ann)
+        conf = float(ann.get("jersey_confidence", 0.0) or 0.0)
+        raw_conf = float(ann.get("raw_jersey_conf", 0.0) or 0.0)
+        reason = str(ann.get("assignment_reason") or "")
+        assigned_boost = 1 if reason.startswith("assigned (") else 0
+        return (base_rank, conf, raw_conf, assigned_boost)
+
+    for _, claimants in by_jersey.items():
+        if len(claimants) <= 1:
+            continue
+
+        winner_track_id, _ = max(claimants, key=_claim_rank)
+        for track_id, _ in claimants:
+            if track_id == winner_track_id:
+                continue
+            updated_ann = updated.get(track_id)
+            if not updated_ann:
+                continue
+            updated_ann["jersey"] = None
+            updated_ann["jersey_confidence"] = 0.0
+            updated[track_id] = updated_ann
+
+    return updated
 
 class BallAnnotator:
     """Draws ball with a trailing jet-colormap tail showing recent positions."""
@@ -331,6 +695,7 @@ def visualize_clip(
                     "team": team,
                     "jersey": jersey,
                     "confidence": confidence,
+                    "assignment_reason": identity.get("assignment_reason"),
                     "label_source": identity.get("label_source"),
                     "team_confidence": identity.get("team_confidence"),
                 }
@@ -354,6 +719,13 @@ def visualize_clip(
 
     # Build fragment lookup: (original_track_id, frame_idx) → fragment_id
     track_frame_to_fragment = {}
+    bridged_track_frame_to_fragment = {}
+    preanchor_backfill_map = {}
+    jersey_persistence_map = {}
+    track_frame_presence = {
+        str(track_id): set(int(frame_idx) for frame_idx in track_data.get("frames", []))
+        for track_id, track_data in pass1_data.get("tracks", {}).items()
+    }
     if pass2_data:
         for fragment in pass2_data.get("fragments", []):
             frag_id = fragment["fragment_id"]
@@ -362,7 +734,46 @@ def visualize_clip(
             end_frame = fragment["end_frame"]
             for frame_idx in range(start_frame, end_frame + 1):
                 track_frame_to_fragment[(track_id, frame_idx)] = frag_id
+
+        micro_gap_bridge_enabled = bool(visualize_cfg.get("micro_gap_bridge_enabled", True))
+        micro_gap_max_frames = int(visualize_cfg.get("micro_gap_max_frames", 5))
+        if micro_gap_bridge_enabled:
+            bridged_track_frame_to_fragment = _bridge_micro_fragment_gaps(
+                pass2_data.get("fragments", []),
+                fragment_identity_map,
+                max_gap_frames=micro_gap_max_frames,
+            )
+
+        preanchor_backfill_enabled = bool(visualize_cfg.get("preanchor_backfill_enabled", True))
+        if preanchor_backfill_enabled:
+            preanchor_backfill_map = _build_pre_anchor_identity_backfill(
+                pass2_data.get("fragments", []),
+                fragment_identity_map,
+                max_anchor_gap_frames=int(visualize_cfg.get("preanchor_max_gap_frames", 5)),
+                max_current_fragment_frames=int(visualize_cfg.get("preanchor_max_current_fragment_frames", 45)),
+                backfill_tail_frames=int(visualize_cfg.get("preanchor_backfill_tail_frames", 30)),
+                min_next_confidence=float(visualize_cfg.get("preanchor_min_next_confidence", 12.0)),
+            )
+
+        jersey_persistence_enabled = bool(visualize_cfg.get("track_jersey_persistence_enabled", True))
+        if jersey_persistence_enabled:
+            jersey_persistence_map = _build_track_jersey_persistence_map(
+                pass2_data.get("fragments", []),
+                fragment_identity_map,
+                max_anchor_gap_frames=int(visualize_cfg.get("track_jersey_persistence_max_gap_frames", 8)),
+                block_min_confidence=float(visualize_cfg.get("track_jersey_persistence_block_min_confidence", 4.0)),
+                block_requires_assigned_reason=bool(visualize_cfg.get("track_jersey_persistence_block_requires_assigned_reason", True)),
+                block_min_conf_ratio_to_source=float(visualize_cfg.get("track_jersey_persistence_block_min_conf_ratio_to_source", 0.6)),
+                track_frame_presence=track_frame_presence,
+            )
+
         print(f"  Track→Fragment mappings: {len(track_frame_to_fragment)} frame entries")
+        if bridged_track_frame_to_fragment:
+            print(f"  Micro-gap bridge mappings: {len(bridged_track_frame_to_fragment)} frame entries")
+        if preanchor_backfill_map:
+            print(f"  Pre-anchor backfill mappings: {len(preanchor_backfill_map)} frame entries")
+        if jersey_persistence_map:
+            print(f"  Track jersey persistence mappings: {len(jersey_persistence_map)} frame entries")
 
     # Build frame-by-frame annotation data
     # Structure: {frame_idx: {track_id: {"bbox": [...], "team": "...", "jersey": ...}}}
@@ -383,6 +794,14 @@ def visualize_clip(
 
             # Lookup fragment and identity
             frag_id = track_frame_to_fragment.get((str(track_id), frame_idx))
+            override_frag_id = preanchor_backfill_map.get((str(track_id), int(frame_idx)))
+            if override_frag_id is not None:
+                frag_id = override_frag_id
+            persistence_frag_id = jersey_persistence_map.get((str(track_id), int(frame_idx)))
+            if persistence_frag_id is not None:
+                frag_id = persistence_frag_id
+            if frag_id is None:
+                frag_id = bridged_track_frame_to_fragment.get((str(track_id), int(frame_idx)))
             team = "unknown"
             jersey = None
             jersey_confidence = 0.0
@@ -419,6 +838,7 @@ def visualize_clip(
                 "jersey": jersey,
                 "jersey_confidence": jersey_confidence,
                 "fragment_id": frag_id,
+                "assignment_reason": fragment_identity_map.get(frag_id, {}).get("assignment_reason") if frag_id else None,
                 "raw_jersey_id": raw_jersey_id,
                 "raw_jersey_conf": raw_jersey_conf,
                 "label_source": label_source,
@@ -497,6 +917,8 @@ def visualize_clip(
         # Draw player annotations
         annotations = frame_annotations.get(frame_idx, {})
         annotations = _dedupe_overlapping_annotations(annotations, iou_threshold=0.55)
+        if bool(visualize_cfg.get("jersey_single_owner_enabled", True)):
+            annotations = _enforce_frame_jersey_exclusivity(annotations)
         rendered_jerseys: set[int] = set()
         for track_id, data in annotations.items():
             bbox = data["bbox"]

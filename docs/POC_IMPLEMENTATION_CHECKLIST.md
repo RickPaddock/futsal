@@ -104,23 +104,38 @@ Team cap is now hard-enforced in Pass 3: over-cap fragments are demoted to `unkn
 ```
 
 **Step 0.2: Fix Remaining Unknown Assignments** 🔴 P0
-- [ ] Implement conservative replacement recovery for cap-saturated windows
-  - [ ] Allow strong unknown to displace weaker incumbent only when evidence is persistent
-  - [ ] Keep hard cap invariant (never exceed 6)
-  - [ ] Preserve jersey single-owner temporal invariant
-- [ ] Re-run Pass 3 + visualize on latest runs
-- [ ] Validate frame-window outcomes where unknowns remain (starting with frame 1350 case)
-- [ ] Add audit metadata for replacement decisions (winner/loser fragment + reason)
+- [x] Implement conservative replacement recovery for cap-saturated windows
+  - [x] Allow strong unknown to displace weaker incumbent only when evidence is persistent
+  - [x] Keep hard cap invariant (never exceed 6)
+  - [x] Preserve jersey single-owner temporal invariant
+- [x] Re-run Pass 3 + visualize on latest runs
+- [x] Validate frame-window outcomes where unknowns remain (starting with frame 1350 case)
+- [x] Add audit metadata for replacement decisions (winner/loser fragment + reason)
+- [ ] Reduce residual unknown occupancy in target windows (avoid 1:1 swaps that keep unknown count flat at key frames)
+- [x] Prevent aggressive replacement demotions of long-established fragments
+  - [x] Added age-delta guardrail (`unknown_replacement_max_age_delta_frames`)
+  - [x] Verified `T6@frame117` no longer demoted to unknown in clip15 sanity run
+- [x] Stabilize jersey continuity in visualization without changing Pass3 JSON semantics
+  - [x] Added micro-gap bridge for short fragment holes
+  - [x] Added pre-anchor backfill for short unstable windows before strong anchor
+  - [x] Added same-track jersey persistence across split fragments (pause/resume on conflict frames)
+  - [x] Enforced frame-level single jersey owner arbitration (strongest claim wins)
 
 **Test Results:**
 ```
 [ ] Remaining unknown fragments reduced to 0 in target windows
-[ ] No team cap violation regressions
-[ ] No jersey temporal ownership conflicts introduced
+[x] No team cap violation regressions
+[x] No jersey temporal ownership conflicts introduced
+[x] Sanity run clip15: `T6 #4` no longer stolen by `T5`
+[x] Sanity run clip15: `T6 #4` continuity preserved through split windows
+[x] Clip14: frame-level duplicate jersey display suppressed (single owner per frame)
 ```
 
 **Notes:**
-- Current state: unknown count reduced significantly; one cap-enforced unknown still remains in target run and is the next focus.
+- Replacement recovery is active and audited in identity JSON (`replacement_role`, `replacement_counterpart_fragment_id`, `replacement_reason`, `replacement_score`).
+- Validated case: `frag_000087_split` is recovered to `team_b` as replacement winner; loser is `frag_000069` demoted to `unknown`.
+- Current state in target run: unknown fragments still 3 (`frag_000037`, `frag_000069`, `frag_000101`); frame 1350 still has 1 unknown due to replacement swap overlap.
+- Jersey visualization now includes deterministic continuity + exclusivity arbitration; this is display-layer only and does not mutate Pass3 identity JSON.
 
 ---
 
@@ -292,6 +307,10 @@ These will be tackled after Phase 0 validation:
 - **Step 3.3:** Multi-cue team scoring (1 day) 🟡 P1
 - **Step 3.4:** Temporal smoothing (4 hours) 🟡 P1
 - **Step 4.2:** Export confidence scores (2 hours) 🟡 P1
+- **Step 4.3:** Finalize unknown detections (deferred, not imminent) 🟡 P1
+  - Consolidate unknown-handling policy (cap enforcement vs replacement vs recovery)
+  - Reduce residual unknowns in hard windows without introducing team/jersey theft
+  - Promote validated visualization continuity rules into identity layer only if safe
 
 ---
 

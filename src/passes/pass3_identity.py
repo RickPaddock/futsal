@@ -223,6 +223,12 @@ def recover_unknown_team_assignments(
     min_margin: float = 0.12,
     min_ratio: float = 1.04,
     max_anchor_gap_frames: int = 5,
+    replacement_enabled: bool = False,
+    replacement_min_margin: float = 0.45,
+    replacement_min_ratio: float = 1.20,
+    replacement_max_loser_frames: int = 260,
+    replacement_max_age_delta_frames: int = 90,
+    jersey_lock_threshold: float = 1.5,
 ) -> int:
     """
     Reassign unknown fragments to a team when both conditions hold:
@@ -324,11 +330,43 @@ def recover_unknown_team_assignments(
                 next_team = next_team_val
                 break
 
-        if prev_team and next_team and prev_team == next_team:
-            return prev_team
+        if prev_team and next_team:
+            if prev_team == next_team:
+                return prev_team
+            return None
         return prev_team or next_team
 
-    candidates: list[tuple[float, dict[str, Any], str, str]] = []
+    def _jersey_signal_strength(fragment_obj: dict[str, Any]) -> float:
+        timeline = fragment_obj.get("jersey_prob_timeline")
+        if not isinstance(timeline, dict):
+            return 0.0
+        best_total = 0.0
+        for stats in timeline.values():
+            if not isinstance(stats, dict):
+                continue
+            best_total = max(best_total, float(stats.get("total", 0.0) or 0.0))
+        return best_total
+
+    def _replacement_weakness_key(fragment_obj: dict[str, Any]) -> tuple:
+        frame_count = int(fragment_obj.get("frame_count", 0) or 0)
+        start_frame = int(fragment_obj.get("start_frame", 0) or 0)
+        mean_confidence = float(fragment_obj.get("mean_confidence", 0.0) or 0.0)
+        visibility_quality = float(fragment_obj.get("visibility_quality", 0.0) or 0.0)
+        frag_id = str(fragment_obj.get("fragment_id") or "")
+        has_jersey_signal = _jersey_signal_strength(fragment_obj) >= float(jersey_lock_threshold)
+        # Smaller tuple => weaker fragment (preferred demotion target)
+        return (
+            0 if bool(fragment_obj.get("identity_jump", False)) else 1,
+            0 if not has_jersey_signal else 1,
+            frame_count,
+            -start_frame,
+            mean_confidence,
+            visibility_quality,
+            frag_id,
+        )
+
+    direct_candidates: list[tuple[float, dict[str, Any], str, str]] = []
+    replacement_candidates: list[tuple[float, dict[str, Any], str, str, float, float, str | None]] = []
     for fragment in fragments:
         if fragment.get("team") != "unknown":
             continue
@@ -360,16 +398,28 @@ def recover_unknown_team_assignments(
 
         candidate_team = anchor_team if anchor_team in teams else preferred_team
         if not _fit_capacity(fragment, candidate_team):
+            if replacement_enabled and str(fragment.get("label_source") or "") == "team_cap_enforced":
+                if anchor_team != candidate_team:
+                    continue
+                replacement_candidates.append((
+                    margin + (0.35 if anchor_team == candidate_team else 0.0),
+                    fragment,
+                    candidate_team,
+                    "unknown_recovered_replacement_anchor" if anchor_team == candidate_team else "unknown_recovered_replacement_color",
+                    margin,
+                    ratio,
+                    anchor_team,
+                ))
             continue
 
         score = margin + (0.35 if anchor_team == candidate_team else 0.0)
         reason = "unknown_recovered_anchor" if anchor_team == candidate_team else "unknown_recovered_color"
-        candidates.append((score, fragment, candidate_team, reason))
+        direct_candidates.append((score, fragment, candidate_team, reason))
 
-    candidates.sort(key=lambda item: item[0], reverse=True)
+    direct_candidates.sort(key=lambda item: item[0], reverse=True)
 
     reassigned = 0
-    for _, fragment, team, reason in candidates:
+    for _, fragment, team, reason in direct_candidates:
         if fragment.get("team") != "unknown":
             continue
         if not _fit_capacity(fragment, team):
@@ -388,8 +438,102 @@ def recover_unknown_team_assignments(
 
         reassigned += 1
 
+    replacements = 0
+    if replacement_enabled and replacement_candidates:
+        replacement_candidates.sort(key=lambda item: item[0], reverse=True)
+
+        for score, fragment, team, reason, margin, ratio, anchor_team in replacement_candidates:
+            if fragment.get("team") != "unknown":
+                continue
+            if _fit_capacity(fragment, team):
+                continue
+            if margin < float(replacement_min_margin) or ratio < float(replacement_min_ratio):
+                continue
+
+            start = fragment.get("start_frame")
+            end = fragment.get("end_frame")
+            if start is None or end is None:
+                continue
+            start_i = int(start)
+            end_i = int(end)
+
+            losers: list[dict[str, Any]] = []
+            for other in fragments:
+                if other is fragment:
+                    continue
+                if other.get("team") != team:
+                    continue
+
+                other_start = other.get("start_frame")
+                other_end = other.get("end_frame")
+                if other_start is None or other_end is None:
+                    continue
+                if int(other_start) > start_i or int(other_end) < end_i:
+                    continue
+
+                # Guardrail: only demote incumbents that are temporally close to winner.
+                # Prevent replacing long-established fragments with tiny transient winners.
+                if int(other_start) < start_i - int(replacement_max_age_delta_frames):
+                    continue
+
+                loser_frames = int(other_end) - int(other_start) + 1
+                if loser_frames > int(replacement_max_loser_frames):
+                    continue
+
+                loser_label = str(other.get("label_source") or "")
+                if loser_label == "team_cap_enforced":
+                    continue
+
+                loser_jersey_signal = _jersey_signal_strength(other)
+                if loser_jersey_signal >= float(jersey_lock_threshold):
+                    continue
+
+                losers.append(other)
+
+            if not losers:
+                continue
+
+            loser = sorted(losers, key=_replacement_weakness_key)[0]
+            loser_id = loser.get("fragment_id")
+            winner_id = fragment.get("fragment_id")
+            if not loser_id or not winner_id:
+                continue
+
+            loser_start = int(loser.get("start_frame", start_i) or start_i)
+            loser_end = int(loser.get("end_frame", end_i) or end_i)
+
+            for frame in range(loser_start, loser_end + 1):
+                occupancy[team][frame] = max(0, occupancy[team].get(frame, 0) - 1)
+
+            for frame in range(start_i, end_i + 1):
+                occupancy[team][frame] = occupancy[team].get(frame, 0) + 1
+
+            loser["team"] = "unknown"
+            loser["team_confidence"] = "replacement_demoted"
+            loser["label_source"] = "replacement_demoted"
+            loser["team_constraint_violation"] = True
+            loser["violation_reason"] = f"replacement_demoted_for_{winner_id}"
+            loser["replacement_role"] = "loser"
+            loser["replacement_counterpart_fragment_id"] = winner_id
+            loser["replacement_reason"] = reason
+            loser["replacement_score"] = float(score)
+
+            fragment["team"] = team
+            fragment["team_confidence"] = "unknown_recovered"
+            fragment["label_source"] = reason
+            fragment["unknown_recovery_reason"] = reason
+            fragment["replacement_role"] = "winner"
+            fragment["replacement_counterpart_fragment_id"] = loser_id
+            fragment["replacement_reason"] = reason
+            fragment["replacement_score"] = float(score)
+
+            replacements += 1
+            reassigned += 1
+
     if reassigned > 0:
         print(f"  [UNKNOWN_RECOVERY] Reassigned {reassigned} unknown fragment(s) to teams")
+    if replacements > 0:
+        print(f"  [UNKNOWN_RECOVERY_REPLACE] Applied {replacements} replacement reassignment(s)")
 
     return reassigned
 
@@ -1567,6 +1711,12 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
         min_margin=float(team_cfg.get("unknown_recovery_min_margin", 0.12)),
         min_ratio=float(team_cfg.get("unknown_recovery_min_ratio", 1.04)),
         max_anchor_gap_frames=int(team_cfg.get("unknown_recovery_anchor_gap_frames", 5)),
+        replacement_enabled=bool(team_cfg.get("unknown_replacement_enabled", True)),
+        replacement_min_margin=float(team_cfg.get("unknown_replacement_min_margin", 0.45)),
+        replacement_min_ratio=float(team_cfg.get("unknown_replacement_min_ratio", 1.20)),
+        replacement_max_loser_frames=int(team_cfg.get("unknown_replacement_max_loser_frames", 260)),
+        replacement_max_age_delta_frames=int(team_cfg.get("unknown_replacement_max_age_delta_frames", 90)),
+        jersey_lock_threshold=float(jersey_lock_threshold),
     )
 
     # ========================================================================
@@ -1632,7 +1782,16 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
     _retro_backfill_same_track_jerseys(
         fragments,
         jersey_assignments_detailed,
-        max_anchor_gap_frames=int(team_cfg.get("retro_backfill_max_anchor_gap_frames", 3)),
+        max_anchor_gap_frames=int(team_cfg.get("retro_track_max_anchor_gap_frames", team_cfg.get("retro_backfill_max_anchor_gap_frames", 3))),
+        min_source_confidence=float(team_cfg.get("retro_track_min_source_confidence", max(3.0, float(jersey_lock_threshold) * 2.0))),
+    )
+
+    _suppress_weak_cross_team_jersey_overlaps(
+        fragments,
+        jersey_assignments_detailed,
+        min_overlap_frames=int(jersey_cfg.get("cross_team_overlap_min_frames", 8)),
+        weak_confidence_max=float(jersey_cfg.get("cross_team_weak_confidence_max", 5.0)),
+        strong_confidence_min=float(jersey_cfg.get("cross_team_strong_confidence_min", 12.0)),
     )
 
     team_snapshot = {
@@ -1719,6 +1878,10 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
             "team_constraint_violation": fragment.get("team_constraint_violation", False),
             "violation_reason": fragment.get("violation_reason"),
             "over_capacity_frame_count": fragment.get("over_capacity_frame_count", 0),
+            "replacement_role": fragment.get("replacement_role"),
+            "replacement_counterpart_fragment_id": fragment.get("replacement_counterpart_fragment_id"),
+            "replacement_reason": fragment.get("replacement_reason"),
+            "replacement_score": fragment.get("replacement_score"),
             # Appearance mode (metadata-only, for debugging/visualization)
             "appearance_mode_id": fragment.get("appearance_mode_id"),
             "appearance_mode_confidence": fragment.get("appearance_mode_confidence"),
@@ -1834,13 +1997,15 @@ def _infer_jersey_numbers_detailed(
                 continue
 
             # Compute evidence score (for conflict resolution)
-            evidence_score = total_conf  # Can be enhanced with count × mean_confidence
+            # Primary: mean confidence per hit (robust against long-fragment accumulation)
+            # Tie-breakers: coverage, count, then total confidence
+            mean_confidence = float(total_conf / max(count, 1))
 
             eligible_jerseys[jersey_num] = {
                 "total_confidence": total_conf,
                 "count": count,
                 "coverage": coverage,
-                "evidence_score": evidence_score,
+                "mean_confidence": mean_confidence,
             }
 
         fragment_metadata.append({
@@ -1874,7 +2039,10 @@ def _infer_jersey_numbers_detailed(
 
             jersey_candidates[jersey_key].append({
                 "fragment_id": fragment_id,
-                "evidence_score": jersey_stats["evidence_score"],
+                "mean_confidence": jersey_stats["mean_confidence"],
+                "coverage": jersey_stats["coverage"],
+                "count": jersey_stats["count"],
+                "total_confidence": jersey_stats["total_confidence"],
                 "start_frame": frag_meta["start_frame"],
                 "end_frame": frag_meta["end_frame"],
                 "team": frag_meta["team"],
@@ -1889,8 +2057,21 @@ def _infer_jersey_numbers_detailed(
 
     for jersey_key, candidates in jersey_candidates.items():
         _, jersey_num = jersey_key
-        # Sort candidates by evidence score (descending)
-        candidates_sorted = sorted(candidates, key=lambda c: c["evidence_score"], reverse=True)
+        # Sort candidates by evidence tuple (descending)
+        # 1) Higher mean confidence wins
+        # 2) Higher coverage wins ties
+        # 3) Higher count wins ties
+        # 4) Higher total confidence wins final ties
+        candidates_sorted = sorted(
+            candidates,
+            key=lambda c: (
+                c["mean_confidence"],
+                c["coverage"],
+                c["count"],
+                c["total_confidence"],
+            ),
+            reverse=True,
+        )
 
         # Greedily assign to non-overlapping fragments
         assigned_to_jersey = []
@@ -2138,20 +2319,22 @@ def _retro_backfill_same_track_jerseys(
     fragments: list[dict[str, Any]],
     assignments: dict[str, dict[str, Any]],
     max_anchor_gap_frames: int = 3,
+    min_source_confidence: float = 3.0,
 ) -> int:
     """
-    Back-populate jersey numbers backward on the same track when a split fragment
-    later reveals a stable jersey.
+    Back/forward populate jersey numbers on the same track when a fragment
+    reveals a stable jersey.
 
     Example handled:
     - `track 6: frag_000045` has no visible back yet
     - `track 6: frag_000045_split` later shows `#4`
-    - Backfill `#4` to the earlier fragment when safe.
+    - Backfill `#4` to nearby earlier/later same-track fragments when safe.
 
     Safety rules:
     - Same original track only.
     - Same known team only.
     - Only assigns fragments that currently have no jersey.
+    - Only propagates from strong source assignment confidence.
     - Never violates same-team temporal jersey exclusivity.
     """
     fragments_by_track: dict[str, list[dict[str, Any]]] = {}
@@ -2207,56 +2390,191 @@ def _retro_backfill_same_track_jerseys(
     updates = 0
 
     for track_frags in fragments_by_track.values():
-        for idx in range(1, len(track_frags)):
-            source_fragment = track_frags[idx]
-            source_id = source_fragment.get("fragment_id")
-            if not source_id:
-                continue
-
-            source_team = source_fragment.get("team")
-            source_assignment = assignments.get(source_id, {})
-            source_jersey = source_assignment.get("jersey_number")
-
-            if not _known_team(source_team) or source_jersey is None:
-                continue
-
-            for prev_idx in range(idx - 1, -1, -1):
-                target_fragment = track_frags[prev_idx]
-                target_id = target_fragment.get("fragment_id")
-                if not target_id:
+        changed = True
+        while changed:
+            changed = False
+            for idx in range(len(track_frags)):
+                source_fragment = track_frags[idx]
+                source_id = source_fragment.get("fragment_id")
+                if not source_id:
                     continue
 
-                source_start = source_fragment.get("start_frame")
-                target_end = target_fragment.get("end_frame")
-                if source_start is None or target_end is None:
+                source_team = source_fragment.get("team")
+                source_assignment = assignments.get(source_id, {})
+                source_jersey = source_assignment.get("jersey_number")
+                source_confidence = float(source_assignment.get("confidence", 0.0) or 0.0)
+
+                if not _known_team(source_team) or source_jersey is None:
+                    continue
+                if source_confidence < float(min_source_confidence):
                     continue
 
-                gap = int(source_start - target_end - 1)
-                if gap > max_anchor_gap_frames:
-                    break
+                # Propagate both backward (-1) and forward (+1) along same track.
+                for direction in (-1, 1):
+                    cursor = idx + direction
+                    while 0 <= cursor < len(track_frags):
+                        target_fragment = track_frags[cursor]
+                        target_id = target_fragment.get("fragment_id")
+                        if not target_id:
+                            cursor += direction
+                            continue
 
-                target_team = target_fragment.get("team")
-                if not _known_team(target_team) or target_team != source_team:
-                    continue
+                        source_start = source_fragment.get("start_frame")
+                        source_end = source_fragment.get("end_frame")
+                        target_start = target_fragment.get("start_frame")
+                        target_end = target_fragment.get("end_frame")
+                        if (
+                            source_start is None
+                            or source_end is None
+                            or target_start is None
+                            or target_end is None
+                        ):
+                            cursor += direction
+                            continue
 
-                target_assignment = assignments.get(target_id, {})
-                if target_assignment.get("jersey_number") is not None:
-                    continue
+                        if direction < 0:
+                            gap = int(source_start - target_end - 1)
+                        else:
+                            gap = int(target_start - source_end - 1)
 
-                if _has_same_team_temporal_conflict(target_id, source_team, int(source_jersey)):
-                    continue
+                        if gap > max_anchor_gap_frames:
+                            break
 
-                assignments[target_id] = {
-                    "jersey_number": int(source_jersey),
-                    "confidence": float(source_assignment.get("confidence", 0.0)),
-                    "reason": f"retro_track_jersey_from_{source_id}",
-                }
-                updates += 1
+                        target_team = target_fragment.get("team")
+                        if not _known_team(target_team) or target_team != source_team:
+                            cursor += direction
+                            continue
+
+                        target_assignment = assignments.get(target_id, {})
+                        if target_assignment.get("jersey_number") is not None:
+                            cursor += direction
+                            continue
+
+                        if _has_same_team_temporal_conflict(target_id, source_team, int(source_jersey)):
+                            cursor += direction
+                            continue
+
+                        assignments[target_id] = {
+                            "jersey_number": int(source_jersey),
+                            "confidence": float(source_assignment.get("confidence", 0.0)),
+                            "reason": f"retro_track_jersey_from_{source_id}",
+                        }
+                        updates += 1
+                        changed = True
+                        cursor += direction
 
     if updates > 0:
         print(f"  [RETRO_TRACK_JERSEY] Applied {updates} jersey backfill update(s)")
 
     return updates
+
+
+def _suppress_weak_cross_team_jersey_overlaps(
+    fragments: list[dict[str, Any]],
+    assignments: dict[str, dict[str, Any]],
+    min_overlap_frames: int = 8,
+    weak_confidence_max: float = 5.0,
+    strong_confidence_min: float = 12.0,
+) -> int:
+    """
+    Suppress weak cross-team duplicate jersey assignments when a strong owner
+    with the same jersey overlaps in time.
+
+    This is conservative:
+    - Only cross-team conflicts are considered.
+    - Only weak-vs-strong conflicts are suppressed.
+    - Strong/strong overlaps are preserved for manual review.
+    """
+    fragment_lookup = {
+        fragment.get("fragment_id"): fragment
+        for fragment in fragments
+        if fragment.get("fragment_id")
+    }
+
+    by_jersey: dict[int, list[tuple[str, dict[str, Any], dict[str, Any]]]] = {}
+    for fragment_id, assignment in assignments.items():
+        jersey_number = assignment.get("jersey_number")
+        if jersey_number is None:
+            continue
+
+        fragment = fragment_lookup.get(fragment_id)
+        if not fragment:
+            continue
+
+        team = fragment.get("team")
+        if team not in ("team_a", "team_b"):
+            continue
+
+        try:
+            jersey_key = int(jersey_number)
+        except (TypeError, ValueError):
+            continue
+
+        by_jersey.setdefault(jersey_key, []).append((fragment_id, assignment, fragment))
+
+    suppressed_ids: set[str] = set()
+
+    for _, entries in by_jersey.items():
+        n = len(entries)
+        for i in range(n):
+            id_a, assign_a, frag_a = entries[i]
+            if id_a in suppressed_ids:
+                continue
+
+            team_a = frag_a.get("team")
+            start_a = frag_a.get("start_frame")
+            end_a = frag_a.get("end_frame")
+            conf_a = float(assign_a.get("confidence", 0.0) or 0.0)
+            if start_a is None or end_a is None:
+                continue
+
+            for j in range(i + 1, n):
+                id_b, assign_b, frag_b = entries[j]
+                if id_b in suppressed_ids:
+                    continue
+
+                team_b = frag_b.get("team")
+                if team_a == team_b:
+                    continue
+
+                start_b = frag_b.get("start_frame")
+                end_b = frag_b.get("end_frame")
+                conf_b = float(assign_b.get("confidence", 0.0) or 0.0)
+                if start_b is None or end_b is None:
+                    continue
+
+                overlap_start = max(int(start_a), int(start_b))
+                overlap_end = min(int(end_a), int(end_b))
+                if overlap_start > overlap_end:
+                    continue
+
+                overlap_frames = overlap_end - overlap_start + 1
+                if overlap_frames < int(min_overlap_frames):
+                    continue
+
+                weak_id = None
+                strong_id = None
+                if conf_a <= float(weak_confidence_max) and conf_b >= float(strong_confidence_min):
+                    weak_id = id_a
+                    strong_id = id_b
+                elif conf_b <= float(weak_confidence_max) and conf_a >= float(strong_confidence_min):
+                    weak_id = id_b
+                    strong_id = id_a
+
+                if not weak_id or not strong_id:
+                    continue
+
+                assignments[weak_id] = {
+                    "jersey_number": None,
+                    "confidence": 0.0,
+                    "reason": f"cross_team_conflict_suppressed_by_{strong_id}",
+                }
+                suppressed_ids.add(weak_id)
+
+    if suppressed_ids:
+        print(f"  [CROSS_TEAM_SUPPRESS] Suppressed {len(suppressed_ids)} weak cross-team jersey assignment(s)")
+
+    return len(suppressed_ids)
 
 
 def _apply_jersey_inheritance(
