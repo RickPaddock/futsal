@@ -2,8 +2,8 @@
 
 **Status:** 🟡 In Progress
 **Started:** 2026-02-11
-**Current Task:** Step 0.1 - Testing
-**Last Updated:** 2026-02-11
+**Current Task:** Step 0.1 - Validate hard team cap enforcement
+**Last Updated:** 2026-02-13
 
 ---
 
@@ -17,27 +17,25 @@
 - [x] Read [src/passes/pass3_identity.py](../src/passes/pass3_identity.py) to understand current validation
 - [x] Implement `enforce_team_size_constraint()` function
   - [x] Count concurrent fragments per team per frame
-  - [x] Find lowest-confidence violators
+  - [x] Find weakest violators deterministically
   - [x] Mark as "unknown" (NEVER auto-flip to other team)
-  - [x] Add violation metadata (`team_constraint_violation`, `violation_reason`)
-- [x] Call constraint enforcement FIRST in Pass 3 (before smoothing/inheritance)
+  - [x] Add violation metadata (`team_constraint_violation`, `violation_reason`, `over_capacity_frame_count`)
+- [x] Call constraint enforcement after K-means and before team lock
 - [x] Export violation fields in JSON output
+- [x] Use `team_clustering.team_cap` from config (fallback 6)
 
 **Files Modified:**
-- `src/passes/pass3_identity.py` - Added enforcement function, called before validation
+- `src/passes/pass3_identity.py` - Added hard cap enforcement + metadata export
 
 **Implementation Details:**
-- Created `enforce_team_size_constraint()` at line 24-85
-  - Marks lowest-confidence violators as "unknown" (never auto-flips)
-- Created `inherit_team_assignments()` at line 91-183
-  - Bidirectional team inheritance (forward + backward passes)
-  - "Backdates" team assignments to fill unknown gaps
-  - Respects team size constraint during inheritance
-- Called at lines 349-360 (right after K-means, BEFORE jersey inference)
-- Exports metadata: `team_constraint_violation`, `violation_reason`, `team_confidence`, `team_inherited`, `inherited_from`
+- Added deterministic team-cap enforcer in Pass 3.
+  - If concurrent fragments for a team exceed cap, overflow fragments are demoted to `unknown`.
+  - No cross-team reassignment is allowed.
+  - Enforcement happens before `team_locked` is written.
+- Exports metadata: `team_constraint_violation`, `violation_reason`, `over_capacity_frame_count`, `team_confidence`, `label_source`.
 
 **Key Fix:**
-Players can't be "unknown" - if a fragment is marked unknown due to constraint violations, but adjacent fragments on the same track have consistent team assignments, the team is inherited backward/forward to fill the gap.
+Team cap is now hard-enforced in Pass 3: over-cap fragments are demoted to `unknown` instead of silently allowing >6 players on a team.
 
 **Ready for Testing:** ✅
 
@@ -45,7 +43,7 @@ Players can't be "unknown" - if a fragment is marked unknown due to constraint v
 
 ### 🔄 Current Task
 
-**→ Step 0.1: Test on sample video**
+**→ Step 0.1: Validate cap enforcement on sample runs**
 
 ---
 
@@ -53,7 +51,7 @@ Players can't be "unknown" - if a fragment is marked unknown due to constraint v
 
 **Step 0.1: Enforce Team Size Constraint** - Testing Phase
 - [ ] Test on sample video
-- [ ] Verify no team size violations (target: 0)
+- [ ] Verify no residual team size violations after enforcement (target: 0)
 - [ ] Verify violations properly logged in JSON
 - [ ] Verify unknown fragments marked correctly
 
@@ -62,6 +60,7 @@ Players can't be "unknown" - if a fragment is marked unknown due to constraint v
 [ ] No team size violations after enforcement
 [ ] Violations properly logged in JSON with violation_reason
 [ ] Unknown fragments marked with team="unknown"
+[ ] Team cap read from config (`team_clustering.team_cap`)
 ```
 
 **Notes:**

@@ -97,6 +97,126 @@ def validate_team_size_constraint(fragments: list[dict], max_per_team: int = 6) 
         print(f"  [OK] Team size constraint satisfied (max {max_per_team} per team)")
 
 
+def enforce_team_size_constraint(fragments: list[dict], max_per_team: int = 6) -> int:
+    """
+    Enforce hard team size cap by demoting weakest overflow fragments to unknown.
+
+    Rules:
+    - Never auto-flip team_a <-> team_b.
+    - Demote entire fragment to unknown when it contributes to over-cap states.
+    - Deterministic weakest-first ordering.
+
+    Returns:
+        Number of fragments demoted to unknown.
+    """
+    if max_per_team <= 0:
+        return 0
+
+    recent_entry_window_frames = 180
+
+    fragment_by_id = {
+        f.get("fragment_id"): f
+        for f in fragments
+        if f.get("fragment_id")
+    }
+
+    def _weakness_key(fragment_obj: dict) -> tuple:
+        label_source = str(fragment_obj.get("label_source") or "")
+        source_penalty = 1 if "kmeans" in label_source else 0
+        start_frame = int(fragment_obj.get("start_frame", 0) or 0)
+        identity_jump = bool(fragment_obj.get("identity_jump", False))
+        visibility_quality = float(fragment_obj.get("visibility_quality", 0.0) or 0.0)
+        mean_confidence = float(fragment_obj.get("mean_confidence", 0.0) or 0.0)
+        frame_count = int(fragment_obj.get("frame_count", 0) or 0)
+        frag_id = str(fragment_obj.get("fragment_id") or "")
+        # Smaller tuple => weaker fragment, demoted first.
+        return (
+            source_penalty,
+            -start_frame,
+            frame_count,
+            0 if identity_jump else 1,
+            visibility_quality,
+            mean_confidence,
+            frag_id,
+        )
+
+    demoted_ids: set[str] = set()
+    changed = True
+    safety_iter = 0
+
+    while changed and safety_iter < 5000:
+        safety_iter += 1
+        changed = False
+
+        for team in ("team_a", "team_b"):
+            team_fragments = [
+                f for f in fragments
+                if f.get("team") == team and f.get("fragment_id") not in demoted_ids
+            ]
+            if not team_fragments:
+                continue
+
+            all_frames: set[int] = set()
+            for fragment in team_fragments:
+                start = fragment.get("start_frame")
+                end = fragment.get("end_frame")
+                if start is None or end is None:
+                    continue
+                all_frames.update(range(int(start), int(end) + 1))
+
+            for frame in sorted(all_frames):
+                concurrent = [
+                    f for f in team_fragments
+                    if f.get("start_frame") is not None
+                    and f.get("end_frame") is not None
+                    and int(f["start_frame"]) <= frame <= int(f["end_frame"])
+                    and f.get("fragment_id") not in demoted_ids
+                ]
+
+                over = len(concurrent) - max_per_team
+                if over <= 0:
+                    continue
+
+                recent_or_jump = [
+                    f for f in concurrent
+                    if (
+                        bool(f.get("identity_jump", False))
+                        or (
+                            f.get("start_frame") is not None
+                            and int(f.get("start_frame")) >= int(frame - recent_entry_window_frames)
+                        )
+                    )
+                ]
+
+                candidate_pool = recent_or_jump if len(recent_or_jump) >= over else concurrent
+                candidates = sorted(candidate_pool, key=_weakness_key)
+                to_demote = candidates[:over]
+
+                for fragment in to_demote:
+                    frag_id = fragment.get("fragment_id")
+                    if not frag_id or frag_id in demoted_ids:
+                        continue
+                    demoted_ids.add(frag_id)
+                    fragment["team"] = "unknown"
+                    fragment["team_confidence"] = "team_cap_enforced"
+                    fragment["label_source"] = "team_cap_enforced"
+                    fragment["team_constraint_violation"] = True
+                    fragment["violation_reason"] = f"over_capacity_{team}_frame_{frame}"
+                    fragment["over_capacity_frame_count"] = int(fragment.get("over_capacity_frame_count", 0) or 0) + 1
+                    changed = True
+
+                if changed:
+                    break
+
+            if changed:
+                break
+
+    if demoted_ids:
+        print(f"  [TEAM_CAP_ENFORCE] Demoted {len(demoted_ids)} fragment(s) to unknown to satisfy cap={max_per_team}")
+
+    return len(demoted_ids)
+
+
 def run_pass3(run_dir: Path, config: dict):
     run_dir = Path(run_dir)
     pass2_dir = run_dir / "pass2_identity"
@@ -1206,6 +1326,7 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
     team_cfg = config.get("team_clustering", {})
     jersey_cfg = config.get("jersey", {})
     n_clusters = team_cfg.get("n_clusters", 2)
+    team_cap = int(team_cfg.get("team_cap", 6))
     jersey_lock_threshold = jersey_cfg.get("lock_threshold", 0.7)
     jersey_min_detections = jersey_cfg.get("min_detections", 3)
     jersey_min_coverage = jersey_cfg.get("min_coverage_pct", 0.15)
@@ -1258,6 +1379,10 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
             fragments[i]["team_confidence"] = "kmeans"
             fragments[i]["label_source"] = "kmeans"
 
+    # Enforce hard team cap before locking team assignments.
+    print(f"\n  Enforcing team size cap...")
+    enforce_team_size_constraint(fragments, max_per_team=team_cap)
+
     # ========================================================================
     # LOCK TEAM ASSIGNMENTS
     # ========================================================================
@@ -1300,7 +1425,7 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
     # This catches fragmentation bugs that slipped through appearance-based splitting.
     # ========================================================================
     print(f"\n  Validating team size constraint...")
-    validate_team_size_constraint(fragments, max_per_team=6)
+    validate_team_size_constraint(fragments, max_per_team=team_cap)
 
     # Get detailed jersey assignments (returns dict with assignment details)
     jersey_assignments_detailed = _infer_jersey_numbers_detailed(
@@ -1309,6 +1434,13 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
         min_detections=jersey_min_detections,
         min_coverage_pct=jersey_min_coverage,
         frame_stride=jersey_frame_stride,
+    )
+
+    _retro_backfill_short_unknown_segments(
+        fragments,
+        jersey_assignments_detailed,
+        max_fragment_frames=int(team_cfg.get("retro_backfill_max_fragment_frames", 45)),
+        max_anchor_gap_frames=int(team_cfg.get("retro_backfill_max_anchor_gap_frames", 3)),
     )
 
     team_snapshot = {
@@ -1392,6 +1524,9 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
             "continuity_locked": fragment.get("continuity_locked", False),
             "team_confidence": fragment.get("team_confidence"),
             "label_source": fragment.get("label_source"),
+            "team_constraint_violation": fragment.get("team_constraint_violation", False),
+            "violation_reason": fragment.get("violation_reason"),
+            "over_capacity_frame_count": fragment.get("over_capacity_frame_count", 0),
             # Appearance mode (metadata-only, for debugging/visualization)
             "appearance_mode_id": fragment.get("appearance_mode_id"),
             "appearance_mode_confidence": fragment.get("appearance_mode_confidence"),
@@ -1536,6 +1671,8 @@ def _infer_jersey_numbers_detailed(
 
     for frag_meta in fragment_metadata:
         fragment_id = frag_meta["fragment_id"]
+        if frag_meta.get("team") not in ("team_a", "team_b"):
+            continue
         eligible_jerseys = frag_meta["eligible_jerseys"]
 
         for jersey_num, jersey_stats in eligible_jerseys.items():
@@ -1605,6 +1742,13 @@ def _infer_jersey_numbers_detailed(
         team = frag_meta["team"]
 
         if fragment_id not in assignments:
+            if team not in ("team_a", "team_b"):
+                assignments[fragment_id] = {
+                    "jersey_number": None,
+                    "confidence": 0.0,
+                    "reason": "unknown_team_no_jersey_assignment",
+                }
+                continue
             if not frag_meta["eligible_jerseys"]:
                 assignments[fragment_id] = {
                     "jersey_number": None,
@@ -1624,6 +1768,178 @@ def _infer_jersey_numbers_detailed(
 
     # Return detailed assignments with reasons
     return assignments
+
+
+def _retro_backfill_short_unknown_segments(
+    fragments: list[dict[str, Any]],
+    assignments: dict[str, dict[str, Any]],
+    max_fragment_frames: int = 45,
+    max_anchor_gap_frames: int = 3,
+) -> int:
+    """
+    Backfill short unknown team/jersey segments from nearby same-track anchors.
+
+    Purpose:
+    - Hide brief correction lag in final JSON/video after identity stabilizes.
+    - Preserve hard-cap demotions by never backfilling `team_cap_enforced` fragments.
+    """
+    fragments_by_track: dict[str, list[dict[str, Any]]] = {}
+    fragment_lookup: dict[str, dict[str, Any]] = {}
+
+    for fragment in fragments:
+        fragment_id = fragment.get("fragment_id")
+        if fragment_id:
+            fragment_lookup[fragment_id] = fragment
+        track_id = fragment.get("original_track_id")
+        if track_id is None:
+            continue
+        fragments_by_track.setdefault(str(track_id), []).append(fragment)
+
+    for track_frags in fragments_by_track.values():
+        track_frags.sort(key=lambda f: f.get("start_frame", -1))
+
+    def _duration(fragment_obj: dict[str, Any]) -> int:
+        start = fragment_obj.get("start_frame")
+        end = fragment_obj.get("end_frame")
+        if start is None or end is None:
+            return 0
+        return int(end - start + 1)
+
+    def _known_team(team_val: Any) -> bool:
+        return team_val in ("team_a", "team_b")
+
+    def _has_same_team_jersey_conflict(target_fragment: dict[str, Any], team_val: str, jersey_number: int) -> bool:
+        target_id = target_fragment.get("fragment_id")
+        target_start = target_fragment.get("start_frame")
+        target_end = target_fragment.get("end_frame")
+        if not target_id or target_start is None or target_end is None:
+            return True
+
+        for other_id, other_assignment in assignments.items():
+            if other_id == target_id:
+                continue
+            if other_assignment.get("jersey_number") != jersey_number:
+                continue
+
+            other_fragment = fragment_lookup.get(other_id)
+            if not other_fragment:
+                continue
+
+            other_team = other_fragment.get("team")
+            if other_team != team_val:
+                continue
+
+            other_start = other_fragment.get("start_frame")
+            other_end = other_fragment.get("end_frame")
+            if other_start is None or other_end is None:
+                continue
+
+            if int(target_start) <= int(other_end) and int(target_end) >= int(other_start):
+                return True
+
+        return False
+
+    updates = 0
+
+    for _, track_frags in fragments_by_track.items():
+        for idx, fragment in enumerate(track_frags):
+            if _duration(fragment) <= 0 or _duration(fragment) > max_fragment_frames:
+                continue
+
+            if fragment.get("label_source") == "team_cap_enforced":
+                continue
+
+            frag_id = fragment.get("fragment_id")
+            if not frag_id:
+                continue
+
+            curr_team = fragment.get("team")
+            curr_assignment = assignments.get(frag_id, {})
+            curr_jersey = curr_assignment.get("jersey_number")
+
+            if _known_team(curr_team) and curr_jersey is not None:
+                continue
+
+            prev_anchor = None
+            for prev in reversed(track_frags[:idx]):
+                prev_end = prev.get("end_frame")
+                curr_start = fragment.get("start_frame")
+                if prev_end is None or curr_start is None:
+                    continue
+                gap = int(curr_start - prev_end - 1)
+                if gap > max_anchor_gap_frames:
+                    break
+                if _known_team(prev.get("team")):
+                    prev_anchor = prev
+                    break
+
+            next_anchor = None
+            for nxt in track_frags[idx + 1:]:
+                next_start = nxt.get("start_frame")
+                curr_end = fragment.get("end_frame")
+                if next_start is None or curr_end is None:
+                    continue
+                gap = int(next_start - curr_end - 1)
+                if gap > max_anchor_gap_frames:
+                    break
+                if _known_team(nxt.get("team")):
+                    next_anchor = nxt
+                    break
+
+            team_candidate = None
+            if prev_anchor and next_anchor:
+                prev_team = prev_anchor.get("team")
+                next_team = next_anchor.get("team")
+                if prev_team == next_team:
+                    team_candidate = prev_team
+            elif prev_anchor:
+                team_candidate = prev_anchor.get("team")
+            elif next_anchor:
+                team_candidate = next_anchor.get("team")
+
+            if not _known_team(team_candidate):
+                continue
+
+            if curr_team != team_candidate:
+                fragment["team"] = team_candidate
+                fragment["team_confidence"] = "retro_backfill"
+                fragment["label_source"] = "retro_backfill"
+                updates += 1
+
+            prev_jersey = None
+            next_jersey = None
+            if prev_anchor:
+                prev_id = prev_anchor.get("fragment_id")
+                prev_jersey = assignments.get(prev_id, {}).get("jersey_number") if prev_id else None
+            if next_anchor:
+                next_id = next_anchor.get("fragment_id")
+                next_jersey = assignments.get(next_id, {}).get("jersey_number") if next_id else None
+
+            jersey_candidate = None
+            source_id = None
+            if prev_jersey is not None and next_jersey is not None and prev_jersey == next_jersey:
+                jersey_candidate = prev_jersey
+                source_id = prev_anchor.get("fragment_id") if prev_anchor else None
+            elif prev_jersey is not None:
+                jersey_candidate = prev_jersey
+                source_id = prev_anchor.get("fragment_id") if prev_anchor else None
+            elif next_jersey is not None:
+                jersey_candidate = next_jersey
+                source_id = next_anchor.get("fragment_id") if next_anchor else None
+
+            if curr_jersey is None and jersey_candidate is not None:
+                if not _has_same_team_jersey_conflict(fragment, team_candidate, int(jersey_candidate)):
+                    assignments[frag_id] = {
+                        "jersey_number": int(jersey_candidate),
+                        "confidence": float(assignments.get(source_id, {}).get("confidence", 0.0)),
+                        "reason": f"retro_backfill_from_{source_id}",
+                    }
+                    updates += 1
+
+    if updates > 0:
+        print(f"  [RETRO_BACKFILL] Applied {updates} retro backfill update(s)")
+
+    return updates
 
 
 def _apply_jersey_inheritance(
