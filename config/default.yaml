@@ -35,6 +35,9 @@ team_clustering:
   kmeans_sample_limit: 50  # Max samples per fragment for K-means (was max_samples)
   bins: 32  # HSV histogram bins per channel (96 total = 32 × 3)
   team_cap: 6  # Max 6 players per team
+  unknown_recovery_min_margin: 0.12
+  unknown_recovery_min_ratio: 1.04
+  unknown_recovery_anchor_gap_frames: 5
   continuity_lock_window_frames: 12  # Lock fragments starting soon after identity jumps
   color_correction_min_duration_frames: 20
   color_correction_min_margin: 0.35

@@ -217,6 +217,183 @@ def enforce_team_size_constraint(fragments: list[dict], max_per_team: int = 6) -
     return len(demoted_ids)
 
 
+def recover_unknown_team_assignments(
+    fragments: list[dict[str, Any]],
+    team_cap: int = 6,
+    min_margin: float = 0.12,
+    min_ratio: float = 1.04,
+    max_anchor_gap_frames: int = 5,
+) -> int:
+    """
+    Reassign unknown fragments to a team when both conditions hold:
+    1) Evidence supports the team (color centroid margin and/or same-track anchors).
+    2) Team has spare capacity for every frame in fragment lifespan.
+    """
+    if team_cap <= 0:
+        return 0
+
+    teams = ("team_a", "team_b")
+
+    fragments_by_track: dict[str, list[dict[str, Any]]] = {}
+    for fragment in fragments:
+        track_id = fragment.get("original_track_id")
+        if track_id is None:
+            continue
+        fragments_by_track.setdefault(str(track_id), []).append(fragment)
+    for track_frags in fragments_by_track.values():
+        track_frags.sort(key=lambda f: f.get("start_frame", -1))
+
+    team_hist: dict[str, list[np.ndarray]] = {"team_a": [], "team_b": []}
+    for fragment in fragments:
+        team = fragment.get("team")
+        hist = fragment.get("mean_hsv_histogram")
+        if team in team_hist and hist and len(hist) == 96:
+            team_hist[team].append(np.array(hist, dtype=np.float32))
+
+    if not team_hist["team_a"] or not team_hist["team_b"]:
+        return 0
+
+    centroid_a = np.mean(np.stack(team_hist["team_a"], axis=0), axis=0)
+    centroid_b = np.mean(np.stack(team_hist["team_b"], axis=0), axis=0)
+
+    occupancy: dict[str, dict[int, int]] = {"team_a": {}, "team_b": {}}
+    for fragment in fragments:
+        team = fragment.get("team")
+        if team not in teams:
+            continue
+        start = fragment.get("start_frame")
+        end = fragment.get("end_frame")
+        if start is None or end is None:
+            continue
+        for frame in range(int(start), int(end) + 1):
+            occupancy[team][frame] = occupancy[team].get(frame, 0) + 1
+
+    def _fit_capacity(fragment_obj: dict[str, Any], team: str) -> bool:
+        start = fragment_obj.get("start_frame")
+        end = fragment_obj.get("end_frame")
+        if start is None or end is None:
+            return False
+        for frame in range(int(start), int(end) + 1):
+            if occupancy[team].get(frame, 0) >= team_cap:
+                return False
+        return True
+
+    def _track_anchor_team(fragment_obj: dict[str, Any]) -> str | None:
+        track_id = fragment_obj.get("original_track_id")
+        if track_id is None:
+            return None
+        track_frags = fragments_by_track.get(str(track_id), [])
+        if not track_frags:
+            return None
+
+        frag_id = fragment_obj.get("fragment_id")
+        idx = -1
+        for i, f in enumerate(track_frags):
+            if f.get("fragment_id") == frag_id:
+                idx = i
+                break
+        if idx < 0:
+            return None
+
+        current_start = fragment_obj.get("start_frame")
+        current_end = fragment_obj.get("end_frame")
+        if current_start is None or current_end is None:
+            return None
+
+        prev_team = None
+        for prev in reversed(track_frags[:idx]):
+            prev_team_val = prev.get("team")
+            prev_end = prev.get("end_frame")
+            if prev_end is None:
+                continue
+            if int(current_start) - int(prev_end) - 1 > max_anchor_gap_frames:
+                break
+            if prev_team_val in teams:
+                prev_team = prev_team_val
+                break
+
+        next_team = None
+        for nxt in track_frags[idx + 1:]:
+            next_team_val = nxt.get("team")
+            next_start = nxt.get("start_frame")
+            if next_start is None:
+                continue
+            if int(next_start) - int(current_end) - 1 > max_anchor_gap_frames:
+                break
+            if next_team_val in teams:
+                next_team = next_team_val
+                break
+
+        if prev_team and next_team and prev_team == next_team:
+            return prev_team
+        return prev_team or next_team
+
+    candidates: list[tuple[float, dict[str, Any], str, str]] = []
+    for fragment in fragments:
+        if fragment.get("team") != "unknown":
+            continue
+
+        hist = fragment.get("mean_hsv_histogram")
+        if not hist or len(hist) != 96:
+            continue
+
+        vector = np.array(hist, dtype=np.float32)
+        dist_a = float(np.linalg.norm(vector - centroid_a))
+        dist_b = float(np.linalg.norm(vector - centroid_b))
+
+        if dist_a <= dist_b:
+            preferred_team = "team_a"
+            preferred_dist = dist_a
+            other_dist = dist_b
+        else:
+            preferred_team = "team_b"
+            preferred_dist = dist_b
+            other_dist = dist_a
+
+        margin = other_dist - preferred_dist
+        ratio = other_dist / max(preferred_dist, 1e-6)
+        anchor_team = _track_anchor_team(fragment)
+
+        evidence_ok = bool(anchor_team in teams) or (margin >= min_margin and ratio >= min_ratio)
+        if not evidence_ok:
+            continue
+
+        candidate_team = anchor_team if anchor_team in teams else preferred_team
+        if not _fit_capacity(fragment, candidate_team):
+            continue
+
+        score = margin + (0.35 if anchor_team == candidate_team else 0.0)
+        reason = "unknown_recovered_anchor" if anchor_team == candidate_team else "unknown_recovered_color"
+        candidates.append((score, fragment, candidate_team, reason))
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+
+    reassigned = 0
+    for _, fragment, team, reason in candidates:
+        if fragment.get("team") != "unknown":
+            continue
+        if not _fit_capacity(fragment, team):
+            continue
+
+        fragment["team"] = team
+        fragment["team_confidence"] = "unknown_recovered"
+        fragment["label_source"] = reason
+        fragment["unknown_recovery_reason"] = reason
+
+        start = fragment.get("start_frame")
+        end = fragment.get("end_frame")
+        if start is not None and end is not None:
+            for frame in range(int(start), int(end) + 1):
+                occupancy[team][frame] = occupancy[team].get(frame, 0) + 1
+
+        reassigned += 1
+
+    if reassigned > 0:
+        print(f"  [UNKNOWN_RECOVERY] Reassigned {reassigned} unknown fragment(s) to teams")
+
+    return reassigned
+
+
 def run_pass3(run_dir: Path, config: dict):
     run_dir = Path(run_dir)
     pass2_dir = run_dir / "pass2_identity"
@@ -1383,6 +1560,15 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
     print(f"\n  Enforcing team size cap...")
     enforce_team_size_constraint(fragments, max_per_team=team_cap)
 
+    print(f"  Recovering unknown team assignments...")
+    recover_unknown_team_assignments(
+        fragments,
+        team_cap=team_cap,
+        min_margin=float(team_cfg.get("unknown_recovery_min_margin", 0.12)),
+        min_ratio=float(team_cfg.get("unknown_recovery_min_ratio", 1.04)),
+        max_anchor_gap_frames=int(team_cfg.get("unknown_recovery_anchor_gap_frames", 5)),
+    )
+
     # ========================================================================
     # LOCK TEAM ASSIGNMENTS
     # ========================================================================
@@ -1440,6 +1626,12 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
         fragments,
         jersey_assignments_detailed,
         max_fragment_frames=int(team_cfg.get("retro_backfill_max_fragment_frames", 45)),
+        max_anchor_gap_frames=int(team_cfg.get("retro_backfill_max_anchor_gap_frames", 3)),
+    )
+
+    _retro_backfill_same_track_jerseys(
+        fragments,
+        jersey_assignments_detailed,
         max_anchor_gap_frames=int(team_cfg.get("retro_backfill_max_anchor_gap_frames", 3)),
     )
 
@@ -1938,6 +2130,131 @@ def _retro_backfill_short_unknown_segments(
 
     if updates > 0:
         print(f"  [RETRO_BACKFILL] Applied {updates} retro backfill update(s)")
+
+    return updates
+
+
+def _retro_backfill_same_track_jerseys(
+    fragments: list[dict[str, Any]],
+    assignments: dict[str, dict[str, Any]],
+    max_anchor_gap_frames: int = 3,
+) -> int:
+    """
+    Back-populate jersey numbers backward on the same track when a split fragment
+    later reveals a stable jersey.
+
+    Example handled:
+    - `track 6: frag_000045` has no visible back yet
+    - `track 6: frag_000045_split` later shows `#4`
+    - Backfill `#4` to the earlier fragment when safe.
+
+    Safety rules:
+    - Same original track only.
+    - Same known team only.
+    - Only assigns fragments that currently have no jersey.
+    - Never violates same-team temporal jersey exclusivity.
+    """
+    fragments_by_track: dict[str, list[dict[str, Any]]] = {}
+    fragment_lookup: dict[str, dict[str, Any]] = {}
+
+    for fragment in fragments:
+        fragment_id = fragment.get("fragment_id")
+        if fragment_id:
+            fragment_lookup[fragment_id] = fragment
+        track_id = fragment.get("original_track_id")
+        if track_id is None:
+            continue
+        fragments_by_track.setdefault(str(track_id), []).append(fragment)
+
+    for track_frags in fragments_by_track.values():
+        track_frags.sort(key=lambda f: (int(f.get("start_frame", -1)), str(f.get("fragment_id", ""))))
+
+    def _known_team(team_val: Any) -> bool:
+        return team_val in ("team_a", "team_b")
+
+    def _has_same_team_temporal_conflict(target_id: str, team_val: str, jersey_number: int) -> bool:
+        target_fragment = fragment_lookup.get(target_id)
+        if not target_fragment:
+            return True
+
+        target_start = target_fragment.get("start_frame")
+        target_end = target_fragment.get("end_frame")
+        if target_start is None or target_end is None:
+            return True
+
+        for other_id, other_assignment in assignments.items():
+            if other_id == target_id:
+                continue
+            if other_assignment.get("jersey_number") != jersey_number:
+                continue
+
+            other_fragment = fragment_lookup.get(other_id)
+            if not other_fragment:
+                continue
+            if other_fragment.get("team") != team_val:
+                continue
+
+            other_start = other_fragment.get("start_frame")
+            other_end = other_fragment.get("end_frame")
+            if other_start is None or other_end is None:
+                continue
+
+            if int(target_start) <= int(other_end) and int(target_end) >= int(other_start):
+                return True
+
+        return False
+
+    updates = 0
+
+    for track_frags in fragments_by_track.values():
+        for idx in range(1, len(track_frags)):
+            source_fragment = track_frags[idx]
+            source_id = source_fragment.get("fragment_id")
+            if not source_id:
+                continue
+
+            source_team = source_fragment.get("team")
+            source_assignment = assignments.get(source_id, {})
+            source_jersey = source_assignment.get("jersey_number")
+
+            if not _known_team(source_team) or source_jersey is None:
+                continue
+
+            for prev_idx in range(idx - 1, -1, -1):
+                target_fragment = track_frags[prev_idx]
+                target_id = target_fragment.get("fragment_id")
+                if not target_id:
+                    continue
+
+                source_start = source_fragment.get("start_frame")
+                target_end = target_fragment.get("end_frame")
+                if source_start is None or target_end is None:
+                    continue
+
+                gap = int(source_start - target_end - 1)
+                if gap > max_anchor_gap_frames:
+                    break
+
+                target_team = target_fragment.get("team")
+                if not _known_team(target_team) or target_team != source_team:
+                    continue
+
+                target_assignment = assignments.get(target_id, {})
+                if target_assignment.get("jersey_number") is not None:
+                    continue
+
+                if _has_same_team_temporal_conflict(target_id, source_team, int(source_jersey)):
+                    continue
+
+                assignments[target_id] = {
+                    "jersey_number": int(source_jersey),
+                    "confidence": float(source_assignment.get("confidence", 0.0)),
+                    "reason": f"retro_track_jersey_from_{source_id}",
+                }
+                updates += 1
+
+    if updates > 0:
+        print(f"  [RETRO_TRACK_JERSEY] Applied {updates} jersey backfill update(s)")
 
     return updates
 

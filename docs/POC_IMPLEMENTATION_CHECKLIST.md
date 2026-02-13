@@ -2,7 +2,7 @@
 
 **Status:** 🟡 In Progress
 **Started:** 2026-02-11
-**Current Task:** Step 0.1 - Validate hard team cap enforcement
+**Current Task:** Step 0.2 - Fix remaining unknown assignments
 **Last Updated:** 2026-02-13
 
 ---
@@ -41,30 +41,86 @@ Team cap is now hard-enforced in Pass 3: over-cap fragments are demoted to `unkn
 
 ---
 
+#### **Step 0.1a: Unknown Recovery + Retro Backfill** 🔴 P0 ✅
+- [x] Implement `recover_unknown_team_assignments()`
+  - [x] Reassign unknown-team fragments when anchor/color evidence is strong
+  - [x] Enforce full-span capacity check (`team_cap`) before reassignment
+  - [x] Export recovery source via `label_source` (`unknown_recovered_anchor` / `unknown_recovered_color`)
+- [x] Implement `_retro_backfill_short_unknown_segments()`
+  - [x] Backfill short same-track unknown segments from nearby anchors
+  - [x] Preserve cap-enforced unknowns (`label_source=team_cap_enforced` is never backfilled)
+- [x] Harden jersey assignment around unknown-team fragments
+  - [x] Exclude unknown-team fragments from jersey conflict candidacy
+  - [x] Use `unknown_team_no_jersey_assignment` when applicable
+
+**Files Modified:**
+- `src/passes/pass3_identity.py` - Unknown recovery + retro team/jersey backfill + jersey candidate hardening
+- `config/default.yaml` - Added unknown recovery knobs
+
+**Implementation Details:**
+- Added post-cap unknown recovery using color centroid margin/ratio and same-track anchor evidence.
+- Added retro backfill for short unknown segments to reduce visible identity lag in JSON/video.
+- Preserved fragment-first safety rules by never overriding cap-enforced unknown fragments.
+
+**Ready for Testing:** ✅
+
+---
+
+#### **Step 0.1b: Same-Track Jersey Backpopulation on Split Fragments** 🔴 P0 ✅
+- [x] Implement `_retro_backfill_same_track_jerseys()`
+  - [x] Back-populate jersey backward on same `original_track_id`
+  - [x] Require same known team and empty target jersey
+  - [x] Block assignment on same-team temporal jersey conflict
+- [x] Wire call after `_retro_backfill_short_unknown_segments()` in Pass 3 flow
+- [x] Validate target case: `T6:F000045 -> F000045_split` now back-populates jersey `#4`
+
+**Files Modified:**
+- `src/passes/pass3_identity.py` - Added conservative same-track jersey retro-backfill pass
+
+**Ready for Testing:** ✅
+
+---
+
 ### 🔄 Current Task
 
-**→ Step 0.1: Validate cap enforcement on sample runs**
+**→ Step 0.2: Fix remaining unknown assignments**
 
 ---
 
 ### 📋 Pending Tasks
 
-**Step 0.1: Enforce Team Size Constraint** - Testing Phase
-- [ ] Test on sample video
-- [ ] Verify no residual team size violations after enforcement (target: 0)
-- [ ] Verify violations properly logged in JSON
-- [ ] Verify unknown fragments marked correctly
+**Step 0.1: Enforce Team Size Constraint** - Validation Status
+- [x] Test on sample video
+- [x] Verify no residual team size violations after enforcement (target: 0)
+- [x] Verify violations properly logged in JSON
+- [x] Verify unknown fragments marked correctly
+
+**Validation Snapshot:**
+```
+[x] No team size violations after enforcement (max concurrent = 6/team)
+[x] Violations logged in JSON with violation_reason + over_capacity_frame_count
+[x] Unknown fragments marked with team="unknown"
+[x] Team cap read from config (team_clustering.team_cap)
+```
+
+**Step 0.2: Fix Remaining Unknown Assignments** 🔴 P0
+- [ ] Implement conservative replacement recovery for cap-saturated windows
+  - [ ] Allow strong unknown to displace weaker incumbent only when evidence is persistent
+  - [ ] Keep hard cap invariant (never exceed 6)
+  - [ ] Preserve jersey single-owner temporal invariant
+- [ ] Re-run Pass 3 + visualize on latest runs
+- [ ] Validate frame-window outcomes where unknowns remain (starting with frame 1350 case)
+- [ ] Add audit metadata for replacement decisions (winner/loser fragment + reason)
 
 **Test Results:**
 ```
-[ ] No team size violations after enforcement
-[ ] Violations properly logged in JSON with violation_reason
-[ ] Unknown fragments marked with team="unknown"
-[ ] Team cap read from config (`team_clustering.team_cap`)
+[ ] Remaining unknown fragments reduced to 0 in target windows
+[ ] No team cap violation regressions
+[ ] No jersey temporal ownership conflicts introduced
 ```
 
 **Notes:**
--
+- Current state: unknown count reduced significantly; one cap-enforced unknown still remains in target run and is the next focus.
 
 ---
 
@@ -198,17 +254,6 @@ Team cap is now hard-enforced in Pass 3: over-cap fragments are demoted to `unkn
 
 **Notes:**
 -
-
----
-[ ] Mixed-shirt teams no longer collapse to grey
-[ ] Both bibbed and non-bibbed teams handled correctly
-[ ] Team assignments stable (no flipping)
-[ ] Appearance modes visible in JSON
-```
-
-**Notes:**
-- CRITICAL: Don't assume team_b is always mixed - auto-detect based on variance
-- Could be bibbed vs bibbed, bibbed vs mixed, or mixed vs mixed
 
 ---
 
