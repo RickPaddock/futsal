@@ -99,6 +99,87 @@ Players can't be "unknown" - if a fragment is marked unknown due to constraint v
 
 ---
 
+#### **Step 3.2: Intra-Team Appearance Sub-Clustering (Grey Collapse Fix)** 🔴 P0 ✅
+- [x] Lock team assignments immediately after K-means (frag.team_locked = frag.team)
+- [x] Implement `_calculate_team_variances()` function
+  - [x] Compute intra-team appearance variance per team independently
+  - [x] Uses mean Euclidean distance to team centroid (colour-agnostic metric)
+- [x] Implement `_detect_multi_appearance_teams()` function
+  - [x] **RELATIVE variance detection**: Only auto-detect based on ratio comparison
+  - [x] Decision rule: if var(team_i) > ratio_threshold × min(other_vars) → mark as multi-appearance
+  - [x] Hard constraint: No absolute thresholds, no team reassignments
+- [x] Implement `_subcluster_appearance_modes()` function
+  - [x] **METADATA-ONLY**: Adds appearance_mode_id and appearance_mode_confidence
+  - [x] Uses MiniBatchKMeans (k ≤ 3) to discover 2-3 modes per high-variance team
+  - [x] STRICT RULE: Never modifies frag.team, timelines, or size constraints
+- [x] Add config parameters to [config/default.yaml](../config/default.yaml)
+  - [x] `appearance_variance_ratio_threshold: 1.5` (relative variance threshold, not absolute)
+  - [x] `max_appearance_modes: 3` (hard cap on k for MiniBatchKMeans)
+- [x] Export appearance modes to JSON output
+  - [x] Per-fragment: appearance_mode_id, appearance_mode_confidence
+  - [x] Global metadata: team_a_variance, team_b_variance, multi_appearance_teams
+- [x] Wire into process_clip_pass3() with correct call order
+  - [x] Step 1: Run existing K-means (unchanged)
+  - [x] Step 2: Lock team assignments explicitly
+  - [x] Step 3: Calculate team variances
+  - [x] Step 4: Detect multi-appearance teams
+  - [x] Step 5: Sub-cluster high-variance teams only
+  - [x] Step 6: Export metadata (no feedback loops)
+
+**Estimated Time:** 2-3 hours ✅
+**Files Modified:**
+- `src/passes/pass3_identity.py` - Added 3 functions + integration into process_clip_pass3()
+- `config/default.yaml` - Added variance threshold + max_modes parameters
+
+**Implementation Details:**
+
+**Functions Added:**
+1. `_calculate_team_variances(fragments) -> Dict[str, float]`
+   - Computes intra-team variance independently for each team
+   - Metric: mean distance to team centroid across HSV histogram
+   
+2. `_detect_multi_appearance_teams(team_variances, ratio_threshold) -> Set[str]`
+   - Detects high-variance teams using RELATIVE variance only
+   - Rule: var(team_i) > ratio_threshold × min(other_vars)
+   - Config: appearance_variance_ratio_threshold = 1.5
+   
+3. `_subcluster_appearance_modes(fragments, team_id, max_modes)`
+   - Runs MiniBatchKMeans on high-variance teams only
+   - Adds appearance_mode_id and appearance_mode_confidence metadata
+   - ZERO feedback: Never touches team assignment or constraints
+
+**Key Safety Guarantees:**
+- ✅ One-way data flow (no recursion, no back-edges)
+- ✅ Team assignments frozen after K-means (team_locked = team)
+- ✅ Appearance modes are informational only (no decision making)
+- ✅ Deterministic: Same input = same output
+- ✅ Revertible: Can be deleted without side effects (~150 lines)
+
+**Algorithm:**
+1. After K-means assigns team_a and team_b → Lock teams
+2. Calculate per-team variance independently
+3. Detect if var(team_i) > 1.5 × min(var(other_team))
+4. If multi-appearance: Run MiniBatchKMeans(k=2-3) within that team only
+5. Assign appearance_mode_id metadata (no team change)
+6. Export to JSON for debugging/future use
+
+**Test Results:**
+```
+[ ] No team reassignments during appearance sub-clustering
+[ ] Appearance modes visible in JSON output
+[ ] Multi-appearance teams correctly identified
+[ ] Mixed-shirt teams show 2-3 distinct modes
+[ ] Bibbed teams show single mode
+[ ] No downstream logic affected (metadata-only)
+```
+
+**Notes:**
+- CRITICAL: appearance_mode_id is metadata only. No downstream logic depends on it yet.
+- Next phase: Use modes for fallback jersey assignment or divergence detection
+- Can be extended later without risk (zero feedback loops)
+
+---
+
 #### **Step 2.1: Re-Enable Ball Tracker** 🔴 P0
 - [ ] Read [src/detection/ball_detector.py](../src/detection/ball_detector.py) to find disable flag
 - [ ] Remove disable flag at line ~243
@@ -120,34 +201,6 @@ Players can't be "unknown" - if a fragment is marked unknown due to constraint v
 -
 
 ---
-
-#### **Step 3.2: Intra-Team Appearance Sub-Clustering (Grey Collapse Fix)** 🔴 P0
-- [ ] Implement `discover_appearance_modes()` function in [src/passes/pass3_identity.py](../src/passes/pass3_identity.py)
-  - [ ] **AUTOMATIC detection**: Calculate variance for BOTH teams after K-means
-  - [ ] Only sub-cluster teams with variance > threshold (works for team_a, team_b, or both)
-  - [ ] Use MiniBatchKMeans (k ≤ 3) to discover 2-3 modes per high-variance team
-  - [ ] Assign each fragment to nearest mode centroid
-  - [ ] Export mode assignments to JSON
-- [ ] Call AFTER initial K-means team assignment, AFTER track continuity enforcement
-- [ ] Add config parameters to [config/default.yaml](../config/default.yaml)
-  - [ ] `appearance_mode_variance_threshold: 15.0` (auto-detect which teams need it)
-  - [ ] `max_modes_per_team: 3`
-- [ ] Export `team_appearance_mode`, `mode_confidence` in JSON
-- [ ] Test on sample video
-
-**Estimated Time:** 2-3 hours
-**Files Modified:**
-- `src/passes/pass3_identity.py` - Add intra-team clustering function
-- `config/default.yaml` - Add variance threshold config
-
-**Algorithm:**
-1. After K-means assigns team_a and team_b
-2. Calculate HSV variance for EACH team
-3. If team variance > threshold → run sub-clustering on that team
-4. Prevents "grey centroid" problem for mixed-shirt teams
-
-**Test Results:**
-```
 [ ] Mixed-shirt teams no longer collapse to grey
 [ ] Both bibbed and non-bibbed teams handled correctly
 [ ] Team assignments stable (no flipping)

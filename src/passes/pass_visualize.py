@@ -26,6 +26,86 @@ TEAM_COLORS = {
     "unknown": (200, 200, 200), # Light gray
 }
 
+
+def _bbox_iou_xyxy(a: list[float], b: list[float]) -> float:
+    x1 = max(a[0], b[0])
+    y1 = max(a[1], b[1])
+    x2 = min(a[2], b[2])
+    y2 = min(a[3], b[3])
+
+    inter_w = max(0.0, x2 - x1)
+    inter_h = max(0.0, y2 - y1)
+    inter = inter_w * inter_h
+    if inter <= 0:
+        return 0.0
+
+    area_a = max(0.0, a[2] - a[0]) * max(0.0, a[3] - a[1])
+    area_b = max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+    den = area_a + area_b - inter
+    if den <= 0:
+        return 0.0
+    return float(inter / den)
+
+
+def _annotation_rank(ann: dict) -> float:
+    score = float(ann.get("jersey_confidence", 0.0))
+    if ann.get("jersey") is not None:
+        score += 2.0
+
+    label_source = str(ann.get("label_source") or "")
+    team_confidence = str(ann.get("team_confidence") or "")
+    if "kmeans" in label_source or "anchor_gap" in label_source:
+        score += 1.0
+    if team_confidence in ("kmeans", "anchor_gap", "bridge_forward", "bridge_sandwich"):
+        score += 0.5
+
+    return score
+
+
+def _dedupe_overlapping_annotations(
+    annotations: dict[str, dict],
+    iou_threshold: float = 0.55,
+) -> dict[str, dict]:
+    if not annotations:
+        return annotations
+
+    track_items = list(annotations.items())
+    suppressed: set[str] = set()
+
+    for i in range(len(track_items)):
+        track_id_a, ann_a = track_items[i]
+        if track_id_a in suppressed:
+            continue
+        bbox_a = ann_a.get("bbox")
+        if not bbox_a or len(bbox_a) != 4:
+            continue
+
+        for j in range(i + 1, len(track_items)):
+            track_id_b, ann_b = track_items[j]
+            if track_id_b in suppressed:
+                continue
+            bbox_b = ann_b.get("bbox")
+            if not bbox_b or len(bbox_b) != 4:
+                continue
+
+            overlap = _bbox_iou_xyxy(bbox_a, bbox_b)
+            if overlap < iou_threshold:
+                continue
+
+            score_a = _annotation_rank(ann_a)
+            score_b = _annotation_rank(ann_b)
+
+            if score_a >= score_b:
+                suppressed.add(track_id_b)
+            else:
+                suppressed.add(track_id_a)
+                break
+
+    if not suppressed:
+        return annotations
+
+    return {track_id: ann for track_id, ann in annotations.items() if track_id not in suppressed}
+
 class BallAnnotator:
     """Draws ball with a trailing jet-colormap tail showing recent positions."""
 
@@ -251,6 +331,8 @@ def visualize_clip(
                     "team": team,
                     "jersey": jersey,
                     "confidence": confidence,
+                    "label_source": identity.get("label_source"),
+                    "team_confidence": identity.get("team_confidence"),
                 }
 
         print(f"  Fragment→Identity mappings: {len(fragment_identity_map)}")
@@ -309,6 +391,11 @@ def visualize_clip(
                 team = identity.get("team", "unknown")
                 jersey = identity.get("jersey")
                 jersey_confidence = float(identity.get("confidence", 0.0))
+                label_source = identity.get("label_source")
+                team_confidence = identity.get("team_confidence")
+            else:
+                label_source = None
+                team_confidence = None
 
             # Get raw jersey detection from Pass 1 (per-frame)
             raw_jersey_id = None
@@ -334,6 +421,8 @@ def visualize_clip(
                 "fragment_id": frag_id,
                 "raw_jersey_id": raw_jersey_id,
                 "raw_jersey_conf": raw_jersey_conf,
+                "label_source": label_source,
+                "team_confidence": team_confidence,
             }
 
     print(f"  Team assignments: {team_counts}")
@@ -407,6 +496,7 @@ def visualize_clip(
 
         # Draw player annotations
         annotations = frame_annotations.get(frame_idx, {})
+        annotations = _dedupe_overlapping_annotations(annotations, iou_threshold=0.55)
         rendered_jerseys: set[int] = set()
         for track_id, data in annotations.items():
             bbox = data["bbox"]

@@ -117,6 +117,1078 @@ def run_pass3(run_dir: Path, config: dict):
     print(f"Pass 3 complete! Output: {pass3_dir}")
 
 
+def _calculate_team_variances(fragments: list[dict]) -> dict[str, float]:
+    """
+    Calculate intra-team appearance variance for each team independently.
+    
+    Metric: Mean Euclidean distance to team centroid across all histogram dimensions.
+    
+    Args:
+        fragments: List of fragment dicts with team and mean_hsv_histogram
+        
+    Returns:
+        {team_id: variance_float}
+    
+    Invariant:
+        - Reads fragment.team (READ-ONLY)
+        - Does not modify any fragments
+        - Returns numeric values only
+    """
+    team_variances = {}
+    
+    for team_id in ["team_a", "team_b"]:
+        # Collect histograms for this team
+        team_histograms = []
+        for fragment in fragments:
+            if fragment.get("team") == team_id:
+                hist = fragment.get("mean_hsv_histogram")
+                if hist and len(hist) == 96:  # Valid 96-dim HSV histogram
+                    team_histograms.append(np.array(hist, dtype=np.float32))
+        
+        if len(team_histograms) < 2:
+            # Not enough samples - assign neutral variance
+            team_variances[team_id] = 0.0
+            continue
+        
+        # Compute team centroid
+        X = np.array(team_histograms)
+        centroid = np.mean(X, axis=0)
+        
+        # Compute mean distance to centroid
+        distances = np.linalg.norm(X - centroid, axis=1)
+        variance = float(np.mean(distances))
+        
+        team_variances[team_id] = variance
+    
+    return team_variances
+
+
+def _detect_multi_appearance_teams(
+    team_variances: dict[str, float],
+    ratio_threshold: float = 1.5
+) -> set[str]:
+    """
+    Detect which teams have high appearance variance (multi-appearance).
+    
+    Decision rule (relative variance only):
+        If var(team_i) > ratio_threshold * min(other_team_vars)
+        → mark team_i as multi-appearance
+    
+    Args:
+        team_variances: {team_id: float}
+        ratio_threshold: Ratio multiplier (default 1.5)
+        
+    Returns:
+        Set of team_ids marked as multi-appearance
+        
+    Invariant:
+        - Read-only on input
+        - Returns team identifiers only
+        - No modifications to fragments
+    """
+    multi_appearance = set()
+    
+    variances = {k: v for k, v in team_variances.items() if v > 0.0}
+    if len(variances) < 2:
+        return multi_appearance
+    
+    min_var = min(variances.values())
+    threshold = ratio_threshold * min_var
+    
+    for team_id, var in variances.items():
+        if var > threshold:
+            multi_appearance.add(team_id)
+    
+    return multi_appearance
+
+
+def _subcluster_appearance_modes(
+    fragments: list[dict],
+    team_id: str,
+    max_modes: int = 3
+) -> None:
+    """
+    Sub-cluster fragments within one team to discover appearance modes.
+    
+    METADATA-ONLY: Adds appearance_mode_id and appearance_mode_confidence to each fragment.
+    NEVER modifies frag.team or any temporal logic.
+    
+    Args:
+        fragments: Full fragment list (filters by team internally)
+        team_id: Team to sub-cluster (e.g., "team_a")
+        max_modes: Hard cap on k for MiniBatchKMeans (default 3)
+        
+    Side effects (metadata only):
+        fragment["appearance_mode_id"] = int (if multi-appearance)
+        fragment["appearance_mode_confidence"] = float
+        
+    Invariant:
+        - Reads fragment.team (READ-ONLY)
+        - NEVER modifies fragment.team
+        - NEVER modifies timelines, divergence, or size constraints
+        - Output is informational, no feedback loops
+    """
+    from sklearn.cluster import MiniBatchKMeans
+    
+    # Collect histograms for this team
+    team_fragments = [f for f in fragments if f.get("team") == team_id]
+    team_histograms = []
+    valid_indices = []
+    
+    for i, frag in enumerate(team_fragments):
+        hist = frag.get("mean_hsv_histogram")
+        if hist and len(hist) == 96:
+            team_histograms.append(np.array(hist, dtype=np.float32))
+            valid_indices.append(i)
+    
+    if len(team_histograms) < 2:
+        # Not enough samples for sub-clustering
+        return
+    
+    # Determine k: min of max_modes and number of fragments
+    k = min(max_modes, len(team_histograms))
+    if k < 2:
+        return
+    
+    # Run MiniBatchKMeans to find appearance modes
+    X = np.array(team_histograms)
+    try:
+        mbk = MiniBatchKMeans(n_clusters=k, random_state=42, n_init=3, batch_size=max(3, len(X) // 2))
+        mode_labels = mbk.fit_predict(X)
+        centroids = mbk.cluster_centers_
+    except Exception as e:
+        # If clustering fails, skip metadata (don't crash)
+        return
+    
+    # Assign mode_id and confidence to valid fragments
+    for array_idx, frag_idx in enumerate(valid_indices):
+        frag = team_fragments[frag_idx]
+        mode_id = int(mode_labels[array_idx])
+        
+        # Compute confidence as 1 / distance to nearest centroid
+        hist = X[array_idx]
+        dist_to_centroid = np.linalg.norm(hist - centroids[mode_id])
+        # Normalize distance to approximate confidence (lower dist = higher conf)
+        mode_conf = max(0.0, 1.0 / (1.0 + dist_to_centroid))
+        
+        frag["appearance_mode_id"] = mode_id
+        frag["appearance_mode_confidence"] = float(mode_conf)
+
+
+def _mark_identity_jumps(fragments: list[dict]) -> dict[str, dict]:
+    """
+    Mark fragments that were created by identity-jump splits.
+
+    A fragment is considered an identity-jump if its parent fragment ended
+    due to an identity jump (appearance drift or jersey conflict splits).
+
+    Returns:
+        fragment_lookup: {fragment_id: fragment}
+    """
+    jump_reasons = {
+        "appearance_drift",
+        "identity_jump",
+        "jersey_inconsistency",
+        "jersey_temporal_exclusivity",
+        "overlap_identity_contradiction",
+        "velocity_spike",
+    }
+
+    fragment_lookup = {f.get("fragment_id"): f for f in fragments if f.get("fragment_id")}
+    print(f"[IDENTITY_JUMP_DEBUG] Total fragments: {len(fragments)}")
+
+    # Build per-track ordering for post-split assignment
+    fragments_by_track: dict[str, list[dict]] = {}
+    for fragment in fragments:
+        track_id = fragment.get("original_track_id")
+        if not track_id:
+            continue
+        fragments_by_track.setdefault(track_id, []).append(fragment)
+
+    for track_id, track_frags in fragments_by_track.items():
+        track_frags.sort(key=lambda f: f.get("start_frame", -1))
+
+    def _is_hard_split(split_reason: Any) -> bool:
+        if not isinstance(split_reason, dict):
+            return False
+        reason_val = split_reason.get("reason")
+        severity = split_reason.get("severity")
+        return reason_val in jump_reasons and severity == "hard"
+
+    # Mark identity-jump fragments (post-split fragments, not pre-split)
+    identity_jump_ids: set[str] = set()
+    identity_jump_sources: dict[str, dict[str, Any]] = {}
+
+    for track_id, track_frags in fragments_by_track.items():
+        for idx, fragment in enumerate(track_frags):
+            split_reason = fragment.get("split_reason")
+            if not _is_hard_split(split_reason):
+                continue
+
+            split_frame = split_reason.get("frame_idx") if isinstance(split_reason, dict) else None
+            reason_val = split_reason.get("reason") if isinstance(split_reason, dict) else None
+            next_fragment = None
+            for candidate in track_frags[idx + 1:]:
+                candidate_start = candidate.get("start_frame")
+                if candidate_start is None:
+                    continue
+                if split_frame is None or candidate_start >= split_frame:
+                    next_fragment = candidate
+                    break
+
+            if next_fragment:
+                next_id = next_fragment.get("fragment_id")
+                if next_id:
+                    identity_jump_ids.add(next_id)
+                    identity_jump_sources[next_id] = {
+                        "reason": reason_val,
+                        "split_frame": split_frame,
+                        "source_fragment_id": fragment.get("fragment_id"),
+                    }
+                    print(
+                        f"[IDENTITY_JUMP_MARK] Fragment {next_id}: post-split from {reason_val} at frame {split_frame}"
+                    )
+
+    for fragment in fragments:
+        fragment_id = fragment.get("fragment_id")
+        if not fragment_id:
+            continue
+
+        parent_id = fragment.get("parent_fragment_id")
+        if not parent_id:
+            base_id = fragment_id
+            while base_id.endswith("_split"):
+                base_id = base_id[: -len("_split")]
+            if base_id != fragment_id and base_id in fragment_lookup:
+                parent_id = base_id
+
+        fragment["parent_fragment_id"] = parent_id
+
+        identity_jump = fragment_id in identity_jump_ids
+        source_info = identity_jump_sources.get(fragment_id)
+
+        # Also check if parent was created by a split (has parent split_reason)
+        if not identity_jump and parent_id:
+            parent = fragment_lookup.get(parent_id)
+            if parent:
+                parent_reason = parent.get("split_reason")
+                parent_reason_val = parent_reason.get("reason") if isinstance(parent_reason, dict) else None
+                if _is_hard_split(parent_reason):
+                    identity_jump = True
+                    source_info = {
+                        "reason": parent_reason_val,
+                        "split_frame": parent_reason.get("frame_idx") if isinstance(parent_reason, dict) else None,
+                        "source_fragment_id": parent_id,
+                    }
+                    print(f"[IDENTITY_JUMP_MARK] Fragment {fragment_id}: parent={parent_id}, parent reason={parent_reason_val}")
+            else:
+                # Parent not found - but check if this fragment itself is a _split
+                # This happens when parent got dropped due to being too short
+                if "_split" in fragment_id and parent_id and "frag_" in parent_id:
+                    # Only mark if this fragment itself has a hard split reason
+                    if _is_hard_split(fragment.get("split_reason")):
+                        identity_jump = True
+                        self_reason = fragment.get("split_reason")
+                        self_reason_val = self_reason.get("reason") if isinstance(self_reason, dict) else None
+                        source_info = {
+                            "reason": self_reason_val,
+                            "split_frame": self_reason.get("frame_idx") if isinstance(self_reason, dict) else None,
+                            "source_fragment_id": parent_id,
+                        }
+                        print(
+                            f"[IDENTITY_JUMP_MARK] Fragment {fragment_id}: orphaned after-split, parent={parent_id} not found, marking identity_jump"
+                        )
+
+        fragment["identity_jump"] = identity_jump
+        fragment["identity_jump_source_reason"] = source_info.get("reason") if source_info else None
+        fragment["identity_jump_source_frame"] = source_info.get("split_frame") if source_info else None
+        fragment["identity_jump_source_fragment"] = source_info.get("source_fragment_id") if source_info else None
+
+    return fragment_lookup
+
+
+def _apply_identity_jump_locks(
+    fragments: list[dict],
+    assignments: dict[str, dict[str, Any]],
+    fragment_lookup: dict[str, dict]
+) -> dict[str, dict[str, Any]]:
+    """
+    Enforce identity-jump constraints: jersey can only come from parent fragment.
+
+    If parent jersey is unavailable or conflicts, mark as unknown.
+    """
+    # Build fragment metadata lookup (fragment_id -> {start_frame, end_frame, team})
+    fragment_metadata = {}
+    for fragment in fragments:
+        fragment_id = fragment.get("fragment_id")
+        fragment_metadata[fragment_id] = {
+            "start_frame": fragment.get("start_frame"),
+            "end_frame": fragment.get("end_frame"),
+            "team": fragment.get("team", "unknown"),
+        }
+
+    def _has_temporal_conflict(jersey_number: int, target_fragment_id: str) -> bool:
+        target_meta = fragment_metadata.get(target_fragment_id)
+        if not target_meta:
+            return False
+
+        target_start = target_meta["start_frame"]
+        target_end = target_meta["end_frame"]
+        target_team = target_meta.get("team", "unknown")
+
+        for frag_id, assignment in assignments.items():
+            if frag_id == target_fragment_id:
+                continue
+            assigned_jersey = assignment.get("jersey_number")
+            if assigned_jersey != jersey_number:
+                continue
+
+            other_meta = fragment_metadata.get(frag_id)
+            if not other_meta:
+                continue
+
+            other_team = other_meta.get("team", "unknown")
+            if (
+                target_team in ("team_a", "team_b")
+                and other_team in ("team_a", "team_b")
+                and target_team != other_team
+            ):
+                continue
+
+            other_start = other_meta["start_frame"]
+            other_end = other_meta["end_frame"]
+            if target_start <= other_end and target_end >= other_start:
+                return True
+
+        return False
+
+    for fragment in fragments:
+        if not fragment.get("identity_jump"):
+            continue
+
+        frag_id = fragment.get("fragment_id")
+        parent_id = fragment.get("parent_fragment_id")
+        parent_assignment = assignments.get(parent_id) if parent_id else None
+
+        if parent_assignment and parent_assignment.get("jersey_number") is not None:
+            parent_jersey = parent_assignment.get("jersey_number")
+            if not _has_temporal_conflict(parent_jersey, frag_id):
+                assignments[frag_id] = {
+                    "jersey_number": parent_jersey,
+                    "confidence": parent_assignment.get("confidence", 0.0),
+                    "reason": f"identity_jump_parent_lock ({parent_id})",
+                }
+                continue
+
+        assignments[frag_id] = {
+            "jersey_number": None,
+            "confidence": 0.0,
+            "reason": "identity_jump_unknown",
+        }
+
+    return assignments
+
+
+def _repair_short_transition_bridges(
+    fragments: list[dict],
+    assignments: dict[str, dict[str, Any]],
+    max_bridge_frames: int = 120,
+) -> None:
+    """
+    Forward-correct short transition fragments from the immediate successor in the same track.
+
+    Purpose:
+    - Reduce delayed team correction after overlap/crossing splits.
+    - Prevent brief jersey disappearance when the next stable fragment has strong identity.
+
+    Rules:
+    - Candidate must be identity_jump or continuity_locked.
+    - Candidate duration <= max_bridge_frames.
+    - Next fragment must be contiguous and have strong team source (kmeans*).
+    - Team is forwarded when candidate team differs from next team.
+    - Jersey is forwarded only if next has jersey and no temporal conflict.
+    """
+    fragment_lookup = {
+        f.get("fragment_id"): f for f in fragments if f.get("fragment_id")
+    }
+
+    fragments_by_track: dict[str, list[dict]] = {}
+    for fragment in fragments:
+        track_id = fragment.get("original_track_id")
+        if track_id is None:
+            continue
+        fragments_by_track.setdefault(str(track_id), []).append(fragment)
+
+    for track_frags in fragments_by_track.values():
+        track_frags.sort(key=lambda f: f.get("start_frame", -1))
+
+    def _has_jersey_conflict(target_fragment_id: str, jersey_number: int | None) -> bool:
+        if jersey_number is None:
+            return False
+
+        target_fragment = fragment_lookup.get(target_fragment_id)
+        if not target_fragment:
+            return False
+
+        target_start = target_fragment.get("start_frame")
+        target_end = target_fragment.get("end_frame")
+        target_team = target_fragment.get("team", "unknown")
+        if target_start is None or target_end is None:
+            return False
+
+        for other_fragment in fragments:
+            other_id = other_fragment.get("fragment_id")
+            if not other_id or other_id == target_fragment_id:
+                continue
+
+            other_assignment = assignments.get(other_id, {})
+            if other_assignment.get("jersey_number") != jersey_number:
+                continue
+
+            other_team = other_fragment.get("team", "unknown")
+            if (
+                target_team in ("team_a", "team_b")
+                and other_team in ("team_a", "team_b")
+                and target_team != other_team
+            ):
+                continue
+
+            other_start = other_fragment.get("start_frame")
+            other_end = other_fragment.get("end_frame")
+            if other_start is None or other_end is None:
+                continue
+
+            if target_start <= other_end and target_end >= other_start:
+                return True
+
+        return False
+
+    for track_id, track_frags in fragments_by_track.items():
+        for idx in range(len(track_frags) - 1):
+            current = track_frags[idx]
+            nxt = track_frags[idx + 1]
+
+            current_id = current.get("fragment_id")
+            next_id = nxt.get("fragment_id")
+            if not current_id or not next_id:
+                continue
+
+            current_start = current.get("start_frame")
+            current_end = current.get("end_frame")
+            next_start = nxt.get("start_frame")
+            if current_start is None or current_end is None or next_start is None:
+                continue
+
+            duration = int(current_end - current_start + 1)
+            if duration > max_bridge_frames:
+                continue
+
+            if not (current.get("identity_jump") or current.get("continuity_locked")):
+                continue
+
+            if next_start > current_end + 2:
+                continue
+
+            next_source = str(nxt.get("label_source") or "")
+            if "kmeans" not in next_source:
+                continue
+
+            current_team = current.get("team")
+            next_team = nxt.get("team")
+
+            # Guard: for continuity-locked fragments, do not override with next-team bridge
+            # if immediate predecessor provides a stronger same-track anchor (especially jersey anchor).
+            if idx > 0 and current.get("continuity_locked"):
+                prev = track_frags[idx - 1]
+                prev_id = prev.get("fragment_id")
+                prev_team = prev.get("team")
+                prev_end = prev.get("end_frame")
+                current_start_for_gap = current.get("start_frame")
+                prev_assignment = assignments.get(prev_id, {}) if prev_id else {}
+                prev_jersey = prev_assignment.get("jersey_number")
+                near_prev = (
+                    prev_end is not None
+                    and current_start_for_gap is not None
+                    and current_start_for_gap - prev_end <= 2
+                )
+                predecessor_is_anchor = (
+                    near_prev
+                    and prev_jersey is not None
+                    and prev_team in ("team_a", "team_b")
+                    and next_team in ("team_a", "team_b")
+                    and prev_team != next_team
+                )
+                if predecessor_is_anchor:
+                    print(
+                        f"[BRIDGE_REPAIR] SKIP team flip for {current_id}: "
+                        f"preserving predecessor anchor {prev_id} ({prev_team}, #{prev_jersey})"
+                    )
+                    next_team = current_team
+
+            if next_team in ("team_a", "team_b") and current_team != next_team:
+                current["team"] = next_team
+                current["team_locked"] = next_team
+                current["team_confidence"] = "bridge_forward"
+                current["label_source"] = f"bridge_from_{next_id}"
+                print(
+                    f"[BRIDGE_REPAIR] Team {current_id}: {current_team} -> {next_team} "
+                    f"(next={next_id}, duration={duration})"
+                )
+
+            current_assignment = assignments.get(current_id, {})
+            next_assignment = assignments.get(next_id, {})
+            current_jersey = current_assignment.get("jersey_number")
+            next_jersey = next_assignment.get("jersey_number")
+
+            if current_jersey is None and next_jersey is not None:
+                if not _has_jersey_conflict(current_id, next_jersey):
+                    assignments[current_id] = {
+                        "jersey_number": next_jersey,
+                        "confidence": next_assignment.get("confidence", 0.0),
+                        "reason": f"bridge_forward_from_{next_id}",
+                    }
+                    print(
+                        f"[BRIDGE_REPAIR] Jersey {current_id}: None -> #{next_jersey} "
+                        f"(next={next_id}, duration={duration})"
+                    )
+
+    # Temporal sandwich smoothing: prev and next agree, short middle KMeans segment disagrees.
+    for track_id, track_frags in fragments_by_track.items():
+        for idx in range(1, len(track_frags) - 1):
+            prev_frag = track_frags[idx - 1]
+            mid_frag = track_frags[idx]
+            next_frag = track_frags[idx + 1]
+
+            mid_id = mid_frag.get("fragment_id")
+            if not mid_id:
+                continue
+
+            mid_start = mid_frag.get("start_frame")
+            mid_end = mid_frag.get("end_frame")
+            if mid_start is None or mid_end is None:
+                continue
+
+            mid_duration = int(mid_end - mid_start + 1)
+            if mid_duration > max_bridge_frames:
+                continue
+
+            prev_team = prev_frag.get("team")
+            mid_team = mid_frag.get("team")
+            next_team = next_frag.get("team")
+            if prev_team not in ("team_a", "team_b") or next_team not in ("team_a", "team_b"):
+                continue
+            if prev_team != next_team:
+                continue
+            if mid_team == prev_team:
+                continue
+
+            mid_source = str(mid_frag.get("label_source") or "")
+            if "kmeans" not in mid_source:
+                continue
+
+            prev_end = prev_frag.get("end_frame")
+            next_start = next_frag.get("start_frame")
+            if prev_end is None or next_start is None:
+                continue
+            if mid_start > prev_end + 3 or next_start > mid_end + 3:
+                continue
+
+            old_team = mid_team
+            mid_frag["team"] = prev_team
+            mid_frag["team_locked"] = prev_team
+            mid_frag["team_confidence"] = "bridge_sandwich"
+            mid_frag["label_source"] = f"sandwich_{prev_frag.get('fragment_id')}_{next_frag.get('fragment_id')}"
+            print(
+                f"[BRIDGE_REPAIR] Sandwich team {mid_id}: {old_team} -> {prev_team} "
+                f"(prev={prev_frag.get('fragment_id')}, next={next_frag.get('fragment_id')}, duration={mid_duration})"
+            )
+
+
+def _suppress_unanchored_continuity_jerseys(
+    fragments: list[dict],
+    assignments: dict[str, dict[str, Any]],
+) -> None:
+    """
+    Remove jerseys assigned to continuity-locked fragments when no same-team anchor exists.
+
+    This prevents short-lived jersey theft after crossings where a continuity fragment
+    gets weak jersey evidence but the track lineage does not carry that jersey.
+    """
+    fragments_by_track: dict[str, list[dict]] = {}
+    for fragment in fragments:
+        track_id = fragment.get("original_track_id")
+        if track_id is None:
+            continue
+        fragments_by_track.setdefault(str(track_id), []).append(fragment)
+
+    for track_frags in fragments_by_track.values():
+        track_frags.sort(key=lambda f: f.get("start_frame", -1))
+
+    for track_id, track_frags in fragments_by_track.items():
+        for idx, fragment in enumerate(track_frags):
+            if not fragment.get("continuity_locked"):
+                continue
+
+            frag_id = fragment.get("fragment_id")
+            if not frag_id:
+                continue
+
+            assignment = assignments.get(frag_id, {})
+            jersey_num = assignment.get("jersey_number")
+            if jersey_num is None:
+                continue
+
+            reason = str(assignment.get("reason", ""))
+            if "assigned (" not in reason and "inherited_" not in reason:
+                continue
+
+            current_team = fragment.get("team")
+            has_anchor = False
+
+            for prev in reversed(track_frags[:idx]):
+                prev_team = prev.get("team")
+                if (
+                    current_team in ("team_a", "team_b")
+                    and prev_team in ("team_a", "team_b")
+                    and current_team != prev_team
+                ):
+                    continue
+
+                prev_id = prev.get("fragment_id")
+                if not prev_id:
+                    continue
+
+                prev_assignment = assignments.get(prev_id, {})
+                if prev_assignment.get("jersey_number") == jersey_num:
+                    has_anchor = True
+                    break
+
+                if prev_assignment.get("jersey_number") is not None:
+                    break
+
+            if has_anchor:
+                continue
+
+            assignments[frag_id] = {
+                "jersey_number": None,
+                "confidence": 0.0,
+                "reason": "continuity_unanchored_jersey_suppressed",
+            }
+            print(
+                f"[JERSEY_SUPPRESS] {frag_id}: removed #{jersey_num} "
+                f"(continuity without same-team anchor)"
+            )
+
+
+def _stabilize_short_gap_jerseys(
+    fragments: list[dict],
+    assignments: dict[str, dict[str, Any]],
+    max_gap_fragment_frames: int = 45,
+    max_anchor_gap_frames: int = 20,
+) -> None:
+    """
+    Backfill short identity-jump/continuity gaps with same-track anchored jersey.
+
+    If a short gap fragment sits between same-team anchored jersey ownership on the
+    same track, keep jersey continuity to avoid brief disappearances.
+    """
+    fragments_by_track: dict[str, list[dict]] = {}
+    fragment_lookup: dict[str, dict] = {}
+    for fragment in fragments:
+        fragment_id = fragment.get("fragment_id")
+        if fragment_id:
+            fragment_lookup[fragment_id] = fragment
+        track_id = fragment.get("original_track_id")
+        if track_id is None:
+            continue
+        fragments_by_track.setdefault(str(track_id), []).append(fragment)
+
+    for track_frags in fragments_by_track.values():
+        track_frags.sort(key=lambda f: f.get("start_frame", -1))
+
+    def _duration(fragment_obj: dict) -> int:
+        start = fragment_obj.get("start_frame")
+        end = fragment_obj.get("end_frame")
+        if start is None or end is None:
+            return 0
+        return int(end - start + 1)
+
+    def _same_team(team_a: Any, team_b: Any) -> bool:
+        if team_a in ("team_a", "team_b") and team_b in ("team_a", "team_b"):
+            return team_a == team_b
+        return True
+
+    changed = True
+    while changed:
+        changed = False
+        for track_id, track_frags in fragments_by_track.items():
+            for idx, fragment in enumerate(track_frags):
+                if not (fragment.get("identity_jump") or fragment.get("continuity_locked")):
+                    continue
+
+                if _duration(fragment) > max_gap_fragment_frames:
+                    continue
+
+                frag_id = fragment.get("fragment_id")
+                if not frag_id:
+                    continue
+
+                curr_assignment = assignments.get(frag_id, {})
+                if curr_assignment.get("jersey_number") is not None:
+                    continue
+
+                curr_team = fragment.get("team")
+
+                prev_jersey = None
+                prev_id = None
+                for prev in reversed(track_frags[:idx]):
+                    if not _same_team(curr_team, prev.get("team")):
+                        continue
+                    prev_id = prev.get("fragment_id")
+                    if not prev_id:
+                        continue
+                    prev_end = prev.get("end_frame")
+                    curr_start = fragment.get("start_frame")
+                    if prev_end is None or curr_start is None:
+                        continue
+                    anchor_gap = int(curr_start - prev_end - 1)
+                    if anchor_gap > max_anchor_gap_frames:
+                        break
+                    prev_assignment = assignments.get(prev_id, {})
+                    prev_jersey = prev_assignment.get("jersey_number")
+                    if prev_jersey is not None:
+                        break
+
+                next_jersey = None
+                next_id = None
+                for nxt in track_frags[idx + 1:]:
+                    if not _same_team(curr_team, nxt.get("team")):
+                        continue
+                    next_id = nxt.get("fragment_id")
+                    if not next_id:
+                        continue
+                    next_start = nxt.get("start_frame")
+                    curr_end = fragment.get("end_frame")
+                    if next_start is None or curr_end is None:
+                        continue
+                    anchor_gap = int(next_start - curr_end - 1)
+                    if anchor_gap > max_anchor_gap_frames:
+                        break
+                    next_assignment = assignments.get(next_id, {})
+                    next_jersey = next_assignment.get("jersey_number")
+                    if next_jersey is not None:
+                        break
+
+                chosen_jersey = None
+                source_id = None
+                if prev_jersey is not None and next_jersey is not None and prev_jersey == next_jersey:
+                    chosen_jersey = prev_jersey
+                    source_id = prev_id
+                elif prev_jersey is not None:
+                    chosen_jersey = prev_jersey
+                    source_id = prev_id
+                elif next_jersey is not None:
+                    chosen_jersey = next_jersey
+                    source_id = next_id
+
+                if chosen_jersey is None:
+                    continue
+
+                temp_assignment = {
+                    "jersey_number": chosen_jersey,
+                    "confidence": assignments.get(source_id, {}).get("confidence", 0.0),
+                    "reason": f"short_gap_stabilized_from_{source_id}",
+                }
+
+                # Team-aware conflict check against existing assignments
+                curr_start = fragment.get("start_frame")
+                curr_end = fragment.get("end_frame")
+                if curr_start is None or curr_end is None:
+                    continue
+
+                conflict = False
+                for other_id, other_assignment in assignments.items():
+                    if other_id == frag_id:
+                        continue
+                    if other_assignment.get("jersey_number") != chosen_jersey:
+                        continue
+                    other_fragment = fragment_lookup.get(other_id)
+                    if not other_fragment:
+                        continue
+                    if not _same_team(curr_team, other_fragment.get("team")):
+                        continue
+                    other_start = other_fragment.get("start_frame")
+                    other_end = other_fragment.get("end_frame")
+                    if other_start is None or other_end is None:
+                        continue
+                    if curr_start <= other_end and curr_end >= other_start:
+                        conflict = True
+                        break
+
+                if conflict:
+                    continue
+
+                assignments[frag_id] = temp_assignment
+                changed = True
+                print(
+                    f"[JERSEY_STABILIZE] {frag_id}: None -> #{chosen_jersey} "
+                    f"(source={source_id})"
+                )
+
+
+def _apply_fragment_color_team_corrections(
+    fragments: list[dict],
+    min_duration_frames: int = 20,
+    min_margin: float = 0.35,
+    min_ratio: float = 1.12,
+) -> int:
+    """
+    Correct non-KMeans team labels when fragment mean color strongly supports opposite team.
+
+    Uses team centroids built from KMeans-labeled fragments and applies conservative
+    overrides only to non-kmeans labels (continuity/parent/bridge/sandwich).
+    """
+    team_hist = {"team_a": [], "team_b": []}
+
+    fragments_by_track: dict[str, list[dict]] = {}
+    fragment_pos: dict[str, tuple[list[dict], int]] = {}
+    for fragment in fragments:
+        track_id = fragment.get("original_track_id")
+        if track_id is None:
+            continue
+        fragments_by_track.setdefault(str(track_id), []).append(fragment)
+
+    for track_frags in fragments_by_track.values():
+        track_frags.sort(key=lambda f: f.get("start_frame", -1))
+        for idx, frag in enumerate(track_frags):
+            frag_id = frag.get("fragment_id")
+            if frag_id:
+                fragment_pos[frag_id] = (track_frags, idx)
+
+    for fragment in fragments:
+        team = fragment.get("team")
+        source = str(fragment.get("label_source") or "")
+        hist = fragment.get("mean_hsv_histogram")
+        if team not in ("team_a", "team_b"):
+            continue
+        if "kmeans" not in source:
+            continue
+        if not hist or len(hist) != 96:
+            continue
+        team_hist[team].append(np.array(hist, dtype=np.float32))
+
+    if not team_hist["team_a"] or not team_hist["team_b"]:
+        return 0
+
+    centroid_a = np.mean(np.stack(team_hist["team_a"], axis=0), axis=0)
+    centroid_b = np.mean(np.stack(team_hist["team_b"], axis=0), axis=0)
+
+    corrected = 0
+    for fragment in fragments:
+        team = fragment.get("team")
+        if team not in ("team_a", "team_b"):
+            continue
+
+        source = str(fragment.get("label_source") or "")
+        if "kmeans" in source:
+            continue
+
+        hist = fragment.get("mean_hsv_histogram")
+        if not hist or len(hist) != 96:
+            continue
+
+        start_frame = fragment.get("start_frame")
+        end_frame = fragment.get("end_frame")
+        if start_frame is None or end_frame is None:
+            continue
+        duration = int(end_frame - start_frame + 1)
+        if duration < min_duration_frames:
+            continue
+
+        vector = np.array(hist, dtype=np.float32)
+        dist_a = float(np.linalg.norm(vector - centroid_a))
+        dist_b = float(np.linalg.norm(vector - centroid_b))
+
+        assigned_dist = dist_a if team == "team_a" else dist_b
+        opposite_team = "team_b" if team == "team_a" else "team_a"
+        opposite_dist = dist_b if team == "team_a" else dist_a
+
+        frag_id = fragment.get("fragment_id")
+        pos_info = fragment_pos.get(frag_id)
+        if pos_info:
+            track_frags, idx = pos_info
+            prev_team = track_frags[idx - 1].get("team") if idx > 0 else None
+            next_team = track_frags[idx + 1].get("team") if idx + 1 < len(track_frags) else None
+            opposite_supported = prev_team == opposite_team or next_team == opposite_team
+            current_supported = prev_team == team and next_team == team
+            if current_supported:
+                continue
+
+            source_lower = source.lower()
+            if "continuity_window" in source_lower and not opposite_supported:
+                continue
+
+        if assigned_dist <= opposite_dist * min_ratio:
+            continue
+        if (assigned_dist - opposite_dist) < min_margin:
+            continue
+
+        old_team = team
+        fragment["team"] = opposite_team
+        fragment["team_locked"] = opposite_team
+        fragment["team_confidence"] = "color_corrected"
+        fragment["label_source"] = f"{source}_color_corrected" if source else "color_corrected"
+        corrected += 1
+        print(
+            f"[COLOR_TEAM_CORRECT] {fragment.get('fragment_id')}: {old_team} -> {opposite_team} "
+            f"(dist_a={dist_a:.3f}, dist_b={dist_b:.3f}, duration={duration}, source={source})"
+        )
+
+    return corrected
+
+
+def _stitch_anchor_identity_gaps(
+    fragments: list[dict],
+    assignments: dict[str, dict[str, Any]],
+    max_gap_frames: int = 140,
+    max_mid_fragments: int = 4,
+) -> None:
+    """
+    Stitch identity through short/medium gaps bounded by same-track anchor fragments.
+
+    If both sides of a gap on the same track agree on team and jersey number,
+    propagate that identity to middle fragments to avoid long wrong-team linger
+    and jersey disappearance after crossings.
+    """
+    fragments_by_track: dict[str, list[dict]] = {}
+    fragment_lookup: dict[str, dict] = {}
+
+    for fragment in fragments:
+        frag_id = fragment.get("fragment_id")
+        if frag_id:
+            fragment_lookup[frag_id] = fragment
+        track_id = fragment.get("original_track_id")
+        if track_id is None:
+            continue
+        fragments_by_track.setdefault(str(track_id), []).append(fragment)
+
+    for track_frags in fragments_by_track.values():
+        track_frags.sort(key=lambda f: f.get("start_frame", -1))
+
+    def _same_known_team(team_a: Any, team_b: Any) -> bool:
+        return team_a in ("team_a", "team_b") and team_b in ("team_a", "team_b") and team_a == team_b
+
+    def _has_same_team_conflict(target_fragment: dict, jersey_number: int) -> bool:
+        target_id = target_fragment.get("fragment_id")
+        target_team = target_fragment.get("team")
+        target_start = target_fragment.get("start_frame")
+        target_end = target_fragment.get("end_frame")
+        if not target_id or target_start is None or target_end is None:
+            return True
+
+        for other_id, other_assignment in assignments.items():
+            if other_id == target_id:
+                continue
+            if other_assignment.get("jersey_number") != jersey_number:
+                continue
+
+            other_fragment = fragment_lookup.get(other_id)
+            if not other_fragment:
+                continue
+
+            other_team = other_fragment.get("team")
+            if not _same_known_team(target_team, other_team):
+                continue
+
+            other_start = other_fragment.get("start_frame")
+            other_end = other_fragment.get("end_frame")
+            if other_start is None or other_end is None:
+                continue
+
+            if target_start <= other_end and target_end >= other_start:
+                return True
+
+        return False
+
+    for track_id, track_frags in fragments_by_track.items():
+        n = len(track_frags)
+        for left_idx in range(n - 2):
+            left = track_frags[left_idx]
+            left_id = left.get("fragment_id")
+            if not left_id:
+                continue
+
+            left_assignment = assignments.get(left_id, {})
+            left_jersey = left_assignment.get("jersey_number")
+            left_team = left.get("team")
+            left_end = left.get("end_frame")
+            if left_jersey is None or left_end is None or left_team not in ("team_a", "team_b"):
+                continue
+
+            for right_idx in range(left_idx + 2, min(n, left_idx + 2 + max_mid_fragments)):
+                right = track_frags[right_idx]
+                right_id = right.get("fragment_id")
+                if not right_id:
+                    continue
+
+                right_assignment = assignments.get(right_id, {})
+                right_jersey = right_assignment.get("jersey_number")
+                right_team = right.get("team")
+                right_start = right.get("start_frame")
+                if right_jersey is None or right_start is None:
+                    continue
+
+                if right_jersey != left_jersey:
+                    continue
+                if not _same_known_team(left_team, right_team):
+                    continue
+
+                gap_frames = int(right_start - left_end - 1)
+                if gap_frames < 0 or gap_frames > max_gap_frames:
+                    continue
+
+                mids = track_frags[left_idx + 1:right_idx]
+                if not mids:
+                    continue
+
+                changed_any = False
+                for mid in mids:
+                    mid_id = mid.get("fragment_id")
+                    if not mid_id:
+                        continue
+
+                    if mid.get("team") != left_team:
+                        old_team = mid.get("team")
+                        mid["team"] = left_team
+                        mid["team_locked"] = left_team
+                        mid["team_confidence"] = "anchor_gap"
+                        mid["label_source"] = f"anchor_gap_{left_id}_{right_id}"
+                        changed_any = True
+                        print(
+                            f"[ANCHOR_GAP] Team {mid_id}: {old_team} -> {left_team} "
+                            f"(anchors {left_id}/{right_id}, jersey #{left_jersey})"
+                        )
+
+                    mid_assignment = assignments.get(mid_id, {})
+                    if mid_assignment.get("jersey_number") is None and not _has_same_team_conflict(mid, left_jersey):
+                        assignments[mid_id] = {
+                            "jersey_number": left_jersey,
+                            "confidence": max(
+                                float(left_assignment.get("confidence", 0.0)),
+                                float(right_assignment.get("confidence", 0.0)),
+                            ),
+                            "reason": f"anchor_gap_stitch_{left_id}_{right_id}",
+                        }
+                        changed_any = True
+                        print(
+                            f"[ANCHOR_GAP] Jersey {mid_id}: None -> #{left_jersey} "
+                            f"(anchors {left_id}/{right_id})"
+                        )
+
+                if changed_any:
+                    break
+
+
 def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir: Path):
     with open(pass2_file, "r", encoding="utf-8") as f:
         pass2_data = json.load(f)
@@ -128,6 +1200,9 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
         print(f"  No fragments found")
         return
 
+    # Mark identity-jump fragments and build lookup for parent mapping
+    fragment_lookup = _mark_identity_jumps(fragments)
+
     team_cfg = config.get("team_clustering", {})
     jersey_cfg = config.get("jersey", {})
     n_clusters = team_cfg.get("n_clusters", 2)
@@ -135,6 +1210,9 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
     jersey_min_detections = jersey_cfg.get("min_detections", 3)
     jersey_min_coverage = jersey_cfg.get("min_coverage_pct", 0.15)
     jersey_frame_stride = max(1, int(jersey_cfg.get("frame_stride", 1)))
+
+    for fragment in fragments:
+        fragment["continuity_locked"] = False
 
     fragment_histograms = []
     valid_fragment_indices = []
@@ -145,32 +1223,75 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
             valid_fragment_indices.append(i)
 
     if len(fragment_histograms) < n_clusters:
-        print(f"  Not enough valid fragments")
-        return
+        print(f"  Not enough valid fragments for K-Means")
+        for fragment in fragments:
+            fragment["team"] = "unknown"
+            fragment["team_confidence"] = "unknown"
+            fragment["label_source"] = "insufficient_kmeans_input"
+        # Continue with jersey logic even if team is unknown
+        n_clusters = 0
 
-    X = np.array(fragment_histograms, dtype=np.float32)
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-    cluster_labels = kmeans.fit_predict(X)
+    if n_clusters > 0:
+        X = np.array(fragment_histograms, dtype=np.float32)
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+        cluster_labels = kmeans.fit_predict(X)
 
-    cluster_variances = []
-    for cluster_id in range(n_clusters):
-        cluster_mask = cluster_labels == cluster_id
-        cluster_hist = X[cluster_mask]
-        if len(cluster_hist) > 0:
-            variance = np.var(cluster_hist, axis=0).mean()
-            cluster_variances.append((cluster_id, variance))
+        cluster_variances = []
+        for cluster_id in range(n_clusters):
+            cluster_mask = cluster_labels == cluster_id
+            cluster_hist = X[cluster_mask]
+            if len(cluster_hist) > 0:
+                variance = np.var(cluster_hist, axis=0).mean()
+                cluster_variances.append((cluster_id, variance))
 
-    cluster_variances.sort(key=lambda x: x[1])
-    bibbed_cluster_id = cluster_variances[0][0]
+        cluster_variances.sort(key=lambda x: x[1])
+        bibbed_cluster_id = cluster_variances[0][0]
 
-    print(f"  K-Means: {len(fragments)} fragments to 2 teams")
-    print(f"  TEAM_A (bibbed): cluster {bibbed_cluster_id}")
+        print(f"  K-Means: {len(fragments)} fragments to 2 teams")
+        print(f"  TEAM_A (bibbed): cluster {bibbed_cluster_id}")
 
-    for i, cluster_id in zip(valid_fragment_indices, cluster_labels):
-        if cluster_id == bibbed_cluster_id:
-            fragments[i]["team"] = "team_a"
-        else:
-            fragments[i]["team"] = "team_b"
+        for i, cluster_id in zip(valid_fragment_indices, cluster_labels):
+            if cluster_id == bibbed_cluster_id:
+                fragments[i]["team"] = "team_a"
+            else:
+                fragments[i]["team"] = "team_b"
+            fragments[i]["team_confidence"] = "kmeans"
+            fragments[i]["label_source"] = "kmeans"
+
+    # ========================================================================
+    # LOCK TEAM ASSIGNMENTS
+    # ========================================================================
+    # Explicit lock: from this point, frag.team is READ-ONLY
+    # All new logic must respect this invariant
+    # ========================================================================
+    for fragment in fragments:
+        fragment["team_locked"] = fragment.get("team")
+
+    # ========================================================================
+    # INTRA-TEAM APPEARANCE SUB-CLUSTERING (metadata-only enrichment)
+    # ========================================================================
+    # Detect multi-appearance teams and compute appearance modes
+    # CRITICAL: This is metadata-only. No feedback to team assignment, size constraints,
+    # or divergence logic. Appearance modes are informational only.
+    # ========================================================================
+    print(f"\n  Computing intra-team appearance variance...")
+    team_variances = _calculate_team_variances(fragments)
+    print(f"    Team A variance: {team_variances['team_a']:.3f}")
+    print(f"    Team B variance: {team_variances['team_b']:.3f}")
+
+    appearance_variance_ratio_threshold = team_cfg.get("appearance_variance_ratio_threshold", 1.5)
+    multi_appearance_teams = _detect_multi_appearance_teams(team_variances, appearance_variance_ratio_threshold)
+
+    if multi_appearance_teams:
+        print(f"  Sub-clustering multi-appearance teams: {multi_appearance_teams}")
+        max_appearance_modes = team_cfg.get("max_appearance_modes", 3)
+        for team_id in multi_appearance_teams:
+            _subcluster_appearance_modes(fragments, team_id, max_modes=max_appearance_modes)
+            # Count assignments
+            assigned = sum(1 for f in fragments if f.get("team") == team_id and "appearance_mode_id" in f)
+            print(f"    {team_id.upper()}: {assigned} fragments assigned appearance modes")
+    else:
+        print(f"  [OK] All teams are single-appearance (bibbed/uniform)")
 
     # ========================================================================
     # VALIDATE TEAM SIZE CONSTRAINT (SAFETY NET)
@@ -190,20 +1311,52 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
         frame_stride=jersey_frame_stride,
     )
 
-    # ========================================================================
-    # JERSEY INHERITANCE (TRACK CONTINUITY)
-    # ========================================================================
-    # A jersey number can't just disappear! If a track loses its jersey but
-    # reappears later (same track_id), inherit the jersey from the previous fragment.
-    # This handles brief occlusions/gaps where tracking is lost and re-acquired.
-    # ========================================================================
-    print(f"\n  Applying jersey inheritance (track continuity)...")
-    jersey_assignments_detailed = _apply_jersey_inheritance(
-        fragments, jersey_assignments_detailed
-    )
+    team_snapshot = {
+        fragment.get("fragment_id"): (
+            fragment.get("team"),
+            fragment.get("team_confidence"),
+            fragment.get("label_source"),
+        )
+        for fragment in fragments
+        if fragment.get("fragment_id")
+    }
+    jersey_snapshot = {
+        fragment_id: (
+            assignment.get("jersey_number"),
+            assignment.get("confidence"),
+            assignment.get("reason"),
+        )
+        for fragment_id, assignment in jersey_assignments_detailed.items()
+    }
 
     # Display assignment summary with statistics
     _print_assignment_summary(fragments, jersey_assignments_detailed)
+
+    for fragment in fragments:
+        fragment_id = fragment.get("fragment_id")
+        if not fragment_id:
+            continue
+        current_team_tuple = (
+            fragment.get("team"),
+            fragment.get("team_confidence"),
+            fragment.get("label_source"),
+        )
+        if team_snapshot.get(fragment_id) != current_team_tuple:
+            raise AssertionError(
+                f"Pass3 fragment purity violation: team mutated for {fragment_id} "
+                f"from {team_snapshot.get(fragment_id)} to {current_team_tuple}"
+            )
+
+    current_jersey_snapshot = {
+        fragment_id: (
+            assignment.get("jersey_number"),
+            assignment.get("confidence"),
+            assignment.get("reason"),
+        )
+        for fragment_id, assignment in jersey_assignments_detailed.items()
+    }
+    if jersey_snapshot != current_jersey_snapshot:
+        raise AssertionError("Pass3 fragment purity violation: jersey assignments mutated post-inference")
 
     identities = []
     for fragment in fragments:
@@ -235,6 +1388,13 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
             "assignment_reason": reason,  # Add reason for explainability
             "start_frame": fragment.get("start_frame"),
             "end_frame": fragment.get("end_frame"),
+            "identity_jump": fragment.get("identity_jump", False),
+            "continuity_locked": fragment.get("continuity_locked", False),
+            "team_confidence": fragment.get("team_confidence"),
+            "label_source": fragment.get("label_source"),
+            # Appearance mode (metadata-only, for debugging/visualization)
+            "appearance_mode_id": fragment.get("appearance_mode_id"),
+            "appearance_mode_confidence": fragment.get("appearance_mode_confidence"),
         }
         identities.append(identity)
 
@@ -245,6 +1405,13 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
             "team_a_count": len([i for i in identities if i["team"] == "team_a"]),
             "team_b_count": len([i for i in identities if i["team"] == "team_b"]),
             "team_a_jerseys": list(set(i["jersey_number"] for i in identities if i["jersey_number"] is not None)),
+        },
+        # Appearance mode metadata (for debugging/visualization)
+        "appearance_analysis": {
+            "team_a_variance": team_variances.get("team_a", 0.0),
+            "team_b_variance": team_variances.get("team_b", 0.0),
+            "variance_ratio_threshold": appearance_variance_ratio_threshold,
+            "multi_appearance_teams": list(multi_appearance_teams),
         }
     }
 
@@ -289,9 +1456,10 @@ def _infer_jersey_numbers_detailed(
     frame_stride: int = 1,
 ) -> dict[str, dict[str, Any]]:
     """
-    Assign jersey numbers to fragments with strict single-owner enforcement.
+    Assign jersey numbers to fragments with team-scoped single-owner enforcement.
 
-    Core Invariant: At any frame, a jersey number can belong to AT MOST ONE fragment.
+    Core Invariant: At any frame, a jersey number can belong to AT MOST ONE fragment
+    per team. (Same jersey number on opposing teams is allowed.)
 
     Args:
         fragments: List of fragment dicts from Pass 2
@@ -362,8 +1530,8 @@ def _infer_jersey_numbers_detailed(
         return not (f1_meta["end_frame"] < f2_meta["start_frame"] or
                    f2_meta["end_frame"] < f1_meta["start_frame"])
 
-    # Step 3: Build conflict groups (fragments competing for same jersey)
-    # jersey_num -> list of (fragment_id, evidence_score, start_frame, end_frame, jersey_stats)
+    # Step 3: Build conflict groups (fragments competing for same jersey within the same team)
+    # (team, jersey_num) -> list of candidates
     jersey_candidates = {}
 
     for frag_meta in fragment_metadata:
@@ -371,14 +1539,16 @@ def _infer_jersey_numbers_detailed(
         eligible_jerseys = frag_meta["eligible_jerseys"]
 
         for jersey_num, jersey_stats in eligible_jerseys.items():
-            if jersey_num not in jersey_candidates:
-                jersey_candidates[jersey_num] = []
+            jersey_key = (frag_meta["team"], jersey_num)
+            if jersey_key not in jersey_candidates:
+                jersey_candidates[jersey_key] = []
 
-            jersey_candidates[jersey_num].append({
+            jersey_candidates[jersey_key].append({
                 "fragment_id": fragment_id,
                 "evidence_score": jersey_stats["evidence_score"],
                 "start_frame": frag_meta["start_frame"],
                 "end_frame": frag_meta["end_frame"],
+                "team": frag_meta["team"],
                 "jersey_stats": jersey_stats,
             })
 
@@ -388,7 +1558,8 @@ def _infer_jersey_numbers_detailed(
     assignments = {}
     assigned_fragments = set()  # Track which fragments have been assigned
 
-    for jersey_num, candidates in jersey_candidates.items():
+    for jersey_key, candidates in jersey_candidates.items():
+        _, jersey_num = jersey_key
         # Sort candidates by evidence score (descending)
         candidates_sorted = sorted(candidates, key=lambda c: c["evidence_score"], reverse=True)
 
@@ -457,7 +1628,8 @@ def _infer_jersey_numbers_detailed(
 
 def _apply_jersey_inheritance(
     fragments: list[dict[str, Any]],
-    assignments: dict[str, dict[str, Any]]
+    assignments: dict[str, dict[str, Any]],
+    fragment_lookup: dict[str, dict]
 ) -> dict[str, dict[str, Any]]:
     """
     Apply bidirectional jersey inheritance based on track continuity.
@@ -482,13 +1654,14 @@ def _apply_jersey_inheritance(
     Returns:
         Updated assignments with inherited jerseys (bidirectional)
     """
-    # Build fragment metadata lookup (fragment_id -> {start_frame, end_frame})
+    # Build fragment metadata lookup (fragment_id -> {start_frame, end_frame, team})
     fragment_metadata = {}
     for fragment in fragments:
         fragment_id = fragment.get("fragment_id")
         fragment_metadata[fragment_id] = {
             "start_frame": fragment.get("start_frame"),
             "end_frame": fragment.get("end_frame"),
+            "team": fragment.get("team", "unknown"),
         }
 
     # Helper function to check for temporal conflicts
@@ -499,7 +1672,8 @@ def _apply_jersey_inheritance(
         fragment_metadata: dict[str, dict[str, int]]
     ) -> bool:
         """
-        Check if assigning jersey_number to target_fragment_id would create a temporal conflict.
+        Check if assigning jersey_number to target_fragment_id would create a temporal conflict
+        on the same team. Same jersey on opposing teams is allowed.
 
         Returns True if the jersey is already assigned to another fragment at overlapping times.
         """
@@ -509,6 +1683,7 @@ def _apply_jersey_inheritance(
 
         target_start = target_meta["start_frame"]
         target_end = target_meta["end_frame"]
+        target_team = target_meta.get("team", "unknown")
 
         # Check all current assignments
         for frag_id, assignment in current_assignments.items():
@@ -524,6 +1699,14 @@ def _apply_jersey_inheritance(
             if not other_meta:
                 continue  # No metadata, can't check
 
+            other_team = other_meta.get("team", "unknown")
+            if (
+                target_team in ("team_a", "team_b")
+                and other_team in ("team_a", "team_b")
+                and target_team != other_team
+            ):
+                continue  # Opposing team ownership is allowed for same jersey number
+
             other_start = other_meta["start_frame"]
             other_end = other_meta["end_frame"]
 
@@ -534,13 +1717,14 @@ def _apply_jersey_inheritance(
         return False  # No conflict
 
     # Group fragments by original_track_id
-    tracks = {}  # track_id -> list of (fragment_id, start_frame, end_frame, team)
+    tracks = {}  # track_id -> list of fragment metadata
     for fragment in fragments:
         track_id = fragment.get("original_track_id")
         fragment_id = fragment.get("fragment_id")
         start_frame = fragment.get("start_frame")
         end_frame = fragment.get("end_frame")
         team = fragment.get("team", "unknown")
+        split_reason = fragment.get("split_reason")
 
         if track_id not in tracks:
             tracks[track_id] = []
@@ -549,6 +1733,7 @@ def _apply_jersey_inheritance(
             "start_frame": start_frame,
             "end_frame": end_frame,
             "team": team,
+            "split_reason": split_reason,
         })
 
     # Sort each track's fragments by start_frame
@@ -576,6 +1761,11 @@ def _apply_jersey_inheritance(
         for i in range(len(track_fragments) - 1):
             curr_frag = track_fragments[i]
             next_frag = track_fragments[i + 1]
+            next_fragment = fragment_lookup.get(next_frag.get("fragment_id"))
+            if next_fragment and next_fragment.get("identity_jump"):
+                parent_id = next_fragment.get("parent_fragment_id")
+                if parent_id != curr_frag.get("fragment_id"):
+                    continue
 
             # Check if current fragment has a jersey
             curr_assignment = new_assignments.get(curr_frag["fragment_id"], {})
@@ -590,6 +1780,19 @@ def _apply_jersey_inheritance(
 
             if next_jersey is not None:
                 continue  # Next fragment already has a jersey
+
+            curr_team = curr_frag.get("team")
+            next_team = next_frag.get("team")
+            if (
+                curr_team in ("team_a", "team_b")
+                and next_team in ("team_a", "team_b")
+                and curr_team != next_team
+            ):
+                print(
+                    f"    [FORWARD] SKIPPED jersey #{curr_jersey}: {curr_frag['fragment_id']} "
+                    f"(track {track_id}) -> {next_frag['fragment_id']} (team mismatch {curr_team}->{next_team})"
+                )
+                continue
 
             # CRITICAL: Check for temporal conflicts before inheriting
             if _has_temporal_conflict(curr_jersey, next_frag["fragment_id"], new_assignments, fragment_metadata):
@@ -611,6 +1814,11 @@ def _apply_jersey_inheritance(
         for i in range(len(track_fragments) - 1, 0, -1):
             curr_frag = track_fragments[i]
             prev_frag = track_fragments[i - 1]
+            prev_fragment = fragment_lookup.get(prev_frag.get("fragment_id"))
+            if prev_fragment and prev_fragment.get("identity_jump"):
+                parent_id = prev_fragment.get("parent_fragment_id")
+                if parent_id != curr_frag.get("fragment_id"):
+                    continue
 
             # Check if current fragment has a jersey
             curr_assignment = new_assignments.get(curr_frag["fragment_id"], {})
@@ -625,6 +1833,19 @@ def _apply_jersey_inheritance(
 
             if prev_jersey is not None:
                 continue  # Previous fragment already has a jersey
+
+            curr_team = curr_frag.get("team")
+            prev_team = prev_frag.get("team")
+            if (
+                curr_team in ("team_a", "team_b")
+                and prev_team in ("team_a", "team_b")
+                and curr_team != prev_team
+            ):
+                print(
+                    f"    [BACKWARD] SKIPPED jersey #{curr_jersey}: {curr_frag['fragment_id']} "
+                    f"(track {track_id}) -> {prev_frag['fragment_id']} (team mismatch {curr_team}->{prev_team})"
+                )
+                continue
 
             # CRITICAL: Check for temporal conflicts before inheriting
             if _has_temporal_conflict(curr_jersey, prev_frag["fragment_id"], new_assignments, fragment_metadata):
@@ -712,8 +1933,9 @@ def _validate_single_owner_invariant(
     fragment_metadata: list[dict[str, Any]]
 ) -> None:
     """
-    Validate that the single-owner invariant holds:
-    At any frame, a jersey number belongs to at most one fragment.
+    Validate team-scoped single-owner invariant:
+    At any frame, a jersey number belongs to at most one fragment per team.
+    (Opposing teams may share the same jersey number.)
 
     Raises:
         AssertionError: If invariant is violated
@@ -730,12 +1952,20 @@ def _validate_single_owner_invariant(
         jersey_num = assignment["jersey_number"]
         start_frame = frag_meta["start_frame"]
         end_frame = frag_meta["end_frame"]
+        team = frag_meta.get("team", "unknown")
 
         if jersey_num not in jersey_timeline:
             jersey_timeline[jersey_num] = []
 
         # Check for overlaps with existing assignments
-        for existing_start, existing_end, existing_frag in jersey_timeline[jersey_num]:
+        for existing_start, existing_end, existing_frag, existing_team in jersey_timeline[jersey_num]:
+            if (
+                team in ("team_a", "team_b")
+                and existing_team in ("team_a", "team_b")
+                and team != existing_team
+            ):
+                continue  # Opposing teams may share same jersey number
+
             # Check temporal overlap
             if not (end_frame < existing_start or existing_end < start_frame):
                 raise AssertionError(
@@ -744,7 +1974,7 @@ def _validate_single_owner_invariant(
                     f"{existing_frag} [{existing_start}-{existing_end}]"
                 )
 
-        jersey_timeline[jersey_num].append((start_frame, end_frame, fragment_id))
+        jersey_timeline[jersey_num].append((start_frame, end_frame, fragment_id, team))
 
     # If we reach here, invariant holds
     pass

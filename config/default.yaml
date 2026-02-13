@@ -35,6 +35,15 @@ team_clustering:
   kmeans_sample_limit: 50  # Max samples per fragment for K-means (was max_samples)
   bins: 32  # HSV histogram bins per channel (96 total = 32 × 3)
   team_cap: 6  # Max 6 players per team
+  continuity_lock_window_frames: 12  # Lock fragments starting soon after identity jumps
+  color_correction_min_duration_frames: 20
+  color_correction_min_margin: 0.35
+  color_correction_min_ratio: 1.12
+  identity_anchor_gap_max_frames: 140
+  identity_anchor_gap_max_mid_fragments: 4
+  # Intra-team appearance sub-clustering (PoC: metadata-only, no feedback)
+  appearance_variance_ratio_threshold: 1.5  # If var(team) > 1.5 × min(other_var), mark as multi-appearance
+  max_appearance_modes: 3  # Hard cap on modes per team (MiniBatchKMeans k ≤ 3)
 
 # Jersey Inference (Pass 3 - bibbed team only)
 jersey:
@@ -127,8 +136,37 @@ divergence:
 
   # APPEARANCE DRIFT DETECTION (for T5 orange→white swap bug + intra-team swaps)
   # Lowered to catch intra-team identity swaps (T8 jumping to #4 player at frame 700)
-  appearance_threshold: 5.0  # Chi-squared distance threshold for appearance-based splits. Lower = more splits
+  appearance_threshold: 2.5  # Chi-squared distance threshold for appearance-based splits. Lower = more splits
   appearance_window: 7  # Number of histogram samples to compare (baseline vs test)
+  appearance_min_consecutive: 2  # Require N consecutive drift hits before splitting
+  appearance_threshold_strong: 6.0  # Immediate split if a single jump exceeds this distance
+  appearance_debug:
+    enabled: true
+    track_id: "2"
+    frame_start: 820
+    frame_end: 870
+
+  # OVERLAP CONTAMINATION + RETROACTIVE CONTRADICTION SPLITTING
+  # Frames are contamination-flagged when nearby tracks make appearance/jersey evidence unreliable.
+  # If a split occurs in contamination and stable pre/post signatures contradict, force retroactive split.
+  overlap_contamination:
+    enabled: true
+    proximity_threshold_pixels: 64.0
+    iou_threshold: 0.08
+    signature_window_frames: 6
+    appearance_contradiction_threshold: 6.0
+    bib_presence_threshold: 0.5
+    bib_absence_threshold: 0.2
+    debug:
+      enabled: true
+      track_id: "2"
+      frame_start: 820
+      frame_end: 930
+    audit:
+      enabled: true
+      track_id: "2"
+      frame_start: 820
+      frame_end: 930
 
   # JERSEY NUMBER INCONSISTENCY DETECTION (for same-color shirt, different numbers)
   # DISABLED: Appearance alone may not distinguish same-color shirts with/without numbers

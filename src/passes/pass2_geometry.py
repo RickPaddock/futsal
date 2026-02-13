@@ -80,6 +80,554 @@ def compute_appearance_distance(hist1: np.ndarray, hist2: np.ndarray) -> float:
     return float(chi_squared)
 
 
+def _bbox_iou(box_a: list[int], box_b: list[int]) -> float:
+    """Compute IoU between two xyxy boxes."""
+    if len(box_a) != 4 or len(box_b) != 4:
+        return 0.0
+
+    ax1, ay1, ax2, ay2 = box_a
+    bx1, by1, bx2, by2 = box_b
+
+    inter_x1 = max(ax1, bx1)
+    inter_y1 = max(ay1, by1)
+    inter_x2 = min(ax2, bx2)
+    inter_y2 = min(ay2, by2)
+
+    inter_w = max(0, inter_x2 - inter_x1)
+    inter_h = max(0, inter_y2 - inter_y1)
+    inter_area = inter_w * inter_h
+    if inter_area <= 0:
+        return 0.0
+
+    area_a = max(0, ax2 - ax1) * max(0, ay2 - ay1)
+    area_b = max(0, bx2 - bx1) * max(0, by2 - by1)
+    denom = area_a + area_b - inter_area
+    if denom <= 0:
+        return 0.0
+    return float(inter_area / denom)
+
+
+def build_overlap_contamination_index(
+    tracks: dict[str, Any],
+    proximity_threshold_px: float,
+    iou_threshold: float,
+) -> dict[str, set[int]]:
+    """
+    Build per-track contamination frame sets.
+
+    A frame is marked contaminated for two tracks when they are spatially close
+    enough that appearance/jersey evidence is considered identity-unsafe.
+    """
+    contamination_by_track: dict[str, set[int]] = {str(track_id): set() for track_id in tracks.keys()}
+    frame_observations: dict[int, list[tuple[str, list[int]]]] = {}
+
+    for track_id, track_data in tracks.items():
+        frames = track_data.get("frames", [])
+        bboxes = track_data.get("bboxes", [])
+        for frame_idx, bbox in zip(frames, bboxes):
+            if not bbox or len(bbox) != 4:
+                continue
+            frame_observations.setdefault(int(frame_idx), []).append((str(track_id), bbox))
+
+    proximity_threshold_sq = proximity_threshold_px * proximity_threshold_px
+
+    for frame_id, observations in frame_observations.items():
+        if len(observations) < 2:
+            continue
+
+        for i in range(len(observations)):
+            track_a, bbox_a = observations[i]
+            ax = 0.5 * (bbox_a[0] + bbox_a[2])
+            ay = 0.5 * (bbox_a[1] + bbox_a[3])
+
+            for j in range(i + 1, len(observations)):
+                track_b, bbox_b = observations[j]
+                bx = 0.5 * (bbox_b[0] + bbox_b[2])
+                by = 0.5 * (bbox_b[1] + bbox_b[3])
+
+                dx = ax - bx
+                dy = ay - by
+                close_enough = (dx * dx + dy * dy) <= proximity_threshold_sq
+                overlapping = _bbox_iou(bbox_a, bbox_b) >= iou_threshold
+
+                if close_enough or overlapping:
+                    contamination_by_track.setdefault(track_a, set()).add(int(frame_id))
+                    contamination_by_track.setdefault(track_b, set()).add(int(frame_id))
+
+    return contamination_by_track
+
+
+def export_overlap_audit(
+    tracks: dict[str, Any],
+    contamination_by_track: dict[str, set[int]],
+    output_path: Path,
+    target_track_id: str,
+    frame_start: int,
+    frame_end: int,
+) -> None:
+    """Export per-frame nearest-track distance/IoU audit for contamination calibration."""
+    target_track = tracks.get(target_track_id)
+    if not target_track:
+        print(f"  [OVERLAP_AUDIT] Track {target_track_id} not found")
+        return
+
+    target_frames = target_track.get("frames", [])
+    target_bboxes = target_track.get("bboxes", [])
+    if not target_frames or not target_bboxes:
+        print(f"  [OVERLAP_AUDIT] Track {target_track_id} has no frame/bbox data")
+        return
+
+    frame_observations: dict[int, list[tuple[str, list[int]]]] = {}
+    for track_id, track_data in tracks.items():
+        frames = track_data.get("frames", [])
+        bboxes = track_data.get("bboxes", [])
+        for frame_idx, bbox in zip(frames, bboxes):
+            if not bbox or len(bbox) != 4:
+                continue
+            frame_idx_int = int(frame_idx)
+            if frame_idx_int < frame_start or frame_idx_int > frame_end:
+                continue
+            frame_observations.setdefault(frame_idx_int, []).append((str(track_id), bbox))
+
+    per_frame = []
+    nearest_distances = []
+    max_ious = []
+    contaminated_count = 0
+
+    contamination_frames = contamination_by_track.get(target_track_id, set())
+
+    for frame_idx, bbox in zip(target_frames, target_bboxes):
+        frame_idx_int = int(frame_idx)
+        if frame_idx_int < frame_start or frame_idx_int > frame_end:
+            continue
+        if not bbox or len(bbox) != 4:
+            continue
+
+        ax = 0.5 * (bbox[0] + bbox[2])
+        ay = 0.5 * (bbox[1] + bbox[3])
+
+        nearest_track_id = None
+        nearest_distance_px = None
+        max_iou = 0.0
+        max_iou_track_id = None
+
+        for other_track_id, other_bbox in frame_observations.get(frame_idx_int, []):
+            if other_track_id == target_track_id:
+                continue
+            if not other_bbox or len(other_bbox) != 4:
+                continue
+
+            bx = 0.5 * (other_bbox[0] + other_bbox[2])
+            by = 0.5 * (other_bbox[1] + other_bbox[3])
+            distance_px = float(np.sqrt((ax - bx) ** 2 + (ay - by) ** 2))
+            iou_val = _bbox_iou(bbox, other_bbox)
+
+            if nearest_distance_px is None or distance_px < nearest_distance_px:
+                nearest_distance_px = distance_px
+                nearest_track_id = other_track_id
+
+            if iou_val > max_iou:
+                max_iou = float(iou_val)
+                max_iou_track_id = other_track_id
+
+        contaminated = frame_idx_int in contamination_frames
+        if contaminated:
+            contaminated_count += 1
+
+        if nearest_distance_px is not None:
+            nearest_distances.append(nearest_distance_px)
+        max_ious.append(max_iou)
+
+        per_frame.append({
+            "frame": frame_idx_int,
+            "nearest_track_id": nearest_track_id,
+            "nearest_distance_px": nearest_distance_px,
+            "max_iou": max_iou,
+            "max_iou_track_id": max_iou_track_id,
+            "contaminated_current_rule": contaminated,
+        })
+
+    if not per_frame:
+        print(f"  [OVERLAP_AUDIT] No frames in range {frame_start}-{frame_end} for track {target_track_id}")
+        return
+
+    nearest_arr = np.array(nearest_distances, dtype=np.float32) if nearest_distances else np.array([], dtype=np.float32)
+    iou_arr = np.array(max_ious, dtype=np.float32) if max_ious else np.array([], dtype=np.float32)
+
+    summary = {
+        "track_id": target_track_id,
+        "frame_start": frame_start,
+        "frame_end": frame_end,
+        "frames_analyzed": len(per_frame),
+        "contaminated_frames_current_rule": int(contaminated_count),
+        "contaminated_ratio_current_rule": float(contaminated_count / max(1, len(per_frame))),
+    }
+
+    if nearest_arr.size > 0:
+        summary["nearest_distance_px_percentiles"] = {
+            "p05": float(np.percentile(nearest_arr, 5)),
+            "p25": float(np.percentile(nearest_arr, 25)),
+            "p50": float(np.percentile(nearest_arr, 50)),
+            "p75": float(np.percentile(nearest_arr, 75)),
+            "p95": float(np.percentile(nearest_arr, 95)),
+        }
+
+    if iou_arr.size > 0:
+        summary["max_iou_percentiles"] = {
+            "p05": float(np.percentile(iou_arr, 5)),
+            "p25": float(np.percentile(iou_arr, 25)),
+            "p50": float(np.percentile(iou_arr, 50)),
+            "p75": float(np.percentile(iou_arr, 75)),
+            "p95": float(np.percentile(iou_arr, 95)),
+        }
+
+    audit_payload = {
+        "summary": summary,
+        "per_frame": per_frame,
+    }
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(audit_payload, f, ensure_ascii=False, indent=2)
+
+    print(
+        f"  [OVERLAP_AUDIT] Saved: {output_path.name} | frames={summary['frames_analyzed']} "
+        f"contaminated={summary['contaminated_frames_current_rule']}"
+    )
+
+
+def _build_signature(
+    indices: list[int],
+    hsv_histograms: list[list[int] | None],
+    jersey_decisions: list[list[Any]],
+    jersey_conf_threshold: float,
+) -> dict[str, Any]:
+    """Create a compact appearance/jersey signature from a set of reliable indices."""
+    histograms = []
+    jersey_counts: dict[Any, int] = {}
+    jersey_conf_sum: dict[Any, float] = {}
+    jersey_visible_count = 0
+
+    for idx in indices:
+        if 0 <= idx < len(hsv_histograms):
+            hist = hsv_histograms[idx]
+            if hist is not None and len(hist) == 96:
+                histograms.append(_dequantize_histogram(hist))
+
+        if 0 <= idx < len(jersey_decisions):
+            decision = jersey_decisions[idx]
+            if decision and len(decision) == 2:
+                jersey_id, jersey_conf = decision
+                if jersey_conf >= jersey_conf_threshold:
+                    jersey_visible_count += 1
+                    jersey_counts[jersey_id] = jersey_counts.get(jersey_id, 0) + 1
+                    jersey_conf_sum[jersey_id] = jersey_conf_sum.get(jersey_id, 0.0) + float(jersey_conf)
+
+    mean_hist = np.mean(histograms, axis=0) if histograms else None
+    dominant_hsv_mode = int(np.argmax(mean_hist)) if mean_hist is not None else None
+
+    dominant_jersey = None
+    dominant_jersey_conf = 0.0
+    if jersey_counts:
+        dominant_jersey = max(jersey_counts.items(), key=lambda kv: kv[1])[0]
+        total_conf = jersey_conf_sum.get(dominant_jersey, 0.0)
+        dominant_jersey_conf = total_conf / max(1, jersey_counts[dominant_jersey])
+
+    bib_presence_ratio = jersey_visible_count / max(1, len(indices))
+
+    return {
+        "mean_hist": mean_hist,
+        "dominant_hsv_mode": dominant_hsv_mode,
+        "dominant_jersey": dominant_jersey,
+        "dominant_jersey_conf": float(dominant_jersey_conf),
+        "bib_presence_ratio": float(bib_presence_ratio),
+        "sample_count": len(indices),
+    }
+
+
+def detect_overlap_identity_contradictions(
+    fragments: list[dict[str, Any]],
+    pass1_tracks: dict[str, Any],
+    homography: CourtHomography,
+    contamination_by_track: dict[str, set[int]],
+    min_fragment_length: int,
+    jersey_conf_threshold: float,
+    signature_window_frames: int,
+    appearance_contradiction_threshold: float,
+    bib_presence_threshold: float,
+    bib_absence_threshold: float,
+    debug_enabled: bool = False,
+    debug_track_id: str | None = None,
+    debug_frame_start: int | None = None,
+    debug_frame_end: int | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Retroactively split fragments when overlap contamination caused identity contradiction.
+
+    A split is considered identity-invalid when the split boundary falls inside a
+    contamination window and stable pre/post reliable signatures contradict.
+    """
+    if not fragments:
+        return fragments
+
+    def _debug_track(track_id_val: str, frame_val: int | None) -> bool:
+        if not debug_enabled:
+            return False
+        if debug_track_id is not None and str(track_id_val) != str(debug_track_id):
+            return False
+        if frame_val is not None and debug_frame_start is not None and frame_val < debug_frame_start:
+            return False
+        if frame_val is not None and debug_frame_end is not None and frame_val > debug_frame_end:
+            return False
+        return True
+
+    fragments_to_split: list[dict[str, Any]] = []
+
+    for frag_idx, fragment in enumerate(fragments):
+        track_id = str(fragment.get("original_track_id", ""))
+        if not track_id or track_id not in pass1_tracks:
+            continue
+
+        contamination_frames = contamination_by_track.get(track_id, set())
+        if not contamination_frames:
+            continue
+
+        track_data = pass1_tracks[track_id]
+        frames = track_data.get("frames", [])
+        if not frames:
+            continue
+
+        start_frame = fragment.get("start_frame")
+        end_frame = fragment.get("end_frame")
+        if start_frame is None or end_frame is None:
+            continue
+
+        try:
+            start_idx = frames.index(start_frame)
+            end_idx = frames.index(end_frame) + 1
+        except ValueError:
+            continue
+
+        frag_indices = list(range(start_idx, end_idx))
+        contaminated_indices = [idx for idx in frag_indices if int(frames[idx]) in contamination_frames]
+        if not contaminated_indices:
+            continue
+
+        contamination_segments: list[tuple[int, int]] = []
+        seg_start = contaminated_indices[0]
+        seg_prev = contaminated_indices[0]
+        for idx in contaminated_indices[1:]:
+            if idx == seg_prev + 1:
+                seg_prev = idx
+                continue
+            contamination_segments.append((seg_start, seg_prev))
+            seg_start = idx
+            seg_prev = idx
+        contamination_segments.append((seg_start, seg_prev))
+
+        hsv_histograms = track_data.get("hsv_histograms", [])
+        jersey_decisions = track_data.get("jersey_decisions", [])
+        split_recorded = False
+        for segment_start, segment_end in contamination_segments:
+            boundary_frame = int(frames[segment_end])
+
+            pre_reliable = [idx for idx in frag_indices if idx < segment_start and int(frames[idx]) not in contamination_frames]
+            post_reliable = [idx for idx in frag_indices if idx > segment_end and int(frames[idx]) not in contamination_frames]
+
+            effective_window = min(signature_window_frames, len(pre_reliable), len(post_reliable))
+            if effective_window < 3:
+                if _debug_track(track_id, boundary_frame):
+                    print(
+                        f"[OVERLAP_DEBUG] track={track_id} frame={boundary_frame} "
+                        f"skip=insufficient_reliable_windows pre={len(pre_reliable)} post={len(post_reliable)} req>=3"
+                    )
+                continue
+
+            pre_window = pre_reliable[-effective_window:]
+            post_window = post_reliable[:effective_window]
+
+            pre_signature = _build_signature(pre_window, hsv_histograms, jersey_decisions, jersey_conf_threshold)
+            post_signature = _build_signature(post_window, hsv_histograms, jersey_decisions, jersey_conf_threshold)
+
+            jersey_mismatch = (
+                pre_signature["dominant_jersey"] is not None
+                and post_signature["dominant_jersey"] is not None
+                and pre_signature["dominant_jersey"] != post_signature["dominant_jersey"]
+            )
+
+            bib_flip = (
+                (pre_signature["bib_presence_ratio"] >= bib_presence_threshold and post_signature["bib_presence_ratio"] <= bib_absence_threshold)
+                or (post_signature["bib_presence_ratio"] >= bib_presence_threshold and pre_signature["bib_presence_ratio"] <= bib_absence_threshold)
+            )
+
+            appearance_distance = 0.0
+            hsv_mode_change = False
+            if pre_signature["mean_hist"] is not None and post_signature["mean_hist"] is not None:
+                appearance_distance = compute_appearance_distance(pre_signature["mean_hist"], post_signature["mean_hist"])
+                hsv_mode_change = appearance_distance >= appearance_contradiction_threshold
+
+            if not (jersey_mismatch or bib_flip or hsv_mode_change):
+                if _debug_track(track_id, boundary_frame):
+                    print(
+                        f"[OVERLAP_DEBUG] track={track_id} frame={boundary_frame} skip=no_contradiction "
+                        f"dist={appearance_distance:.3f} jersey_mismatch={jersey_mismatch} bib_flip={bib_flip} hsv_mode_change={hsv_mode_change}"
+                    )
+                continue
+
+            split_idx_in_track = post_window[0]
+            if split_idx_in_track <= start_idx or split_idx_in_track >= end_idx:
+                if _debug_track(track_id, boundary_frame):
+                    print(
+                        f"[OVERLAP_DEBUG] track={track_id} frame={boundary_frame} skip=invalid_retro_split_index idx={split_idx_in_track}"
+                    )
+                continue
+
+            split_frame = int(frames[split_idx_in_track])
+            contradiction_flags = []
+            if jersey_mismatch:
+                contradiction_flags.append("jersey_mismatch")
+            if bib_flip:
+                contradiction_flags.append("bib_flip")
+            if hsv_mode_change:
+                contradiction_flags.append("hsv_mode_change")
+
+            if _debug_track(track_id, boundary_frame):
+                print(
+                    f"[OVERLAP_DEBUG] track={track_id} frame={boundary_frame} trigger=overlap_identity_contradiction "
+                    f"retro_split={split_frame} flags={contradiction_flags} dist={appearance_distance:.3f}"
+                )
+
+            fragments_to_split.append({
+                "fragment_idx": frag_idx,
+                "split_frame": split_frame,
+                "appearance_distance": float(appearance_distance),
+                "contradictions": contradiction_flags,
+                "existing_split_frame": boundary_frame,
+                "pre_signature": {
+                    "dominant_hsv_mode": pre_signature["dominant_hsv_mode"],
+                    "dominant_jersey": pre_signature["dominant_jersey"],
+                    "dominant_jersey_conf": pre_signature["dominant_jersey_conf"],
+                    "bib_presence_ratio": pre_signature["bib_presence_ratio"],
+                    "sample_count": pre_signature["sample_count"],
+                },
+                "post_signature": {
+                    "dominant_hsv_mode": post_signature["dominant_hsv_mode"],
+                    "dominant_jersey": post_signature["dominant_jersey"],
+                    "dominant_jersey_conf": post_signature["dominant_jersey_conf"],
+                    "bib_presence_ratio": post_signature["bib_presence_ratio"],
+                    "sample_count": post_signature["sample_count"],
+                },
+            })
+            split_recorded = True
+            break
+
+        if split_recorded:
+            continue
+
+    if not fragments_to_split:
+        return fragments
+
+    print(f"    Detected {len(fragments_to_split)} overlap identity contradiction(s)")
+
+    fragments_to_split.sort(key=lambda item: item["fragment_idx"], reverse=True)
+    new_fragments = list(fragments)
+
+    for split_info in fragments_to_split:
+        frag_idx = split_info["fragment_idx"]
+        split_frame = split_info["split_frame"]
+        original_fragment = new_fragments[frag_idx]
+        original_track_id = str(original_fragment.get("original_track_id", ""))
+        if original_track_id not in pass1_tracks:
+            continue
+
+        track_data = pass1_tracks[original_track_id]
+        frames = track_data.get("frames", [])
+        bboxes = track_data.get("bboxes", [])
+        centroids = track_data.get("centroids", [])
+        confidences = track_data.get("confidences", [])
+        occlusion_scores = track_data.get("occlusion_scores", [])
+        hsv_histograms = track_data.get("hsv_histograms", [])
+        jersey_decisions = track_data.get("jersey_decisions", [])
+
+        start_frame = original_fragment.get("start_frame")
+        end_frame = original_fragment.get("end_frame")
+        try:
+            start_idx = frames.index(start_frame)
+            end_idx = frames.index(end_frame) + 1
+            split_idx_in_track = frames.index(split_frame)
+        except ValueError:
+            continue
+
+        if split_idx_in_track <= start_idx or split_idx_in_track >= end_idx:
+            continue
+
+        split_idx = split_idx_in_track - start_idx
+        court_positions = []
+        for centroid in centroids[start_idx:end_idx]:
+            court_x, court_y = homography.pixel_to_court(centroid[0], centroid[1])
+            court_positions.append([court_x, court_y])
+
+        fragment_before = create_fragment(
+            track_id=original_track_id,
+            frames=frames[start_idx:start_idx + split_idx],
+            bboxes=bboxes[start_idx:start_idx + split_idx],
+            centroids=centroids[start_idx:start_idx + split_idx],
+            court_positions=court_positions[:split_idx],
+            confidences=confidences[start_idx:start_idx + split_idx],
+            occlusion_scores=occlusion_scores[start_idx:start_idx + split_idx],
+            hsv_histograms=hsv_histograms[start_idx:start_idx + split_idx],
+            jersey_decisions=jersey_decisions[start_idx:start_idx + split_idx],
+        )
+        fragment_before["split_reason"] = {
+            "frame_idx": split_frame,
+            "reason": "overlap_identity_contradiction",
+            "metric": split_info["appearance_distance"],
+            "severity": "hard",
+            "existing_split_frame": split_info["existing_split_frame"],
+            "contradictions": split_info["contradictions"],
+            "pre_signature": split_info["pre_signature"],
+            "post_signature": split_info["post_signature"],
+        }
+        fragment_before["fragment_id"] = original_fragment.get("fragment_id", "frag_unknown")
+        fragment_before["parent_fragment_id"] = original_fragment.get("parent_fragment_id")
+        fragment_before["is_primary_fragment"] = original_fragment.get("is_primary_fragment", False)
+
+        fragment_after = create_fragment(
+            track_id=original_track_id,
+            frames=frames[start_idx + split_idx:end_idx],
+            bboxes=bboxes[start_idx + split_idx:end_idx],
+            centroids=centroids[start_idx + split_idx:end_idx],
+            court_positions=court_positions[split_idx:],
+            confidences=confidences[start_idx + split_idx:end_idx],
+            occlusion_scores=occlusion_scores[start_idx + split_idx:end_idx],
+            hsv_histograms=hsv_histograms[start_idx + split_idx:end_idx],
+            jersey_decisions=jersey_decisions[start_idx + split_idx:end_idx],
+        )
+        fragment_after["split_reason"] = original_fragment.get("split_reason")
+        original_frag_id = original_fragment.get("fragment_id", "frag_unknown")
+        fragment_after["fragment_id"] = f"{original_frag_id}_split"
+        fragment_after["parent_fragment_id"] = original_frag_id
+        fragment_after["is_primary_fragment"] = False
+
+        before_len = len(fragment_before.get("spatial_footprint", {}).get("court_positions", []))
+        after_len = len(fragment_after.get("spatial_footprint", {}).get("court_positions", []))
+        min_identity_fragment_length = 3
+
+        if before_len < min_identity_fragment_length or after_len < min_identity_fragment_length:
+            continue
+
+        replacement = []
+        if before_len >= min_fragment_length or before_len >= min_identity_fragment_length:
+            replacement.append(fragment_before)
+        if after_len >= min_fragment_length or after_len >= min_identity_fragment_length:
+            replacement.append(fragment_after)
+        if len(replacement) != 2:
+            continue
+
+        new_fragments[frag_idx:frag_idx + 1] = replacement
+
+    return new_fragments
+
+
 def run_pass2(run_dir: Path, config: dict):
     """
     Run Pass 2: Divergence Detection + Track Fragment Splitting.
@@ -159,9 +707,36 @@ def process_clip_pass2(
         "fragments": []
     }
 
-    # Process each track from Pass 1
     tracks = pass1_data.get("tracks", {})
+    overlap_cfg = div_cfg.get("overlap_contamination", {})
+    overlap_enabled = overlap_cfg.get("enabled", True)
+    overlap_contamination_by_track = (
+        build_overlap_contamination_index(
+            tracks=tracks,
+            proximity_threshold_px=float(overlap_cfg.get("proximity_threshold_pixels", 70.0)),
+            iou_threshold=float(overlap_cfg.get("iou_threshold", 0.1)),
+        )
+        if overlap_enabled
+        else {str(track_id): set() for track_id in tracks.keys()}
+    )
+
+    # Process each track from Pass 1
     fragment_id_counter = 0
+
+    overlap_audit_cfg = overlap_cfg.get("audit", {})
+    if overlap_enabled and overlap_audit_cfg.get("enabled", False):
+        audit_track_id = str(overlap_audit_cfg.get("track_id", "2"))
+        audit_frame_start = int(overlap_audit_cfg.get("frame_start", 820))
+        audit_frame_end = int(overlap_audit_cfg.get("frame_end", 930))
+        audit_path = output_dir / f"{pass1_file.stem}_overlap_audit_track_{audit_track_id}.json"
+        export_overlap_audit(
+            tracks=tracks,
+            contamination_by_track=overlap_contamination_by_track,
+            output_path=audit_path,
+            target_track_id=audit_track_id,
+            frame_start=audit_frame_start,
+            frame_end=audit_frame_end,
+        )
 
     for track_id, track_data in tracks.items():
         frames = track_data.get("frames", [])
@@ -175,6 +750,9 @@ def process_clip_pass2(
         if len(frames) < min_fragment_length:
             # Skip tracks that are too short
             continue
+
+        contamination_frames = overlap_contamination_by_track.get(str(track_id), set())
+        reliable_mask = [int(frame_idx) not in contamination_frames for frame_idx in frames]
 
         # Convert pixel centroids to court coordinates
         court_positions = []
@@ -200,10 +778,18 @@ def process_clip_pass2(
             occlusion_window=occlusion_window,
             appearance_threshold=div_cfg.get("appearance_threshold", 0.5),
             appearance_window=div_cfg.get("appearance_window", 3),
+            appearance_min_consecutive=div_cfg.get("appearance_min_consecutive", 2),
+            appearance_threshold_strong=div_cfg.get("appearance_threshold_strong", 6.0),
+            debug_track_id=div_cfg.get("appearance_debug", {}).get("track_id"),
+            debug_frame_start=div_cfg.get("appearance_debug", {}).get("frame_start"),
+            debug_frame_end=div_cfg.get("appearance_debug", {}).get("frame_end"),
+            debug_enabled=div_cfg.get("appearance_debug", {}).get("enabled", False),
+            track_id=track_id,
             jersey_enabled=div_cfg.get("jersey_inconsistency_enabled", True),
             jersey_appear_threshold=div_cfg.get("jersey_appear_threshold", 0.5),
             jersey_disappear_threshold=div_cfg.get("jersey_disappear_threshold", 0.3),
             jersey_window=div_cfg.get("jersey_consistency_window", 10),
+            reliable_mask=reliable_mask,
         )
 
         # Split track into fragments at divergence points
@@ -259,6 +845,50 @@ def process_clip_pass2(
                 break
         else:
             print(f"  Jersey temporal exclusivity: stopped after {max_iterations} iterations (max reached)")
+
+    if overlap_enabled:
+        overlap_before = output_data["fragments"]
+        overlap_debug_cfg = overlap_cfg.get("debug", {})
+        output_data["fragments"] = detect_overlap_identity_contradictions(
+            fragments=output_data["fragments"],
+            pass1_tracks=tracks,
+            homography=homography,
+            contamination_by_track=overlap_contamination_by_track,
+            min_fragment_length=min_fragment_length,
+            jersey_conf_threshold=float(div_cfg.get("jersey_appear_threshold", 0.5)),
+            signature_window_frames=int(overlap_cfg.get("signature_window_frames", 6)),
+            appearance_contradiction_threshold=float(
+                overlap_cfg.get("appearance_contradiction_threshold", div_cfg.get("appearance_threshold_strong", 6.0))
+            ),
+            bib_presence_threshold=float(overlap_cfg.get("bib_presence_threshold", 0.5)),
+            bib_absence_threshold=float(overlap_cfg.get("bib_absence_threshold", 0.2)),
+            debug_enabled=bool(overlap_debug_cfg.get("enabled", False)),
+            debug_track_id=overlap_debug_cfg.get("track_id"),
+            debug_frame_start=overlap_debug_cfg.get("frame_start"),
+            debug_frame_end=overlap_debug_cfg.get("frame_end"),
+        )
+        if len(output_data["fragments"]) != len(overlap_before):
+            print(f"  Overlap contradiction splitting: {len(overlap_before)} -> {len(output_data['fragments'])} fragments")
+
+    jersey_conf_threshold = float(div_cfg.get("jersey_appear_threshold", 0.5))
+    for fragment in output_data["fragments"]:
+        fragment_id = fragment.get("fragment_id", "frag_unknown")
+        jersey_prob_timeline = fragment.get("jersey_prob_timeline", {}) or {}
+        strong_jerseys = []
+        for jersey_id, stats in jersey_prob_timeline.items():
+            count = int(stats.get("count", 0))
+            if count <= 0:
+                continue
+            avg_conf = float(stats.get("total", 0.0)) / float(count)
+            if count >= 2 and avg_conf >= jersey_conf_threshold:
+                strong_jerseys.append((jersey_id, avg_conf, count))
+
+        if len(strong_jerseys) > 1:
+            strong_jerseys.sort(key=lambda item: (item[1], item[2]), reverse=True)
+            raise AssertionError(
+                f"Pass2 fragment purity violation: {fragment_id} has multiple strong jerseys "
+                f"{[(jid, round(conf, 3), cnt) for jid, conf, cnt in strong_jerseys]}"
+            )
 
 
     # Save JSON
@@ -504,6 +1134,7 @@ def detect_jersey_temporal_conflicts(
             "metric": split_info["jersey_id"],
         }
         fragment_before["fragment_id"] = original_fragment.get("fragment_id", "frag_unknown")
+        fragment_before["parent_fragment_id"] = original_fragment.get("parent_fragment_id")
         fragment_before["is_primary_fragment"] = original_fragment.get("is_primary_fragment", False)
 
         fragment_after = create_fragment(
@@ -518,18 +1149,36 @@ def detect_jersey_temporal_conflicts(
             jersey_decisions=jersey_decisions[start_idx + split_idx:end_idx],
         )
         fragment_after["split_reason"] = None
-        fragment_after["fragment_id"] = f"{original_fragment.get('fragment_id', 'frag_unknown')}_split"
+        original_frag_id = original_fragment.get("fragment_id", "frag_unknown")
+        fragment_after["fragment_id"] = f"{original_frag_id}_split"
+        fragment_after["parent_fragment_id"] = original_frag_id  # NEW: Point to the original fragment
         fragment_after["is_primary_fragment"] = False  # After split is secondary (jersey jump)
 
         # Replace original fragment with two new fragments
-        # Only add fragments that meet minimum length requirement
+        # For jersey temporal exclusivity splits (identity jumps):
+        # - Allow short fragments (minimum 3 frames) because they represent critical transitions
+        # For other splits:
+        # - Require min_fragment_length for both pieces
+        is_jersey_split = split_info.get("reason") == "jersey_temporal_exclusivity"
+        min_length_for_jersey_split = max(3, min_fragment_length // 3)  # Allow 1/3 normal length for jersey splits
+
         replacement_fragments = []
-        if len(fragment_before.get("spatial_footprint", {}).get("court_positions", [])) >= min_fragment_length:
+        before_len = len(fragment_before.get("spatial_footprint", {}).get("court_positions", []))
+        after_len = len(fragment_after.get("spatial_footprint", {}).get("court_positions", []))
+        
+        # Keep before part if it meets minimum
+        if before_len >= min_fragment_length:
             replacement_fragments.append(fragment_before)
-        if len(fragment_after.get("spatial_footprint", {}).get("court_positions", [])) >= min_fragment_length:
+        elif is_jersey_split and before_len >= min_length_for_jersey_split:
+            replacement_fragments.append(fragment_before)
+        
+        # Keep after part if it meets minimum
+        if after_len >= min_fragment_length:
+            replacement_fragments.append(fragment_after)
+        elif is_jersey_split and after_len >= min_length_for_jersey_split:
             replacement_fragments.append(fragment_after)
 
-        # If both fragments are too short, keep original
+        # If both fragments are too short (even for jersey splits), keep original
         if not replacement_fragments:
             continue
 
@@ -555,10 +1204,18 @@ def detect_divergences(
     occlusion_window: int,
     appearance_threshold: float,
     appearance_window: int,
+    appearance_min_consecutive: int,
+    appearance_threshold_strong: float,
+    debug_track_id: str | None,
+    debug_frame_start: int | None,
+    debug_frame_end: int | None,
+    debug_enabled: bool,
+    track_id: str,
     jersey_enabled: bool,
     jersey_appear_threshold: float,
     jersey_disappear_threshold: float,
     jersey_window: int,
+    reliable_mask: list[bool] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Detect divergence points (frame indices where track should split).
@@ -599,6 +1256,7 @@ def detect_divergences(
                         "frame_idx": frames[i],
                         "reason": "velocity_spike",
                         "metric": float(velocity_change),
+                        "severity": "soft",
                     })
 
     # BBox jump detection (frame-to-frame)
@@ -618,6 +1276,7 @@ def detect_divergences(
                 "frame_idx": frames[i],
                 "reason": "bbox_jump",
                 "metric": float(jump_distance),
+                "severity": "soft",
             })
 
     # Occlusion spike detection (sustained confidence drop)
@@ -636,6 +1295,7 @@ def detect_divergences(
                         "frame_idx": frames[i],
                         "reason": "occlusion_spike",
                         "metric": float(mean_occlusion),
+                        "severity": "soft",
                     })
 
     # ========================================================================
@@ -649,7 +1309,11 @@ def detect_divergences(
     # ========================================================================
 
     # Build list of valid histogram indices (skip None entries from sparse sampling)
-    valid_hist_indices = [i for i, h in enumerate(hsv_histograms) if h is not None and len(h) == 96]
+    valid_hist_indices = [
+        i
+        for i, h in enumerate(hsv_histograms)
+        if h is not None and len(h) == 96 and (reliable_mask is None or (i < len(reliable_mask) and reliable_mask[i]))
+    ]
 
     if len(valid_hist_indices) >= appearance_window + 1:
         # Slide window through valid histograms
@@ -666,6 +1330,8 @@ def detect_divergences(
             test_start_idx = baseline_end_idx
             test_end_idx = min(window_start_idx + appearance_window + 1, len(valid_hist_indices))
 
+            consecutive_drift_hits = 0
+
             for test_idx in range(test_start_idx, test_end_idx):
                 track_idx = valid_hist_indices[test_idx]
                 test_hist = _dequantize_histogram(hsv_histograms[track_idx])
@@ -673,8 +1339,26 @@ def detect_divergences(
                 # Compute appearance distance
                 distance = compute_appearance_distance(baseline_centroid, test_hist)
 
-                # Trigger split if distance exceeds threshold
-                if distance > appearance_threshold:
+                # Trigger split only after consecutive drift hits, unless a strong jump is detected
+                if distance >= appearance_threshold_strong:
+                    consecutive_drift_hits = max(1, appearance_min_consecutive)
+                elif distance > appearance_threshold:
+                    consecutive_drift_hits += 1
+                else:
+                    consecutive_drift_hits = 0
+
+                if debug_enabled and debug_track_id is not None:
+                    if str(track_id) == str(debug_track_id):
+                        frame_val = frames[track_idx]
+                        if (debug_frame_start is None or frame_val >= debug_frame_start) and (
+                            debug_frame_end is None or frame_val <= debug_frame_end
+                        ):
+                            print(
+                                f"[APPEAR_DEBUG] track={track_id} frame={frame_val} dist={distance:.3f} cons={consecutive_drift_hits} "
+                                f"thr={appearance_threshold} strong={appearance_threshold_strong}"
+                            )
+
+                if consecutive_drift_hits >= max(1, appearance_min_consecutive):
                     # ================================================================
                     # JERSEY-AWARE APPEARANCE DRIFT SPLITTING
                     # ================================================================
@@ -719,12 +1403,24 @@ def detect_divergences(
                     # Baseline: no jersey → Test: jersey #X
                     # This is NOT a track jump, just player becoming visible
                     if not baseline_has_jersey and test_has_jersey:
+                        if debug_enabled and debug_track_id is not None and str(track_id) == str(debug_track_id):
+                            frame_val = frames[track_idx]
+                            if (debug_frame_start is None or frame_val >= debug_frame_start) and (
+                                debug_frame_end is None or frame_val <= debug_frame_end
+                            ):
+                                print("[APPEAR_DEBUG] suppress: jersey first appearance")
                         continue  # SUPPRESS: Player turned around
 
                     # Case 2: Same jersey in both windows (lighting/angle change)
                     # Baseline: jersey #X → Test: jersey #X
                     # This is NOT a track jump, just appearance change
                     if baseline_has_jersey and test_has_jersey and baseline_jersey_id == test_jersey_id:
+                        if debug_enabled and debug_track_id is not None and str(track_id) == str(debug_track_id):
+                            frame_val = frames[track_idx]
+                            if (debug_frame_start is None or frame_val >= debug_frame_start) and (
+                                debug_frame_end is None or frame_val <= debug_frame_end
+                            ):
+                                print("[APPEAR_DEBUG] suppress: same jersey in baseline/test")
                         continue  # SUPPRESS: Same player, lighting change
 
                     # Case 3: Jersey changes OR Case 4: Jersey disappears
@@ -735,7 +1431,15 @@ def detect_divergences(
                         "frame_idx": frames[track_idx],
                         "reason": "appearance_drift",
                         "metric": float(distance),
+                        "severity": "hard" if distance >= appearance_threshold_strong else "soft",
                     })
+                    if debug_enabled and debug_track_id is not None and str(track_id) == str(debug_track_id):
+                        frame_val = frames[track_idx]
+                        if (debug_frame_start is None or frame_val >= debug_frame_start) and (
+                            debug_frame_end is None or frame_val <= debug_frame_end
+                        ):
+                            print("[APPEAR_DEBUG] split: appearance_drift")
+                    break
 
     # ========================================================================
     # JERSEY NUMBER INCONSISTENCY DETECTION (CRITICAL FOR INTRA-TEAM SWAPS)
@@ -799,6 +1503,7 @@ def detect_divergences(
                         "frame_idx": frames[i],
                         "reason": "jersey_inconsistency",
                         "metric": float(baseline_conf),
+                        "severity": "hard",
                     })
 
                 # Case 2: Jersey number changed (#7 → #4)
@@ -809,6 +1514,7 @@ def detect_divergences(
                             "frame_idx": frames[i],
                             "reason": "jersey_inconsistency",
                             "metric": float(max(baseline_conf, test_conf)),
+                            "severity": "hard",
                         })
 
     # Sort divergences by frame index and deduplicate
@@ -901,6 +1607,9 @@ def split_track_into_fragments(
     # Split track at divergence points
     start_idx = 0
     for split_frame in split_frames:
+        # DEBUG
+        if track_id == "2" and 820 <= split_frame <= 870:
+            print(f"[SPLIT_TRACK_DEBUG] track_id={track_id} splitting at frame {split_frame}, current start_idx={start_idx} (frame {frames[start_idx] if start_idx < len(frames) else 'EOF'})")
         # Find index in frames list
         try:
             split_idx = frames.index(split_frame)
@@ -908,7 +1617,17 @@ def split_track_into_fragments(
             continue
 
         # Create fragment from start_idx to split_idx
-        if split_idx - start_idx >= min_fragment_length:
+        # Allow short fragments if they're created by identity-jump divergences
+        divergence_for_split = next(
+            (d for d in divergence_points if d["frame_idx"] == split_frame), None
+        )
+        identity_jump_reason = divergence_for_split.get("reason") if divergence_for_split else None
+        is_identity_jump = identity_jump_reason in {"appearance_drift", "jersey_inconsistency", "jersey_temporal_exclusivity", "velocity_spike"}
+        
+        fragment_length = split_idx - start_idx
+        min_length_for_fragment = 3 if is_identity_jump else min_fragment_length
+        
+        if fragment_length >= min_length_for_fragment:
             fragment = create_fragment(
                 track_id=track_id,
                 frames=frames[start_idx:split_idx],
@@ -921,9 +1640,7 @@ def split_track_into_fragments(
                 jersey_decisions=jersey_decisions[start_idx:split_idx],
             )
             # Annotate why fragment ended
-            fragment["split_reason"] = next(
-                (d for d in divergence_points if d["frame_idx"] == split_frame), None
-            )
+            fragment["split_reason"] = divergence_for_split
 
             # Compute appearance distance to pre-split centroid
             if pre_split_centroid is not None and fragment.get("mean_hsv_histogram"):
@@ -935,6 +1652,9 @@ def split_track_into_fragments(
                 fragment["appearance_distance_to_origin"] = float('inf')
 
             fragments.append(fragment)
+            # DEBUG
+            if track_id == "2" and 820 <= frames[start_idx] <= 870:
+                print(f"[SPLIT_TRACK_DEBUG] Created fragment frames {frames[start_idx]}-{frames[split_idx-1]} (length={fragment_length})")
 
         start_idx = split_idx
 
