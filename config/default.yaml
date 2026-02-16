@@ -201,6 +201,13 @@ divergence:
   # Fragment splitting
   min_fragment_length: 10  # Minimum frames for a valid fragment
 
+# Ghost Tracking (Pass 2 - Maintain Player Count Invariant)
+ghost_tracking:
+  enabled: true
+  level_init_frames: 30  # Compute initial level from first 30 frames
+  # NOTE: level is NOT a config parameter - it's computed from the clip
+  # Ghosts NEVER auto-expire - they only close on reappearance
+
 # Pass 3: Pileup Detection (Explicit Failure Marking)
 pileup:
   spatial_radius_meters: 1.5  # Radius for considering fragments overlapping

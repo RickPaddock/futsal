@@ -38,8 +38,12 @@ def validate_team_size_constraint(fragments: list[dict], max_per_team: int = 6) 
     """
     team_timelines = {"team_a": [], "team_b": []}
 
-    # Build timeline for each team
+    # Build timeline for each team (exclude ghosts)
     for fragment in fragments:
+        # CRITICAL: Exclude ghosts from team size validation
+        if fragment.get("is_ghost", False) or fragment.get("exclude_from_team_vote", False):
+            continue
+
         team = fragment.get("team")
         if team in team_timelines:
             team_timelines[team].append({
@@ -151,7 +155,10 @@ def enforce_team_size_constraint(fragments: list[dict], max_per_team: int = 6) -
         for team in ("team_a", "team_b"):
             team_fragments = [
                 f for f in fragments
-                if f.get("team") == team and f.get("fragment_id") not in demoted_ids
+                if f.get("team") == team
+                and f.get("fragment_id") not in demoted_ids
+                and not f.get("is_ghost", False)
+                and not f.get("exclude_from_team_vote", False)
             ]
             if not team_fragments:
                 continue
@@ -1659,6 +1666,10 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
     fragment_histograms = []
     valid_fragment_indices = []
     for i, fragment in enumerate(fragments):
+        # CRITICAL: Exclude ghosts from K-means clustering
+        if fragment.get("exclude_from_clustering", False) or fragment.get("is_ghost", False):
+            continue
+
         hist = fragment.get("mean_hsv_histogram")
         if hist and len(hist) == 96:
             fragment_histograms.append(hist)
@@ -1689,7 +1700,7 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
         cluster_variances.sort(key=lambda x: x[1])
         bibbed_cluster_id = cluster_variances[0][0]
 
-        print(f"  K-Means: {len(fragments)} fragments to 2 teams")
+        print(f"  K-Means: {len(fragment_histograms)} fragments to 2 teams (excluding {len(fragments) - len(fragment_histograms)} ghosts)")
         print(f"  TEAM_A (bibbed): cluster {bibbed_cluster_id}")
 
         for i, cluster_id in zip(valid_fragment_indices, cluster_labels):
@@ -1885,6 +1896,8 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
             # Appearance mode (metadata-only, for debugging/visualization)
             "appearance_mode_id": fragment.get("appearance_mode_id"),
             "appearance_mode_confidence": fragment.get("appearance_mode_confidence"),
+            # Ghost metadata (for visualization)
+            "is_ghost": fragment.get("is_ghost", False),
         }
         identities.append(identity)
 
@@ -1892,9 +1905,9 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
         "clip_name": clip_name,
         "identities": identities,
         "team_summary": {
-            "team_a_count": len([i for i in identities if i["team"] == "team_a"]),
-            "team_b_count": len([i for i in identities if i["team"] == "team_b"]),
-            "team_a_jerseys": list(set(i["jersey_number"] for i in identities if i["jersey_number"] is not None)),
+            "team_a_count": len([i for i in identities if i["team"] == "team_a" and not i.get("is_ghost", False)]),
+            "team_b_count": len([i for i in identities if i["team"] == "team_b" and not i.get("is_ghost", False)]),
+            "team_a_jerseys": list(set(i["jersey_number"] for i in identities if i["jersey_number"] is not None and not i.get("is_ghost", False))),
         },
         # Appearance mode metadata (for debugging/visualization)
         "appearance_analysis": {
@@ -2836,6 +2849,10 @@ def _print_assignment_summary(
     jersey_assignments = {}  # jersey_num -> count
 
     for fragment in fragments:
+        # CRITICAL: Exclude ghosts from jersey statistics
+        if fragment.get("is_ghost", False) or fragment.get("exclude_from_stats", False):
+            continue
+
         fragment_id = fragment.get("fragment_id")
         team = fragment.get("team", "unknown")
         assignment = assignments.get(fragment_id, {})

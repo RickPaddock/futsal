@@ -439,6 +439,10 @@ def draw_frame_annotations(
         t1_count = 0  # YOLO
         t2_count = 0  # SAM
         t3_count = 0  # Estimated
+
+        # Count unique PLAYERS for player count ticker (not detector tiers)
+        tracked_players = set()  # Real detections (T1 + T2)
+        estimated_players = set()  # Ghosts/interpolated (T3)
         
         # DEBUG: Log track detection counts on first frame
         if frame_idx == 0:
@@ -479,12 +483,14 @@ def draw_frame_annotations(
 
             # Assign tier and visual style
             # IMPORTANT: T2 (SAM) uses same base_color as T1 for consistency
-            if is_interpolated:
+            is_ghost = getattr(det, 'is_ghost', False)
+            if is_interpolated or is_ghost:
                 # T3: Full occlusion - estimated position
                 tier = "T3"
                 color = (255, 0, 255)  # Magenta (BGR) - distinct color for estimates
                 dotted = True
                 t3_count += 1
+                estimated_players.add(track.track_id)  # Count unique estimated players
             elif is_sam:
                 # T2: Partial occlusion - SAM recovered
                 # Use SAME color as T1 (base_color) so mask matches bbox color
@@ -492,12 +498,14 @@ def draw_frame_annotations(
                 color = team_color  # Team border color
                 dotted = True  # Dotted box to indicate SAM recovery
                 t2_count += 1
+                tracked_players.add(track.track_id)  # Count unique tracked players
             else:
                 # T1: Normal YOLO detection (best)
                 tier = "T1"
                 color = team_color
                 dotted = False
                 t1_count += 1
+                tracked_players.add(track.track_id)  # Count unique tracked players
 
             label_parts.append(tier)
             label = " ".join(label_parts)
@@ -758,6 +766,38 @@ def draw_frame_annotations(
         (255, 255, 255),
         2,
     )
+
+    # Draw player count ticker (top-right): "Tracked: X | Estimated: Y"
+    # CRITICAL: Count unique PLAYERS, not detector tiers (T1/T2/T3)
+    if draw_tracks:
+        tracked_count = len(tracked_players)
+        estimated_count = len(estimated_players)
+        ticker_text = f"Tracked: {tracked_count} | Estimated: {estimated_count}"
+        ticker_y = 30  # Same Y as frame counter on left
+        ticker_x = frame_bgr.shape[1] - 400  # Top-right
+
+        # Semi-transparent background
+        (text_w, text_h), _ = cv2.getTextSize(ticker_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+        overlay = frame_bgr.copy()
+        cv2.rectangle(
+            overlay,
+            (ticker_x - 5, ticker_y - text_h - 5),
+            (ticker_x + text_w + 5, ticker_y + 5),
+            (0, 0, 0),
+            -1,
+        )
+        frame_bgr = cv2.addWeighted(overlay, 0.6, frame_bgr, 0.4, 0)
+
+        # Draw text
+        cv2.putText(
+            frame_bgr,
+            ticker_text,
+            (ticker_x, ticker_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 255),
+            2,
+        )
 
     # Draw ball confidence box below frame counter
     box_x, box_y = 10, 45

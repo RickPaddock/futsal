@@ -17,7 +17,11 @@
       "Bash(shuf:*)",
       "Bash(del \"\\\\.\\\\c:\\\\Users\\\\rickp\\\\Documents\\\\GitRepos\\\\futsal\\\\nul\")",
       "Bash(grep:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(source:*)",
+      "Bash(./venv/Scripts/python:*)",
+      "Bash(.venv/Scripts/python:*)",
+      "Bash(git checkout:*)"
     ]
   }
 }

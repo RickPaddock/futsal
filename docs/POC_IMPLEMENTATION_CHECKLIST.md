@@ -139,33 +139,65 @@ Team cap is now hard-enforced in Pass 3: over-cap fragments are demoted to `unkn
 
 ---
 
-#### **Step 1.1: Extend Track Buffers + Ghost Tracks** 🔴 P0
-- [ ] Read [src/detection/tracking.py](../src/detection/tracking.py) to understand ByteTrack implementation
-- [ ] Update track buffer constants
-  - [ ] `TRACK_BUFFER_DEFAULT = 60` (2 seconds at 30 FPS)
-  - [ ] `TRACK_BUFFER_NUMBERED = 90` (3 seconds for numbered players)
-- [ ] Implement `get_track_buffer()` for adaptive buffers
-- [ ] Implement `emit_ghost_track()` for predicted positions
-  - [ ] Set `occluded=True`, `predicted=True`, `confidence=0.0`
-- [ ] Update [src/passes/pass2_geometry.py](../src/passes/pass2_geometry.py) to handle ghost tracks
-  - [ ] Ghost tracks extend existing fragments only
-  - [ ] Ghost tracks NEVER create new fragments
+#### **Step 1.1: Simplified Ghost Tracking (Player Count Invariant)** 🔴 P0
+- [ ] Read [src/passes/pass2_geometry.py](../src/passes/pass2_geometry.py) to understand fragment structure
+- [ ] Implement `create_ghost_fragments()` function
+  - [ ] Build per-frame player inventory (PlayerInventory class)
+  - [ ] Initialize level from first 30 frames (NOT a config parameter)
+  - [ ] Create ghosts when visible_count < level
+  - [ ] Position ghosts at nearest REAL player (occluder heuristic)
+  - [ ] Close ghosts ONLY on reappearance (NEVER auto-expire)
+- [ ] Implement helper classes and functions
+  - [ ] `PlayerInventory` class (~80 lines)
+  - [ ] `GhostTracker` class (~60 lines)
+  - [ ] `find_nearest_player()` (~40 lines) - only considers real players
+  - [ ] `get_most_recent_fragment()` (~20 lines)
+- [ ] Add config parameters to [config/default.yaml](../config/default.yaml)
+  - [ ] `ghost_tracking.enabled: true`
+  - [ ] `ghost_tracking.level_init_frames: 30`
+- [ ] Integrate into `process_clip_pass2()` (after line 871)
+- [ ] Update visualization
+  - [ ] Add player count ticker: "Tracked: X | Estimated: Y" (top-right)
+  - [ ] Ensure ghosts render as T3 with jersey numbers
+  - [ ] Map `is_ghost` fragments to `is_interpolated` detections
 - [ ] Test on sample video
 
-**Estimated Time:** 3-4 hours
+**Estimated Time:** 4-5 hours
 **Files Modified:**
-- `src/detection/tracking.py`
-- `src/passes/pass2_geometry.py`
+- `src/passes/pass2_geometry.py` - Ghost generation logic (~350 lines)
+- `src/utils/visualization.py` - Player count ticker (~40 lines)
+- `src/passes/pass_visualize.py` - Fragment-to-detection mapping (~20 lines)
+- `config/default.yaml` - Ghost config parameters
 
 **Test Results:**
 ```
-[ ] Players maintain IDs through 30-90 frame occlusions
-[ ] Ghost tracks visible in JSON with predicted=true
-[ ] No fragment explosion during occlusions
+[ ] Level initialized from first 30 frames (NOT hardcoded config)
+[ ] Ghosts created only when visible_count < level (not on fragment splits)
+[ ] Ghosts positioned at nearest REAL player (never another ghost)
+[ ] Ghosts inherit team/jersey from source fragment
+[ ] Ghosts close ONLY on reappearance (NEVER auto-expire)
+[ ] Ghosts that never reappear persist to clip end
+[ ] Player count ticker shows "Tracked: X | Estimated: Y" (counts unique players)
+[ ] Ghosts render as T3 (magenta) with jersey numbers
+[ ] No "ghost explosion" (max ~2-4 ghosts per frame in typical occlusions)
+[ ] Player count invariant maintained: tracked + estimated = level
+[ ] Ghosts excluded from all aggregation (clustering, voting, stats)
 ```
 
 **Notes:**
--
+- Simple PoC: no Kalman, no physics prediction
+- Ghosts follow occluder position until reappearance
+- Ghosts NEVER auto-expire - persist until reappearance or clip end
+- Level initialized from clip (first 30 frames), NOT a config parameter
+- Occluders are REAL visible players only (never ghosts)
+- Visualization counts unique PLAYERS, not detector tiers
+- Track PLAYERS (original_track_id), not FRAGMENTS (fragment_id)
+- Pass 2 only - no changes to Pass 1 or Pass 3
+
+**Testing command:**
+```bash
+python -m src.cli pass2 --run-dir videos/output/run_130226_101613
+```
 
 ---
 
@@ -250,25 +282,28 @@ Team cap is now hard-enforced in Pass 3: over-cap fragments are demoted to `unkn
 
 ---
 
-#### **Step 2.1: Re-Enable Ball Tracker** 🔴 P0
-- [ ] Read [src/detection/ball_detector.py](../src/detection/ball_detector.py) to find disable flag
-- [ ] Remove disable flag at line ~243
-- [ ] Verify centroid-based tracker re-enabled
-- [ ] Test on sample video
+#### **Step 2.1: Re-Enable Ball Tracker** 🔴 P0 ⏭️ **SKIPPED**
+- [x] Explored centroid-based tracker implementation
+- [x] Added safeguards (buffer size guard, confidence/size filters)
+- [x] Tested tracker - limited benefit with current YOLO model
+- [x] Decision: Skip centroid tracker, defer to Kalman filter (Step 2.2, Phase 1)
 
 **Estimated Time:** 2-3 hours
 **Files Modified:**
-- `src/detection/ball_detector.py`
+- `src/detection/ball_detector.py` - Tracker remains disabled
 
-**Test Results:**
+**Outcome:**
 ```
-[ ] Ball present in ≥70% of frames
-[ ] Ball trajectory mostly continuous (accept some noise)
-[ ] Detection gaps logged
+[x] Centroid tracker provides minimal benefit when YOLO model already returns correct ball 97% of time
+[x] Tracker cannot fix missing detections (only filters what YOLO provides)
+[x] Kalman filter (Step 2.2) is better solution - predicts position, fills gaps
+[x] Current approach: max(confidence) selection - simple and effective
 ```
 
 **Notes:**
--
+- Centroid tracker re-enabled and tested, but removed after analysis
+- YOLO model needs better recall (detect ball more consistently) before spatial tracking helps
+- Kalman filter (Phase 1) will provide prediction + gap filling - the real solution
 
 ---
 

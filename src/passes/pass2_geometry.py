@@ -628,6 +628,158 @@ def detect_overlap_identity_contradictions(
     return new_fragments
 
 
+def create_ghost_fragments(
+    fragments: list[dict[str, Any]],
+    pass1_tracks: dict[str, Any],
+    homography: Any,
+    level_init_frames: int = 30,
+) -> list[dict[str, Any]]:
+    """
+    Create ghost fragments to maintain player count invariant.
+
+    CRITICAL: Pass 1 is truth. Fragments are metadata only.
+    Ghost presence is determined by Pass 1 frame lists, not fragment spans.
+
+    Level is DYNAMIC: increases as more players enter the field, never decreases.
+    - Start with 10 players → level = 10
+    - 11th player enters → level = 11
+    - 12th player enters → level = 12 (capped)
+    - Level NEVER goes below the high water mark
+    """
+    # Step 1: Initialize level as rolling high water mark
+    # Start with a conservative estimate from first few frames
+    initial_level = 0
+    for frame in range(1, min(level_init_frames + 1, 11)):  # First 10 frames
+        present_count = len({
+            track_id
+            for track_id, track in pass1_tracks.items()
+            if frame in track.get("frames", [])
+        })
+        initial_level = max(initial_level, present_count)
+
+    level = min(12, initial_level)  # Cap at 12 for futsal
+    print(f"  Ghost tracking: initial level = {level} (from first 10 frames)")
+
+    # Step 2: Find all frames that need processing
+    all_frames_set = set()
+    for track in pass1_tracks.values():
+        all_frames_set.update(track.get("frames", []))
+
+    if not all_frames_set:
+        return fragments
+
+    all_frames = sorted(all_frames_set)
+    max_frame = max(all_frames)
+
+    # Step 3: For each frame, check if we need ghosts
+    # Level is DYNAMIC: updates as more players enter
+    ghost_fragments = []
+    active_ghosts = {}  # track_id -> {start_frame, positions, ...}
+    ghost_counter = 0
+
+    for frame in range(1, max_frame + 1):
+        # Compute present players from Pass 1 ONLY
+        present_players = {
+            track_id
+            for track_id, track in pass1_tracks.items()
+            if frame in track.get("frames", [])
+        }
+
+        present_count = len(present_players)
+
+        # DYNAMIC LEVEL: Update level if more players enter (never decrease)
+        # This handles players entering from off-screen
+        if present_count > level:
+            level = min(12, present_count)  # Cap at 12 for futsal
+
+        # Close ghosts for reappeared players
+        for track_id in list(active_ghosts.keys()):
+            if track_id in present_players:
+                # Player reappeared - close ghost
+                ghost = active_ghosts.pop(track_id)
+                ghost["end_frame"] = frame - 1
+                ghost["frame_count"] = ghost["end_frame"] - ghost["start_frame"] + 1
+                ghost_fragments.append(ghost)
+
+        # Create ghosts for missing players
+        missing_count = level - present_count
+        if missing_count > 0:
+            # Find which players are missing
+            all_known_players = set(pass1_tracks.keys())
+            missing_players = all_known_players - present_players
+
+            # Prioritize players that were recently seen
+            recently_seen = []
+            for track_id in missing_players:
+                track_frames = pass1_tracks[track_id].get("frames", [])
+                if track_frames and max(track_frames) >= frame - 60:  # Within last 2 seconds
+                    last_seen = max(f for f in track_frames if f < frame) if any(f < frame for f in track_frames) else 0
+                    recently_seen.append((track_id, last_seen))
+
+            recently_seen.sort(key=lambda x: x[1], reverse=True)
+
+            for track_id, last_seen in recently_seen[:missing_count]:
+                if track_id not in active_ghosts:
+                    # Create new ghost
+                    # Get last known bbox from Pass 1
+                    track_data = pass1_tracks[track_id]
+                    track_frames = track_data.get("frames", [])
+                    if last_seen in track_frames:
+                        idx = track_frames.index(last_seen)
+                        last_bbox = track_data["bboxes"][idx]
+                        last_centroid = track_data["centroids"][idx]
+
+                        # Find source fragment for team/jersey
+                        source_frag = None
+                        for frag in fragments:
+                            if (frag["original_track_id"] == track_id and
+                                frag["start_frame"] <= last_seen <= frag["end_frame"]):
+                                source_frag = frag
+                                break
+
+                        ghost = {
+                            "fragment_id": f"ghost_{ghost_counter:06d}",
+                            "original_track_id": track_id,
+                            "start_frame": frame,
+                            "end_frame": frame,  # Updated as ghost persists
+                            "frame_count": 0,
+                            "is_ghost": True,
+                            # CRITICAL: Exclude ghosts from all Pass 3 clustering/voting
+                            "exclude_from_clustering": True,
+                            "exclude_from_team_vote": True,
+                            "exclude_from_identity_vote": True,
+                            "exclude_from_stats": True,
+                            "pixel_bboxes": [last_bbox],
+                            "pixel_centroids": [last_centroid],
+                            "mean_hsv_histogram": source_frag.get("mean_hsv_histogram") if source_frag else None,
+                            "jersey_prob_timeline": source_frag.get("jersey_prob_timeline", {}) if source_frag else {},
+                            "spatial_footprint": {
+                                "court_positions": [],
+                                "mean_position": [0, 0],
+                                "spatial_variance": 0.0,
+                            },
+                            "visibility_quality": 0.0,
+                            "mean_confidence": 0.0,
+                        }
+                        active_ghosts[track_id] = ghost
+                        ghost_counter += 1
+                else:
+                    # Update existing ghost - hold position
+                    ghost = active_ghosts[track_id]
+                    ghost["pixel_bboxes"].append(ghost["pixel_bboxes"][-1])
+                    ghost["pixel_centroids"].append(ghost["pixel_centroids"][-1])
+                    ghost["end_frame"] = frame
+
+    # Close remaining ghosts (clip ended)
+    for ghost in active_ghosts.values():
+        ghost["frame_count"] = ghost["end_frame"] - ghost["start_frame"] + 1
+        ghost_fragments.append(ghost)
+
+    print(f"  Ghost fragments created: {len(ghost_fragments)}")
+    print(f"  Final level (high water mark): {level} players")
+    return fragments + ghost_fragments
+
+
 def run_pass2(run_dir: Path, config: dict):
     """
     Run Pass 2: Divergence Detection + Track Fragment Splitting.
@@ -890,6 +1042,16 @@ def process_clip_pass2(
                 f"{[(jid, round(conf, 3), cnt) for jid, conf, cnt in strong_jerseys]}"
             )
 
+    # Create ghost fragments (Pass 1-driven, fragment-agnostic)
+    ghost_cfg = config.get("ghost_tracking", {})
+    if ghost_cfg.get("enabled", True):
+        level_init_frames = int(ghost_cfg.get("level_init_frames", 30))
+        output_data["fragments"] = create_ghost_fragments(
+            fragments=output_data["fragments"],
+            pass1_tracks=tracks,
+            homography=homography,
+            level_init_frames=level_init_frames,
+        )
 
     # Save JSON
     output_path = output_dir / f"{pass1_file.stem}_fragments.json"

@@ -375,6 +375,13 @@ def _dedupe_overlapping_annotations(
     annotations: dict[str, dict],
     iou_threshold: float = 0.55,
 ) -> dict[str, dict]:
+    """
+    Remove duplicate annotations with high spatial overlap.
+
+    CRITICAL: Only suppresses annotations with the SAME track_id.
+    Different tracks (e.g., real player vs ghost of different player) are NEVER suppressed
+    even if they overlap spatially (ghost may be positioned at occluder's location).
+    """
     if not annotations:
         return annotations
 
@@ -393,6 +400,12 @@ def _dedupe_overlapping_annotations(
             track_id_b, ann_b = track_items[j]
             if track_id_b in suppressed:
                 continue
+
+            # CRITICAL: Only suppress if SAME track_id (duplicate detection)
+            # Different tracks should never suppress each other
+            if track_id_a != track_id_b:
+                continue
+
             bbox_b = ann_b.get("bbox")
             if not bbox_b or len(bbox_b) != 4:
                 continue
@@ -700,7 +713,7 @@ def visualize_clip(
                     "team_confidence": identity.get("team_confidence"),
                 }
 
-        print(f"  Fragment→Identity mappings: {len(fragment_identity_map)}")
+        print(f"  Fragment->Identity mappings: {len(fragment_identity_map)}")
 
         # Count team assignments
         team_breakdown = {"team_a": 0, "team_b": 0, "unknown": 0}
@@ -767,13 +780,16 @@ def visualize_clip(
                 track_frame_presence=track_frame_presence,
             )
 
-        print(f"  Track→Fragment mappings: {len(track_frame_to_fragment)} frame entries")
+        print(f"  Track->Fragment mappings: {len(track_frame_to_fragment)} frame entries")
         if bridged_track_frame_to_fragment:
             print(f"  Micro-gap bridge mappings: {len(bridged_track_frame_to_fragment)} frame entries")
         if preanchor_backfill_map:
             print(f"  Pre-anchor backfill mappings: {len(preanchor_backfill_map)} frame entries")
         if jersey_persistence_map:
             print(f"  Track jersey persistence mappings: {len(jersey_persistence_map)} frame entries")
+
+    # Load homography for ghost bbox conversion (court → pixel)
+    homography = create_homography_from_config(config)
 
     # Build frame-by-frame annotation data
     # Structure: {frame_idx: {track_id: {"bbox": [...], "team": "...", "jersey": ...}}}
@@ -844,6 +860,71 @@ def visualize_clip(
                 "label_source": label_source,
                 "team_confidence": team_confidence,
             }
+
+    # Process ghost fragments (Pass 2 only - no Pass 1 tracks)
+    # Ghosts maintain player count invariant when real players are occluded
+    ghost_count = 0
+    if pass2_data and homography:
+        for fragment in pass2_data.get("fragments", []):
+            if not fragment.get("is_ghost", False):
+                continue  # Skip real fragments
+
+            ghost_count += 1
+            track_id = str(fragment["original_track_id"])  # Ensure string for consistency
+            frag_id = fragment["fragment_id"]
+            start_frame = fragment["start_frame"]
+            end_frame = fragment["end_frame"]
+            positions = fragment.get("spatial_footprint", {}).get("court_positions", [])
+
+            # Get ghost identity from fragment_identity_map
+            team = "unknown"
+            jersey = None
+            jersey_confidence = 0.0
+            if frag_id in fragment_identity_map:
+                identity = fragment_identity_map[frag_id]
+                team = identity.get("team", "unknown")
+                jersey = identity.get("jersey")
+                jersey_confidence = float(identity.get("confidence", 0.0))
+
+            # Use pixel bboxes directly from ghost fragment (Pass 1 resolution)
+            pixel_bboxes = fragment.get("pixel_bboxes", [])
+
+            for i in range(len(pixel_bboxes)):
+                frame_idx = start_frame + i
+                if frame_idx > end_frame:
+                    break
+
+                bbox = pixel_bboxes[i]
+
+                if frame_idx not in frame_annotations:
+                    frame_annotations[frame_idx] = {}
+
+                # Mark as ghost for visualization (will be rendered as T3/estimated)
+                frame_annotations[frame_idx][track_id] = {
+                    "bbox": bbox,
+                    "team": team,
+                    "jersey": jersey,
+                    "jersey_confidence": jersey_confidence,
+                    "fragment_id": frag_id,
+                    "is_ghost": True,  # Mark as ghost for T3 rendering
+                    "raw_jersey_id": None,
+                    "raw_jersey_conf": 0.0,
+                    "label_source": "ghost",
+                    "team_confidence": 0.0,
+                }
+
+                # Update stats
+                team_counts[team] = team_counts.get(team, 0) + 1
+                if jersey is not None:
+                    jersey_counts[jersey] = jersey_counts.get(jersey, 0) + 1
+
+    if ghost_count > 0:
+        print(f"  Ghost fragments processed: {ghost_count}")
+        # Debug: Check which frames have ghosts
+        ghost_frames = [frame_idx for frame_idx, anns in frame_annotations.items()
+                       if any(ann.get("is_ghost", False) for ann in anns.values())]
+        if ghost_frames:
+            print(f"  Frames with ghosts: {ghost_frames[:10]}")  # Show first 10
 
     print(f"  Team assignments: {team_counts}")
     print(f"  Jersey assignments: {jersey_counts}")
@@ -928,6 +1009,7 @@ def visualize_clip(
             frag_id = data.get("fragment_id")
             raw_jersey_id = data.get("raw_jersey_id")
             raw_jersey_conf = float(data.get("raw_jersey_conf", 0.0))
+            is_ghost = data.get("is_ghost", False)
 
             # Scale bbox to output size
             x1 = int(bbox[0] * output_scale)
@@ -935,22 +1017,35 @@ def visualize_clip(
             x2 = int(bbox[2] * output_scale)
             y2 = int(bbox[3] * output_scale)
 
-            # Get team color
+            # Get team color (same for real players and ghosts)
             color = TEAM_COLORS.get(team, TEAM_COLORS["unknown"])
             b, g, r = color
             luminance = 0.114 * b + 0.587 * g + 0.299 * r
             text_color = (255, 255, 255) if luminance < 128 else (0, 0, 0)
 
-            # Draw ellipse around player (archive style)
+            # Draw ellipse around player (archive style) or dotted box for ghosts
             det = sv.Detections(
                 xyxy=np.array([[x1, y1, x2, y2]]),
                 class_id=np.array([0]),
             )
-            ellipse_color = sv.Color(color[2], color[1], color[0])
-            frame_bgr = sv.EllipseAnnotator(color=ellipse_color, thickness=2).annotate(frame_bgr, det)
+            if is_ghost:
+                # Draw dotted rectangle for ghosts (T3/estimated)
+                dash_length = 8
+                for i in range(x1, x2, dash_length * 2):
+                    cv2.line(frame_bgr, (i, y1), (min(i + dash_length, x2), y1), color, 2)
+                    cv2.line(frame_bgr, (i, y2), (min(i + dash_length, x2), y2), color, 2)
+                for i in range(y1, y2, dash_length * 2):
+                    cv2.line(frame_bgr, (x1, i), (x1, min(i + dash_length, y2)), color, 2)
+                    cv2.line(frame_bgr, (x2, i), (x2, min(i + dash_length, y2)), color, 2)
+            else:
+                # Draw ellipse for real players
+                ellipse_color = sv.Color(color[2], color[1], color[0])
+                frame_bgr = sv.EllipseAnnotator(color=ellipse_color, thickness=2).annotate(frame_bgr, det)
 
             # Build label (always show track id; jersey overlay is Pass 3 assigned ONLY)
             label_parts = [f"T{track_id}"]
+            if is_ghost:
+                label_parts.append("(EST)")
             if frag_id:
                 frag_suffix = frag_id.replace("frag_", "F")
                 label_parts.append(f": {frag_suffix}")
@@ -1090,6 +1185,46 @@ def visualize_clip(
             frame_font_scale,
             (255, 255, 255),
             frame_thickness,
+        )
+
+        # Draw player count ticker (top-right): "Tracked: X | Estimated: Y"
+        # Count unique PLAYERS from current frame annotations
+        tracked_players = set()
+        estimated_players = set()
+        for track_id, data in annotations.items():
+            if data.get("is_ghost", False):
+                estimated_players.add(track_id)
+            else:
+                tracked_players.add(track_id)
+
+        tracked_count = len(tracked_players)
+        estimated_count = len(estimated_players)
+        total_count = tracked_count + estimated_count
+        ticker_text = f"Tracked: {tracked_count} | Estimated: {estimated_count} | Total: {total_count}"
+        ticker_y = 84  # Same Y as frame counter (line 1181)
+        ticker_x = output_width - 550  # Top-right (adjusted for longer text)
+
+        # Semi-transparent background
+        (text_w, text_h), _ = cv2.getTextSize(ticker_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+        overlay = frame_bgr.copy()
+        cv2.rectangle(
+            overlay,
+            (ticker_x - 5, ticker_y - text_h - 5),
+            (ticker_x + text_w + 5, ticker_y + 5),
+            (0, 0, 0),
+            -1,
+        )
+        frame_bgr = cv2.addWeighted(overlay, 0.6, frame_bgr, 0.4, 0)
+
+        # Draw text
+        cv2.putText(
+            frame_bgr,
+            ticker_text,
+            (ticker_x, ticker_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 255),
+            2,
         )
 
         # Convert back to RGB for writer
