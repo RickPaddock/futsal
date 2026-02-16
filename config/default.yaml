@@ -44,7 +44,7 @@ team_clustering:
   unknown_replacement_max_loser_frames: 260
   unknown_replacement_max_age_delta_frames: 90
   retro_track_max_anchor_gap_frames: 5
-  retro_track_min_source_confidence: 3.0
+  retro_track_min_source_confidence: 1.5  # Lower threshold to backfill weak jersey assignments
   continuity_lock_window_frames: 12  # Lock fragments starting soon after identity jumps
   color_correction_min_duration_frames: 20
   color_correction_min_margin: 0.35

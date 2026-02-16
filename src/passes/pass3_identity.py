@@ -1901,6 +1901,45 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
         }
         identities.append(identity)
 
+    # CRITICAL: Inherit team/jersey for ghosts from their overlapping real fragments
+    # Ghosts are excluded from K-means, so they need to inherit identity from source
+    ghost_identities = [i for i in identities if i.get("is_ghost", False)]
+    real_identities = {i["fragment_id"]: i for i in identities if not i.get("is_ghost", False)}
+
+    for ghost in ghost_identities:
+        ghost_track_id = None
+        ghost_start = ghost.get("start_frame")
+        ghost_end = ghost.get("end_frame")
+
+        # Find ghost's original_track_id from fragments
+        for frag in fragments:
+            if frag.get("fragment_id") == ghost["fragment_id"]:
+                ghost_track_id = frag.get("original_track_id")
+                break
+
+        if not ghost_track_id:
+            continue
+
+        # Find overlapping real fragment on same track
+        for frag in fragments:
+            if frag.get("is_ghost", False):
+                continue
+            if frag.get("original_track_id") != ghost_track_id:
+                continue
+
+            frag_start = frag.get("start_frame")
+            frag_end = frag.get("end_frame")
+
+            # Check for overlap
+            if frag_start <= ghost_end and frag_end >= ghost_start:
+                source_identity = real_identities.get(frag.get("fragment_id"))
+                if source_identity and source_identity.get("team") != "unknown":
+                    # Inherit team and jersey from source fragment
+                    ghost["team"] = source_identity["team"]
+                    ghost["jersey_number"] = source_identity.get("jersey_number")
+                    ghost["team_confidence"] = source_identity.get("team_confidence", 0.0)
+                    break  # Found source, stop searching
+
     output_data = {
         "clip_name": clip_name,
         "identities": identities,
@@ -2428,6 +2467,12 @@ def _retro_backfill_same_track_jerseys(
                     while 0 <= cursor < len(track_frags):
                         target_fragment = track_frags[cursor]
                         target_id = target_fragment.get("fragment_id")
+
+                        # CRITICAL: Skip ghosts - they don't participate in jersey backfill
+                        if target_fragment.get("is_ghost", False):
+                            cursor += direction
+                            continue
+
                         if not target_id:
                             cursor += direction
                             continue

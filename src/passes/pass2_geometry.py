@@ -753,6 +753,10 @@ def create_ghost_fragments(
                             "pixel_centroids": [last_centroid],
                             "mean_hsv_histogram": source_frag.get("mean_hsv_histogram") if source_frag else None,
                             "jersey_prob_timeline": source_frag.get("jersey_prob_timeline", {}) if source_frag else {},
+                            # CRITICAL: Inherit team and jersey from source fragment
+                            # Ghosts should retain identity attributes of the player being estimated
+                            "team": source_frag.get("team") if source_frag else "unknown",
+                            "jersey": source_frag.get("jersey") if source_frag else None,
                             "spatial_footprint": {
                                 "court_positions": [],
                                 "mean_position": [0, 0],
@@ -764,10 +768,50 @@ def create_ghost_fragments(
                         active_ghosts[track_id] = ghost
                         ghost_counter += 1
                 else:
-                    # Update existing ghost - hold position
+                    # Update existing ghost - follow nearest visible player (occluder)
                     ghost = active_ghosts[track_id]
-                    ghost["pixel_bboxes"].append(ghost["pixel_bboxes"][-1])
-                    ghost["pixel_centroids"].append(ghost["pixel_centroids"][-1])
+                    last_centroid = ghost["pixel_centroids"][-1]
+
+                    # Find nearest visible player to use as occluder
+                    nearest_bbox = None
+                    nearest_centroid = None
+                    min_distance = float('inf')
+
+                    for other_track_id in present_players:
+                        if other_track_id == track_id:
+                            continue  # Don't use self
+
+                        other_track = pass1_tracks.get(other_track_id)
+                        if not other_track:
+                            continue
+
+                        other_frames = other_track.get("frames", [])
+                        if frame not in other_frames:
+                            continue
+
+                        idx = other_frames.index(frame)
+                        other_bbox = other_track["bboxes"][idx]
+                        other_centroid = other_track["centroids"][idx]
+
+                        # Calculate distance from ghost's last position
+                        dx = other_centroid[0] - last_centroid[0]
+                        dy = other_centroid[1] - last_centroid[1]
+                        distance = (dx**2 + dy**2) ** 0.5
+
+                        if distance < min_distance:
+                            min_distance = distance
+                            nearest_bbox = other_bbox
+                            nearest_centroid = other_centroid
+
+                    # Use occluder's position if found, otherwise hold last position
+                    if nearest_bbox is not None:
+                        ghost["pixel_bboxes"].append(nearest_bbox)
+                        ghost["pixel_centroids"].append(nearest_centroid)
+                    else:
+                        # No visible players - hold position
+                        ghost["pixel_bboxes"].append(ghost["pixel_bboxes"][-1])
+                        ghost["pixel_centroids"].append(ghost["pixel_centroids"][-1])
+
                     ghost["end_frame"] = frame
 
     # Close remaining ghosts (clip ended)
