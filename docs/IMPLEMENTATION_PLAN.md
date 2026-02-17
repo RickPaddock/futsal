@@ -183,31 +183,34 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 ## Priority 4: Detectors & Video I/O (Day 5)
 
 ### ML Model Wrappers
-- [ ] **[src/detectors/player_detector.py](../src/detectors/player_detector.py)** - YOLO wrapper
-  - [ ] Load `models/PLAYER_MODEL_best_v1.pt`
-  - [ ] `detect(frame)` - Return bboxes with confidence
-  - [ ] Apply PLAYER_CONF_THRESHOLD (0.5)
+- [x] **[src/detectors/player_detector.py](../src/detectors/player_detector.py)** - YOLO wrapper ✅
+  - [x] Load `models/PLAYER_MODEL_best_v1.pt`
+  - [x] `detect(frame)` - Return bboxes with confidence
+  - [x] Apply PLAYER_CONF_THRESHOLD (0.5)
+  - [x] Multi-layer bbox defense (huge bbox filter)
 
-- [ ] **[src/detectors/ball_detector.py](../src/detectors/ball_detector.py)** - YOLO wrapper
-  - [ ] Load `models/BALL_MODEL_best_v2.pt`
-  - [ ] `detect(frame)` - Return ball bboxes
-  - [ ] Apply BALL_CONF_THRESHOLD (0.3)
+- [x] **[src/detectors/ball_detector.py](../src/detectors/ball_detector.py)** - YOLO wrapper ✅
+  - [x] Load `models/BALL_MODEL_best_v2.pt`
+  - [x] `detect(frame)` - Return ball bboxes
+  - [x] Apply BALL_CONF_THRESHOLD (0.3)
 
-- [ ] **[src/detectors/jersey_classifier.py](../src/detectors/jersey_classifier.py)** - YOLO wrapper
-  - [ ] Load `models/JERSEY_MODEL_best_v1.pt`
-  - [ ] `classify(frame, bbox)` - Return jersey number + confidence
-  - [ ] Apply JERSEY_CONF_THRESHOLD (0.3, lower per memory learnings)
+- [x] **[src/detectors/jersey_classifier.py](../src/detectors/jersey_classifier.py)** - YOLO wrapper ✅
+  - [x] Load `models/JERSEY_MODEL_best_v1.pt`
+  - [x] `classify(frame, bbox)` - Return jersey number + confidence
+  - [x] Apply JERSEY_CONF_THRESHOLD (0.3, lower per memory learnings)
+  - [x] `get_probabilities()` - Return probability distribution for Pass 3A
 
-- [ ] **[src/detectors/tracker.py](../src/detectors/tracker.py)** - ByteTrack wrapper
-  - [ ] Initialize with TRACK_HIGH_THRESH (0.6), TRACK_LOW_THRESH (0.1)
-  - [ ] `update(detections)` - Return tracked detections with track_id
-  - [ ] Handle track lifecycle (birth, continuation, death)
+- [x] **[src/detectors/tracker.py](../src/detectors/tracker.py)** - ByteTrack wrapper ✅
+  - [x] Initialize with TRACK_HIGH_THRESH (0.6), TRACK_LOW_THRESH (0.1)
+  - [x] `update(detections)` - Return tracked detections with track_id
+  - [x] Handle track lifecycle (birth, continuation, death)
+  - [x] Fallback tracker if ByteTrack not available
 
 ### Video I/O
-- [ ] **[src/utils/video_io.py](../src/utils/video_io.py)** - Video reading/writing
-  - [ ] `VideoReader` class (using `av` library)
-  - [ ] `VideoWriter` class for visualization output
-  - [ ] Frame iteration, fps, width, height properties
+- [x] **[src/utils/video_io.py](../src/utils/video_io.py)** - Video reading/writing ✅ (completed in Priority 1)
+  - [x] `VideoReader` class (using `av` library)
+  - [x] `VideoWriter` class for visualization output
+  - [x] Frame iteration, fps, width, height properties
 
 ---
 
