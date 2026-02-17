@@ -163,20 +163,20 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 
 **⚠️ MUST BE COMPLETED BEFORE UPSTREAM PASSES (Pass 1, 2A, 2B, 3A, 3B)**
 
-- [ ] **[src/skills/pass3c_identity_solver.py](../src/skills/pass3c_identity_solver.py)** - Constraint satisfaction solver
-  - [ ] **Input**: Pass 3B constraints, Pass 2C fragments
-  - [ ] **Algorithm**:
-    - [ ] 1. Resolve identity using MUST_SAME constraints (track adjacency, ghost continuity)
-    - [ ] 2. Assign teams via K-means clustering on resolved identities
-    - [ ] 3. Lock teams immediately via `_locked_team` (single source of truth)
-    - [ ] 4. Apply jersey inheritance (bidirectional with temporal exclusivity check)
-    - [ ] 5. Validate CANNOT_SAME constraints (temporal conflicts)
-    - [ ] 6. Optimize SOFT_SAME constraints (track continuity)
-    - [ ] 7. FAIL-FAST if unresolved conflicts
-  - [ ] **Helper: `_assign_and_lock_teams(fragments)`** - K-means team assignment, exclude ghosts
-  - [ ] **Helper: `_apply_jersey_inheritance(graph, fragments, assignments)`** - Bidirectional propagation
-  - [ ] **Helper: `_jersey_available(jersey, fragment, assignments)`** - Temporal exclusivity check
-  - [ ] **Output**: `CommittedIdentity` objects (player_id, team, jersey - all locked)
+- [x] **[src/skills/pass3c_identity_solver.py](../src/skills/pass3c_identity_solver.py)** - Constraint satisfaction solver ✅
+  - [x] **Input**: Pass 3B constraints, Pass 2C fragments
+  - [x] **Algorithm**:
+    - [x] 1. Resolve identity using MUST_SAME constraints (track adjacency, ghost continuity)
+    - [x] 2. Assign teams via K-means clustering on resolved identities
+    - [x] 3. Lock teams immediately via `_locked_team` (single source of truth)
+    - [x] 4. Apply jersey inheritance (bidirectional with temporal exclusivity check)
+    - [x] 5. Validate CANNOT_SAME constraints (temporal conflicts)
+    - [x] 6. Optimize SOFT_SAME constraints (track continuity)
+    - [x] 7. FAIL-FAST if unresolved conflicts
+  - [x] **Helper: `_assign_and_lock_teams(fragments)`** - K-means team assignment, exclude ghosts
+  - [x] **Helper: `_apply_jersey_inheritance(graph, fragments, assignments)`** - Bidirectional propagation
+  - [x] **Helper: `_jersey_available(jersey, fragment, assignments)`** - Temporal exclusivity check
+  - [x] **Output**: `CommittedIdentity` objects (player_id, team, jersey - all locked)
 
 ---
 
