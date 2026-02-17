@@ -39,17 +39,11 @@ class BallDetector:
         self._load_model()
 
     def _load_model(self):
-        """Load YOLO model."""
-        try:
-            from ultralytics import YOLO
-            self.model = YOLO(str(self.model_path))
-            self.logger.info(f"Loaded ball detection model: {self.model_path}")
-        except ImportError:
-            raise ImportError(
-                "ultralytics package not found. Install with: pip install ultralytics"
-            )
-        except Exception as e:
-            raise RuntimeError(f"Failed to load ball model: {e}")
+        """Load YOLO model. FAIL HARD if not available."""
+        from ultralytics import YOLO  # Hard import - no try/except
+
+        self.model = YOLO(str(self.model_path))
+        self.logger.info(f"Loaded ball detection model: {self.model_path}")
 
     def detect(
         self,

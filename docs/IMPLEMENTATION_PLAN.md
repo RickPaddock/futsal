@@ -133,6 +133,11 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - [x] `validate_pass3b_constraints()` - Constraint types, fragment references, MUST/SOFT validity
   - [x] `validate_pass3c_identity_commit()` - No unresolved conflicts, R2, R3, player_id format
   - [x] `validate_pass3()` - All Pass 3 checks including identity lock point
+  - [ ] **Add compactness-aware team validation (NEW)**
+    - [ ] Assert exactly 2 resolved teams after Pass 3C
+    - [ ] Assert compactness metrics exist (`cluster_compactness`, `compactness_ratio`)
+    - [ ] Assert one cluster is compact OR both clusters compact (bib-vs-random tolerant)
+    - [ ] FAIL-FAST if both clusters are diffuse and compactness difference < threshold
 
 - [x] **[src/validation/ball_rules.py](../src/validation/ball_rules.py)** - Ball validation ✅
   - [x] `validate_ball_interpolation()` - R5, gap limits, speed plausibility
@@ -167,7 +172,7 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - [x] **Input**: Pass 3B constraints, Pass 2C fragments
   - [x] **Algorithm**:
     - [x] 1. Resolve identity using MUST_SAME constraints (track adjacency, ghost continuity)
-    - [x] 2. Assign teams via K-means clustering on resolved identities
+    - [x] 2. Assign teams via K-means clustering on resolved identities (jersey HSV only)
     - [x] 3. Lock teams immediately via `_locked_team` (single source of truth)
     - [x] 4. Apply jersey inheritance (bidirectional with temporal exclusivity check)
     - [x] 5. Validate CANNOT_SAME constraints (temporal conflicts)
@@ -177,6 +182,27 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - [x] **Helper: `_apply_jersey_inheritance(graph, fragments, assignments)`** - Bidirectional propagation
   - [x] **Helper: `_jersey_available(jersey, fragment, assignments)`** - Temporal exclusivity check
   - [x] **Output**: `CommittedIdentity` objects (player_id, team, jersey - all locked)
+
+### Pass 3C Team Clustering Robustness (NEW - bibbed vs random)
+- [ ] **Compact-vs-diffuse interpretation inside clustering (no downstream hacks)**
+  - [ ] Run K-means (K=2) on **jersey HSV only**
+  - [x] Gate K-means inputs by fragment quality metadata when available (`quality_score`, `hsv_consistency`)
+  - [ ] Compute cluster compactness (intra-cluster variance or mean pairwise distance)
+  - [ ] Identify more compact cluster as bibbed team evidence
+  - [ ] Assign TEAM_A/TEAM_B deterministically from compactness interpretation, not raw label index
+  - [ ] Lock assignments once resolved (no frame-by-frame oscillation)
+  - [ ] Keep behavior symmetric for bib-vs-bib (both compact)
+  - [ ] Keep behavior tolerant for bib-vs-random (one compact, one diffuse)
+  - [ ] **Do NOT subcluster teams downstream** (team membership stays binary at Pass 3C)
+
+- [ ] **Ambiguity fail-fast rule (contract-level)**
+  - [ ] Define `COMPACTNESS_DIFF_MIN` threshold in constants
+  - [ ] If both clusters are diffuse and compactness difference < threshold → FAIL-FAST
+  - [ ] Write compactness diagnostics to `pass3_validation.json`
+
+- [ ] **Debug metrics additions**
+  - [ ] Add `cluster_compactness_a`, `cluster_compactness_b`, `compactness_ratio` to `debug_metrics.json`
+  - [ ] Add `team_assignment_mode` (`compactness_guided_kmeans`) to solver log
 
 ---
 
@@ -217,20 +243,22 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 ## Priority 5: Pipeline Skills - Passes 1 & 2 (Days 6-7)
 
 ### Pass 1: Raw Evidence
-- [ ] **[src/skills/pass1_extractor.py](../src/skills/pass1_extractor.py)** - Raw evidence extraction
-  - [ ] Run YOLO player detection
-  - [ ] **Filter huge bboxes** (`_filter_huge_bboxes()` - multi-layer defense):
-    - [ ] Layer 1: Absolute limits (800px height, 600px width)
-    - [ ] Layer 2: Relative limit (25% frame area)
-  - [ ] Run ByteTrack for temporary track_ids
-  - [ ] Run jersey classifier (conf ≥ 0.3)
-  - [ ] Extract HSV histograms (8x8x8 bins)
-  - [ ] Run ball detector
-  - [ ] Create detection_id: `{frame_idx}_{track_id}_{bbox_hash}`
-  - [ ] **NO team assignment, NO identity, NO player_id**
-  - [ ] Save `pass1_raw.json`
-  - [ ] Validate output (call validator.validate_pass1)
-  - [ ] FAIL-FAST if validation fails
+- [x] **[src/skills/pass1_extractor.py](../src/skills/pass1_extractor.py)** - Raw evidence extraction ✅
+  - [x] Run YOLO player detection
+  - [x] **Filter huge bboxes** (multi-layer defense built into PlayerDetector):
+    - [x] Layer 1: Absolute limits (800px height, 600px width)
+    - [x] Layer 2: Relative limit (25% frame area)
+  - [x] Run ByteTrack for temporary track_ids
+  - [x] Run jersey classifier (conf ≥ 0.3)
+  - [x] Extract HSV histograms (8x8x8 bins) from jersey ROI only (full-body HSV removed)
+  - [x] Persist ROI geometry evidence (`jersey_roi_bbox`, `jersey_roi_valid`) for deterministic auditability
+  - [x] Run ball detector
+  - [x] Create detection_id: `{frame_idx}_{track_id}_{bbox_hash}`
+  - [x] **NO team assignment, NO identity, NO player_id**
+  - [x] Save `pass1_raw.json`
+  - [x] Validate output (call validator.validate_pass1)
+  - [x] FAIL-FAST if validation fails
+- [x] **[test_pass1.py](../test_pass1.py)** - Test script for Pass 1 ✅
 
 ### Pass 2A: Mechanical Fragmentation
 - [ ] **[src/skills/pass2a_fragmenter.py](../src/skills/pass2a_fragmenter.py)** - Track splitting

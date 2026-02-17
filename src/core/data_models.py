@@ -34,8 +34,24 @@ class Detection(BaseModel):
     A single player detection from Pass 1.
 
     Per CLAUDE.md R1: Pass 1 is raw truth only.
-    - MUST contain: bbox, confidence, track_id, jersey probs, HSV histogram
+    - MUST contain: bbox, confidence, track_id, jersey probs
     - MUST NOT contain: team, player_id, or any interpretation
+
+    Field meanings:
+    - detection_id: Stable row identity within Pass 1 for audit/join operations.
+    - frame_idx: Frame index where this detection occurred.
+    - bbox: Player bounding box [x1, y1, x2, y2] in frame coordinates.
+    - centroid: Geometric center of bbox, used for motion/proximity reasoning.
+    - confidence: Detector confidence for the player bbox.
+    - track_id: Temporary tracker id (Pass 1-local, not final identity).
+    - jersey_number: Observed jersey digit if classifier confidence passes threshold.
+    - jersey_confidence: Confidence for jersey_number.
+    - jersey_probs: Full jersey probability distribution for downstream evidence.
+    - hsv_histogram_jersey: Jersey-ROI HSV evidence for team clustering.
+    - jersey_roi_valid: Whether jersey ROI extraction succeeded for this detection.
+    - jersey_roi_bbox: Exact ROI box used for jersey HSV extraction.
+    - is_sam_recovered: Marker that detection came from SAM-based recovery path.
+    - sam_bbox: SAM-derived bbox when recovery is used.
     """
     detection_id: DetectionID  # Format: {frame_idx}_{track_id}_{bbox_hash}
     frame_idx: FrameIndex
@@ -50,7 +66,9 @@ class Detection(BaseModel):
     jersey_confidence: float = 0.0
     jersey_probs: Optional[JerseyProbs] = None  # Full probability distribution
 
-    hsv_histogram: Optional[HSVHistogram] = None  # 512 bins (8x8x8), normalized
+    hsv_histogram_jersey: Optional[HSVHistogram] = None  # PRIMARY for team assignment
+    jersey_roi_valid: bool = False
+    jersey_roi_bbox: Optional[BBox] = None
 
     # SAM recovery markers (if detection recovered via segmentation)
     is_sam_recovered: bool = False
@@ -64,6 +82,12 @@ class Detection(BaseModel):
 class BallDetection(BaseModel):
     """
     A single ball detection from Pass 1.
+
+    Field meanings:
+    - frame_idx: Frame index where ball was detected.
+    - bbox: Ball bounding box [x1, y1, x2, y2].
+    - centroid: Ball center point.
+    - confidence: Detector confidence for this ball observation.
     """
     frame_idx: FrameIndex
     bbox: BBox  # [x1, y1, x2, y2]
@@ -76,12 +100,25 @@ class Pass1Output(BaseModel):
     Output from Pass 1: Raw Evidence Collection.
 
     Per CLAUDE.md Section 5 (Pass 1).
+
+    Field meanings:
+    - video_name: Clip stem used for artifact naming and audit.
+    - fps: Source frame rate used for timing and interpolation limits.
+    - width: Frame width in pixels.
+    - height: Frame height in pixels.
+    - total_frames: Total frame count for the source clip.
+    - processed_start_frame: Inclusive start frame processed in this run.
+    - processed_end_frame_exclusive: Exclusive end frame processed in this run.
+    - detections: Player detection evidence rows.
+    - ball_detections: Ball detection evidence rows.
     """
     video_name: str
     fps: float
     width: int  # Frame width in pixels
     height: int  # Frame height in pixels
     total_frames: int
+    processed_start_frame: int = 0
+    processed_end_frame_exclusive: Optional[int] = None
 
     detections: List[Detection]  # Player detections
     ball_detections: List[BallDetection]  # Ball detections
@@ -97,6 +134,15 @@ class Fragment(BaseModel):
 
     Per CLAUDE.md Section 2: fragment_id is immutable.
     Created in Pass 2A via mechanical splitting.
+
+    Field meanings:
+    - fragment_id: Immutable fragment identifier.
+    - original_track_id: Pass 1 track that produced this fragment.
+    - start_frame: First frame covered by this fragment.
+    - end_frame: Last frame covered by this fragment.
+    - detection_ids: Ordered references to Pass 1 detection rows.
+    - split_reason: Mechanical reason this fragment was created/split.
+    - parent_fragment_id: Source fragment when created by split operation.
     """
     fragment_id: FragmentID  # Format: F{counter:06d} (globally unique, immutable)
     original_track_id: TrackID  # ByteTrack ID that created this fragment
@@ -126,6 +172,16 @@ class ScoredFragment(Fragment):
     Fragment with quality scoring added in Pass 2B.
 
     Extends Fragment with quality metadata.
+
+    Field meanings:
+    - quality: Discrete quality label (high/medium/low/ghost).
+    - quality_score: Continuous overall quality score in [0, 1].
+    - quality_reasons: Audit reasons explaining the quality_score.
+    - avg_confidence: Mean detection confidence over fragment lifespan.
+    - min_confidence: Minimum detection confidence over fragment lifespan.
+    - avg_bbox_stability: Spatial smoothness metric (higher = steadier box).
+    - jersey_consistency: Stability of jersey observations within fragment.
+    - hsv_consistency: Stability of HSV appearance within fragment.
     """
     quality: FragmentQuality
     quality_score: float  # 0-1 continuous score
@@ -157,6 +213,15 @@ class GhostFragment(ScoredFragment):
 
     Per CLAUDE.md R4: Players never disappear.
     Ghosts are excluded from K-means clustering (Pass 3C).
+
+    Field meanings:
+    - quality: Always ghost for ghost rows.
+    - is_ghost: Explicit marker for downstream exclusion/inference rules.
+    - ghost_reason: Why the ghost was created (occlusion/off-screen/etc).
+    - estimated_position: Held bbox estimate while player is missing.
+    - estimated_centroid: Held centroid estimate while player is missing.
+    - source_fragment_id: Fragment that spawned this ghost.
+    - source_track_id: Original track lineage for this ghost.
     """
     quality: FragmentQuality = FragmentQuality.GHOST  # Always GHOST
     is_ghost: bool = True
@@ -186,6 +251,15 @@ class IdentityCandidate(BaseModel):
     Identity candidates for a fragment (Pass 3A).
 
     Per CLAUDE.md Section 5 (Pass 3A): NO LOCKING (candidates only).
+
+    Field meanings:
+    - fragment_id: Target fragment being evaluated.
+    - candidate_team: Proposed team label (not committed).
+    - candidate_jersey: Proposed jersey number (not committed).
+    - candidate_player_id: Proposed player id (not committed).
+    - team_evidence: Evidence breakdown for team scoring.
+    - jersey_evidence: Evidence breakdown for jersey scoring.
+    - player_evidence: Evidence breakdown for player scoring.
     """
     fragment_id: FragmentID
     candidate_team: Optional[TeamID] = None
@@ -217,6 +291,14 @@ class Constraint(BaseModel):
     - MUST_SAME: Track adjacency + ghost continuity (hard identity constraint)
     - CANNOT_SAME: Jersey temporal exclusivity (hard exclusion)
     - SOFT_SAME: Track continuity preferences (soft)
+
+    Field meanings:
+    - constraint_id: Unique identifier for this constraint.
+    - constraint_type: MUST_SAME / CANNOT_SAME / SOFT_SAME.
+    - fragment_ids: Fragment ids participating in this constraint.
+    - value: Optional payload associated with the constraint.
+    - weight: Weight for soft optimization constraints.
+    - reason: Human-readable reason for why constraint exists.
     """
     constraint_id: str  # Unique constraint identifier
     constraint_type: ConstraintType
@@ -244,6 +326,16 @@ class CommittedIdentity(BaseModel):
 
     Per CLAUDE.md P3: Identity is immutable after Pass 3C.
     Per CLAUDE.md R2: team MUST be team_a or team_b (no "unknown").
+
+    Field meanings:
+    - fragment_id: Fragment receiving final committed identity.
+    - player_id: Final immutable player id.
+    - team: Final immutable team assignment.
+    - jersey_number: Final immutable jersey number.
+    - assignment_method: Method used to produce assignment.
+    - assignment_confidence: Confidence score for assignment.
+    - assignment_reasons: Explainability trail for the assignment.
+    - _locked_team: Internal lock source used to enforce team immutability.
     """
     fragment_id: FragmentID
     player_id: PlayerID  # Format: P{jersey:02d}_{team} (immutable)
@@ -281,6 +373,13 @@ class BallPosition(BaseModel):
 
     Per CLAUDE.md R5: Ball state exists at every frame.
     State ∈ {real, interpolated, out_of_play}
+
+    Field meanings:
+    - frame_idx: Frame index for this ball state row.
+    - state: real / interpolated / out_of_play.
+    - centroid: Ball position if state has on-court position.
+    - bbox: Detection bbox for real observations.
+    - confidence: Confidence/proxy confidence for this state.
     """
     frame_idx: FrameIndex
     state: BallState  # real, interpolated, or out_of_play
@@ -307,6 +406,14 @@ class BallInterpolationOutput(BaseModel):
 class ValidationViolation(BaseModel):
     """
     A single validation violation.
+
+    Field meanings:
+    - rule: Rule identifier (global or pass-specific).
+    - severity: error or warning.
+    - message: Human-readable violation message.
+    - frame_idx: Optional frame context.
+    - fragment_id: Optional fragment context.
+    - details: Structured violation payload for debugging.
     """
     rule: str  # R1, R2, etc.
     severity: str  # "error", "warning"
@@ -319,6 +426,13 @@ class ValidationViolation(BaseModel):
 class ValidationResult(BaseModel):
     """
     Result of validation check.
+
+    Field meanings:
+    - passed: True only when no blocking violations exist.
+    - violations: Blocking rule failures.
+    - warnings: Non-blocking issues.
+    - timestamp: ISO8601 time validation completed.
+    - pass_name: Validation scope (pass1/pass2/pass3/ball/etc).
     """
     passed: bool
     violations: List[ValidationViolation] = Field(default_factory=list)
@@ -334,6 +448,16 @@ class ValidationResult(BaseModel):
 class FrameMetrics(BaseModel):
     """
     Debug metrics for a single frame.
+
+    Field meanings:
+    - frame_idx: Frame index for this metrics row.
+    - player_count: Total players present (tracked + ghosts).
+    - tracked_count: Real tracked players (non-ghost).
+    - ghost_count: Ghost player count.
+    - team_a_count: Team A players in frame.
+    - team_b_count: Team B players in frame.
+    - unknown_count: Unknown-team players (must be 0 after Pass 3C).
+    - jersey_conflicts: Jersey exclusivity conflicts detected in frame.
     """
     frame_idx: FrameIndex
     player_count: int  # Total players (tracked + ghosts)
@@ -350,6 +474,15 @@ class DebugMetrics(BaseModel):
     Frame-by-frame debug metrics.
 
     Per CLAUDE.md Section 6: Everything auditable without watching video.
+
+    Field meanings:
+    - video_name: Clip identifier.
+    - total_frames: Number of frames represented in frame_metrics.
+    - frame_metrics: Per-frame metric records.
+    - total_identity_changes: Identity changes after lock point (must be 0 after Pass 3C).
+    - total_jersey_conflicts: Aggregate jersey conflicts across clip.
+    - total_unknown_frames: Frames containing unknown-team assignments.
+    - avg_player_count: Mean player count across frames.
     """
     video_name: str
     total_frames: int

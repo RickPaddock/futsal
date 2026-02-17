@@ -61,10 +61,17 @@ DETECTION_SCHEMA = {
         "jersey_number": {"type": ["integer", "null"], "minimum": 1, "maximum": 12},
         "jersey_confidence": {"type": "number", "minimum": 0, "maximum": 1},
         "jersey_probs": {"type": ["object", "null"]},
-        "hsv_histogram": {
+        "hsv_histogram_jersey": {
             "anyOf": [
                 {"type": "null"},
                 get_hsv_histogram_schema()
+            ]
+        },
+        "jersey_roi_valid": {"type": "boolean"},
+        "jersey_roi_bbox": {
+            "anyOf": [
+                {"type": "null"},
+                get_bbox_schema()
             ]
         },
         "is_sam_recovered": {"type": "boolean"},
@@ -100,6 +107,13 @@ PASS1_OUTPUT_SCHEMA = {
         "width": {"type": "integer", "minimum": 1},
         "height": {"type": "integer", "minimum": 1},
         "total_frames": {"type": "integer", "minimum": 1},
+        "processed_start_frame": {"type": "integer", "minimum": 0},
+        "processed_end_frame_exclusive": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "integer", "minimum": 0}
+            ]
+        },
         "detections": {
             "type": "array",
             "items": DETECTION_SCHEMA

@@ -32,6 +32,7 @@ from ..core.data_models import (
 )
 from ..core.types import TeamID, ConstraintType
 from ..core.constants import KMEANS_N_CLUSTERS, HSV_BINS
+from ..core.constants import KMEANS_MIN_FRAGMENT_QUALITY_SCORE, KMEANS_MIN_HSV_CONSISTENCY
 from ..utils.logging_utils import get_logger
 from ..utils.hsv_color import compare_hsv_histograms, is_histogram_valid
 
@@ -158,23 +159,45 @@ class IdentitySolver:
         frag_lookup = {f.fragment_id: f for f in fragments}
 
         # Extract HSV histograms for clustering (exclude ghosts and invalid histograms)
+        # CRITICAL: Team assignment uses jersey HSV only.
         valid_frags = []
         valid_histograms = []
+        skipped_low_quality = 0
+        skipped_low_hsv_consistency = 0
 
         for frag in fragments:
             # CRITICAL: Exclude ghosts from K-means
             if isinstance(frag, GhostFragment) or getattr(frag, 'is_ghost', False):
                 continue
 
-            # Exclude fragments without valid HSV histograms
-            if not hasattr(frag, 'hsv_histogram') or frag.hsv_histogram is None:
+            # Exclude fragments without valid jersey HSV histograms
+            jersey_hist = getattr(frag, 'hsv_histogram_jersey', None)
+            if jersey_hist is None:
                 continue
 
-            if not is_histogram_valid(frag.hsv_histogram):
+            if not is_histogram_valid(jersey_hist):
+                continue
+
+            # Optional quality gates: only apply if metadata exists on fragment.
+            quality_score = getattr(frag, 'quality_score', None)
+            if quality_score is not None and quality_score < KMEANS_MIN_FRAGMENT_QUALITY_SCORE:
+                skipped_low_quality += 1
+                continue
+
+            hsv_consistency = getattr(frag, 'hsv_consistency', None)
+            if hsv_consistency is not None and hsv_consistency < KMEANS_MIN_HSV_CONSISTENCY:
+                skipped_low_hsv_consistency += 1
                 continue
 
             valid_frags.append(frag)
-            valid_histograms.append(frag.hsv_histogram)
+            valid_histograms.append(jersey_hist)
+
+        if skipped_low_quality > 0 or skipped_low_hsv_consistency > 0:
+            self.logger.info(
+                "K-means input quality gating: "
+                f"skipped_low_quality={skipped_low_quality}, "
+                f"skipped_low_hsv_consistency={skipped_low_hsv_consistency}"
+            )
 
         if len(valid_histograms) < KMEANS_N_CLUSTERS:
             self.logger.warning(

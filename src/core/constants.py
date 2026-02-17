@@ -26,6 +26,16 @@ PLAYER_CONF_THRESHOLD = 0.5
 BALL_CONF_THRESHOLD = 0.3
 JERSEY_CONF_THRESHOLD = 0.3  # Lower threshold per memory learnings
 
+# Jersey classification optimization
+JERSEY_CLASSIFY_EVERY_N_FRAMES = 5  # Only classify every N frames (performance optimization)
+
+# Jersey ROI crop geometry (relative to player bbox)
+# Focus torso/jersey and reduce shorts contamination in HSV signal.
+JERSEY_ROI_X_MIN_FRAC = 0.25
+JERSEY_ROI_X_MAX_FRAC = 0.75
+JERSEY_ROI_Y_MIN_FRAC = 0.20
+JERSEY_ROI_Y_MAX_FRAC = 0.55
+
 # ============================================================================
 # BBOX FILTERING (MULTI-LAYER DEFENSE)
 # ============================================================================
@@ -60,6 +70,11 @@ MERGE_CONSECUTIVE_SHORT = True  # Merge consecutive short fragments on same trac
 KMEANS_N_CLUSTERS = 2  # Team A vs Team B
 HSV_BINS = 8           # 8x8x8 = 512 bins for histogram
 HSV_HISTOGRAM_SIZE = HSV_BINS ** 3  # 512 bins total
+
+# Optional quality gates for Pass 3C K-means input selection.
+# Applied only when quality metadata exists on fragments.
+KMEANS_MIN_FRAGMENT_QUALITY_SCORE = 0.40
+KMEANS_MIN_HSV_CONSISTENCY = 0.35
 
 # ============================================================================
 # JERSEY TEMPORAL EXCLUSIVITY

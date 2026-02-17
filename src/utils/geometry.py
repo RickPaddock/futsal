@@ -65,16 +65,16 @@ def bbox_centroid(bbox: BBox) -> Centroid:
         bbox: [x1, y1, x2, y2] format
 
     Returns:
-        (x, y) centroid coordinates
+        [x, y] centroid coordinates
 
     Examples:
         >>> bbox_centroid([10, 20, 50, 80])
-        (30.0, 50.0)
+        [30.0, 50.0]
     """
     x1, y1, x2, y2 = bbox
     cx = (x1 + x2) / 2.0
     cy = (y1 + y2) / 2.0
-    return (cx, cy)
+    return [cx, cy]
 
 
 def iou(bbox1: BBox, bbox2: BBox) -> float:

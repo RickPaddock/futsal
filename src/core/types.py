@@ -5,7 +5,7 @@ Enums and type aliases per CLAUDE.md contract Section 2 (Entity Model) and throu
 """
 
 from enum import Enum
-from typing import List, Tuple
+from typing import List
 
 # ============================================================================
 # ENTITY ENUMS
@@ -92,7 +92,7 @@ class BallState(str, Enum):
 BBox = List[float]
 
 # Centroid format: [x, y]
-Centroid = Tuple[float, float]
+Centroid = List[float]
 
 # HSV histogram: 512-element list (8x8x8 bins, normalized)
 HSVHistogram = List[float]

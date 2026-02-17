@@ -12,8 +12,12 @@ Per CLAUDE.md Section 4 (Pass 1: Raw Evidence Collection):
 from typing import List, Dict, Set
 from ..core.data_models import Pass1Output, Detection, ValidationViolation
 from ..core.constants import (
-    PLAYER_DETECTION_CONF_THRESHOLD,
+    PLAYER_CONF_THRESHOLD,
     JERSEY_CONF_THRESHOLD,
+    JERSEY_ROI_X_MIN_FRAC,
+    JERSEY_ROI_X_MAX_FRAC,
+    JERSEY_ROI_Y_MIN_FRAC,
+    JERSEY_ROI_Y_MAX_FRAC,
 )
 
 
@@ -40,17 +44,17 @@ def validate_pass1_detections(pass1_output: Pass1Output) -> List[ValidationViola
 
     for detection in pass1_output.detections:
         # Check detection confidence
-        if detection.confidence < PLAYER_DETECTION_CONF_THRESHOLD:
+        if detection.confidence < PLAYER_CONF_THRESHOLD:
             violations.append(
                 ValidationViolation(
                     rule="PASS1_DETECTION",
                     severity="warning",
-                    message=f"Detection {detection.detection_id} confidence {detection.confidence:.3f} below threshold {PLAYER_DETECTION_CONF_THRESHOLD}",
+                    message=f"Detection {detection.detection_id} confidence {detection.confidence:.3f} below threshold {PLAYER_CONF_THRESHOLD}",
                     frame_idx=detection.frame_idx,
                     details={
                         "detection_id": detection.detection_id,
                         "confidence": detection.confidence,
-                        "threshold": PLAYER_DETECTION_CONF_THRESHOLD,
+                        "threshold": PLAYER_CONF_THRESHOLD,
                     },
                 )
             )
@@ -105,16 +109,100 @@ def validate_pass1_detections(pass1_output: Pass1Output) -> List[ValidationViola
                     )
                 )
 
-        # Check HSV histogram validity
-        if detection.hsv_histogram is not None:
-            from ..utils.hsv_color import is_histogram_valid
+        from ..utils.hsv_color import is_histogram_valid
 
-            if not is_histogram_valid(detection.hsv_histogram):
+        # Jersey HSV validity contract (primary team signal)
+        if detection.jersey_roi_valid:
+            # Geometry contract: jersey ROI must be torso sub-box inside player bbox
+            if detection.jersey_roi_bbox is None:
                 violations.append(
                     ValidationViolation(
-                        rule="PASS1_HSV",
+                        rule="PASS1_JERSEY_ROI_MISSING",
                         severity="error",
-                        message=f"Detection {detection.detection_id} has invalid HSV histogram",
+                        message=f"Detection {detection.detection_id} has jersey_roi_valid=true but missing jersey_roi_bbox",
+                        frame_idx=detection.frame_idx,
+                        details={"detection_id": detection.detection_id},
+                    )
+                )
+            else:
+                b = detection.bbox
+                r = detection.jersey_roi_bbox
+
+                # ROI must be contained in player bbox
+                if not (r[0] >= b[0] and r[1] >= b[1] and r[2] <= b[2] and r[3] <= b[3]):
+                    violations.append(
+                        ValidationViolation(
+                            rule="PASS1_JERSEY_ROI_OUTSIDE_BBOX",
+                            severity="error",
+                            message=f"Detection {detection.detection_id} jersey ROI is outside player bbox",
+                            frame_idx=detection.frame_idx,
+                            details={"detection_id": detection.detection_id, "bbox": b, "jersey_roi_bbox": r},
+                        )
+                    )
+                else:
+                    bw = b[2] - b[0]
+                    bh = b[3] - b[1]
+                    rw = r[2] - r[0]
+                    rh = r[3] - r[1]
+
+                    if bw > 0 and bh > 0:
+                        width_ratio = rw / bw
+                        height_ratio = rh / bh
+
+                        expected_width_ratio = JERSEY_ROI_X_MAX_FRAC - JERSEY_ROI_X_MIN_FRAC
+                        expected_height_ratio = JERSEY_ROI_Y_MAX_FRAC - JERSEY_ROI_Y_MIN_FRAC
+
+                        # Tolerance allows minor clipping near frame edges.
+                        width_tol = 0.05
+                        height_tol = 0.06
+
+                        if not (
+                            (expected_width_ratio - width_tol) <= width_ratio <= (expected_width_ratio + width_tol)
+                            and (expected_height_ratio - height_tol) <= height_ratio <= (expected_height_ratio + height_tol)
+                        ):
+                            violations.append(
+                                ValidationViolation(
+                                    rule="PASS1_JERSEY_ROI_RATIO",
+                                    severity="error",
+                                    message=f"Detection {detection.detection_id} jersey ROI ratio out of expected torso range",
+                                    frame_idx=detection.frame_idx,
+                                    details={
+                                        "detection_id": detection.detection_id,
+                                        "expected_width_ratio": expected_width_ratio,
+                                        "expected_height_ratio": expected_height_ratio,
+                                        "width_ratio": width_ratio,
+                                        "height_ratio": height_ratio,
+                                    },
+                                )
+                            )
+
+            if detection.hsv_histogram_jersey is None:
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS1_HSV_JERSEY_MISSING",
+                        severity="error",
+                        message=f"Detection {detection.detection_id} has jersey_roi_valid=true but missing hsv_histogram_jersey",
+                        frame_idx=detection.frame_idx,
+                        details={"detection_id": detection.detection_id},
+                    )
+                )
+            elif not is_histogram_valid(detection.hsv_histogram_jersey):
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS1_HSV_JERSEY_INVALID",
+                        severity="error",
+                        message=f"Detection {detection.detection_id} has invalid jersey HSV histogram",
+                        frame_idx=detection.frame_idx,
+                        details={"detection_id": detection.detection_id},
+                    )
+                )
+        else:
+            if detection.hsv_histogram_jersey is not None:
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS1_HSV_JERSEY_INCONSISTENT",
+                        severity="warning",
+                        message=f"Detection {detection.detection_id} has jersey_roi_valid=false but non-null hsv_histogram_jersey",
                         frame_idx=detection.frame_idx,
                         details={"detection_id": detection.detection_id},
                     )
@@ -140,24 +228,24 @@ def validate_pass1_ball_detections(pass1_output: Pass1Output) -> List[Validation
     """
     violations = []
 
-    from ..core.constants import BALL_DETECTION_CONF_THRESHOLD
+    from ..core.constants import BALL_CONF_THRESHOLD
 
     # Count balls per frame
     balls_per_frame: Dict[int, int] = {}
 
     for ball_det in pass1_output.ball_detections:
         # Check ball confidence
-        if ball_det.confidence < BALL_DETECTION_CONF_THRESHOLD:
+        if ball_det.confidence < BALL_CONF_THRESHOLD:
             violations.append(
                 ValidationViolation(
                     rule="PASS1_BALL",
                     severity="warning",
-                    message=f"Ball detection at frame {ball_det.frame_idx} confidence {ball_det.confidence:.3f} below threshold {BALL_DETECTION_CONF_THRESHOLD}",
+                    message=f"Ball detection at frame {ball_det.frame_idx} confidence {ball_det.confidence:.3f} below threshold {BALL_CONF_THRESHOLD}",
                     frame_idx=ball_det.frame_idx,
                     details={
                         "frame_idx": ball_det.frame_idx,
                         "confidence": ball_det.confidence,
-                        "threshold": BALL_DETECTION_CONF_THRESHOLD,
+                        "threshold": BALL_CONF_THRESHOLD,
                     },
                 )
             )
@@ -242,9 +330,20 @@ def validate_pass1_frame_coverage(pass1_output: Pass1Output) -> List[ValidationV
             )
         )
 
-    # Count frames with detections
-    frames_with_detections = {d.frame_idx for d in pass1_output.detections}
-    coverage = len(frames_with_detections) / pass1_output.total_frames if pass1_output.total_frames > 0 else 0
+    processed_start = max(0, pass1_output.processed_start_frame or 0)
+    processed_end_exclusive = pass1_output.processed_end_frame_exclusive
+    if processed_end_exclusive is None:
+        processed_end_exclusive = pass1_output.total_frames
+    processed_end_exclusive = min(pass1_output.total_frames, processed_end_exclusive)
+
+    expected_frames = max(0, processed_end_exclusive - processed_start)
+
+    # Count frames with detections inside processed window only
+    frames_with_detections = {
+        d.frame_idx for d in pass1_output.detections
+        if processed_start <= d.frame_idx < processed_end_exclusive
+    }
+    coverage = len(frames_with_detections) / expected_frames if expected_frames > 0 else 0
 
     if coverage < 0.5:
         violations.append(
@@ -255,6 +354,9 @@ def validate_pass1_frame_coverage(pass1_output: Pass1Output) -> List[ValidationV
                 details={
                     "coverage_pct": coverage * 100,
                     "frames_with_detections": len(frames_with_detections),
+                    "expected_frames": expected_frames,
+                    "processed_start_frame": processed_start,
+                    "processed_end_frame_exclusive": processed_end_exclusive,
                     "total_frames": pass1_output.total_frames,
                 },
             )

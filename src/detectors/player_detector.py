@@ -39,17 +39,11 @@ class PlayerDetector:
         self._load_model()
 
     def _load_model(self):
-        """Load YOLO model."""
-        try:
-            from ultralytics import YOLO
-            self.model = YOLO(str(self.model_path))
-            self.logger.info(f"Loaded player detection model: {self.model_path}")
-        except ImportError:
-            raise ImportError(
-                "ultralytics package not found. Install with: pip install ultralytics"
-            )
-        except Exception as e:
-            raise RuntimeError(f"Failed to load player model: {e}")
+        """Load YOLO model. FAIL HARD if not available."""
+        from ultralytics import YOLO  # Hard import - no try/except
+
+        self.model = YOLO(str(self.model_path))
+        self.logger.info(f"Loaded player detection model: {self.model_path}")
 
     def detect(
         self,
@@ -132,6 +126,93 @@ class PlayerDetector:
         self.logger.debug(f"Detected {len(detections)} players in frame")
 
         return detections
+
+    def detect_and_track(
+        self,
+        frame: np.ndarray,
+        conf_threshold: float = PLAYER_CONF_THRESHOLD,
+    ) -> List[Tuple[List[float], float, int]]:
+        """
+        Detect AND track players in frame using Ultralytics built-in tracking.
+
+        Uses BoT-SORT tracker (better than ByteTrack) built into ultralytics v8+.
+
+        Args:
+            frame: RGB frame (H, W, 3)
+            conf_threshold: Confidence threshold (default from constants)
+
+        Returns:
+            List of (bbox, confidence, track_id) tuples
+            bbox format: [x1, y1, x2, y2]
+        """
+        if self.model is None:
+            raise RuntimeError("Model not loaded")
+
+        frame_height, frame_width = frame.shape[:2]
+
+        # Run YOLO detection + tracking (persist=True maintains track state)
+        results = self.model.track(frame, conf=conf_threshold, persist=True, verbose=False)
+
+        tracked_detections = []
+
+        for result in results:
+            if result.boxes is None or len(result.boxes) == 0:
+                continue
+
+            boxes = result.boxes.xyxy.cpu().numpy()  # [x1, y1, x2, y2]
+            confidences = result.boxes.conf.cpu().numpy()
+
+            # Get track IDs (if available)
+            if result.boxes.id is not None:
+                track_ids = result.boxes.id.cpu().numpy().astype(int)
+            else:
+                # No tracking info - assign sequential IDs
+                track_ids = list(range(1, len(boxes) + 1))
+
+            for bbox, conf, track_id in zip(boxes, confidences, track_ids):
+                bbox = bbox.tolist()
+
+                # Validate bbox is within frame
+                if not bbox_is_valid(bbox, frame_width, frame_height):
+                    self.logger.warning(f"Invalid bbox (out of frame): {bbox}")
+                    continue
+
+                # Clip to frame bounds (defensive)
+                bbox = clip_bbox_to_frame(bbox, frame_width, frame_height)
+
+                # LAYER 1: Absolute size limits
+                width = bbox_width(bbox)
+                height = bbox_height(bbox)
+
+                if height > MAX_BBOX_HEIGHT_PX:
+                    self.logger.warning(
+                        f"Filtered huge bbox (height={height:.0f}px > {MAX_BBOX_HEIGHT_PX}px): {bbox}"
+                    )
+                    continue
+
+                if width > MAX_BBOX_WIDTH_PX:
+                    self.logger.warning(
+                        f"Filtered huge bbox (width={width:.0f}px > {MAX_BBOX_WIDTH_PX}px): {bbox}"
+                    )
+                    continue
+
+                # LAYER 2: Relative size limit (area fraction)
+                area = bbox_area(bbox)
+                frame_area = frame_width * frame_height
+                area_fraction = area / frame_area
+
+                if area_fraction > MAX_BBOX_AREA_FRACTION:
+                    self.logger.warning(
+                        f"Filtered huge bbox (area={area_fraction:.2%} > {MAX_BBOX_AREA_FRACTION:.2%}): {bbox}"
+                    )
+                    continue
+
+                # Bbox passed all filters
+                tracked_detections.append((bbox, float(conf), int(track_id)))
+
+        self.logger.debug(f"Detected and tracked {len(tracked_detections)} players in frame")
+
+        return tracked_detections
 
     def detect_batch(
         self,
