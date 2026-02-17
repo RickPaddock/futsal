@@ -1,0 +1,338 @@
+"""
+JSON schema definitions for validation.
+
+Per CLAUDE.md P5: JSON is source of truth.
+These schemas validate the structure of all JSON artifacts.
+"""
+
+from typing import Dict, Any
+
+# ============================================================================
+# SCHEMA HELPERS
+# ============================================================================
+
+def get_bbox_schema() -> Dict[str, Any]:
+    """Schema for bbox: [x1, y1, x2, y2]"""
+    return {
+        "type": "array",
+        "items": {"type": "number"},
+        "minItems": 4,
+        "maxItems": 4,
+        "description": "Bounding box [x1, y1, x2, y2]"
+    }
+
+
+def get_centroid_schema() -> Dict[str, Any]:
+    """Schema for centroid: [x, y]"""
+    return {
+        "type": "array",
+        "items": {"type": "number"},
+        "minItems": 2,
+        "maxItems": 2,
+        "description": "Centroid [x, y]"
+    }
+
+
+def get_hsv_histogram_schema() -> Dict[str, Any]:
+    """Schema for HSV histogram: 512-element array"""
+    return {
+        "type": "array",
+        "items": {"type": "number", "minimum": 0, "maximum": 1},
+        "minItems": 512,
+        "maxItems": 512,
+        "description": "HSV histogram (8x8x8 bins, normalized)"
+    }
+
+
+# ============================================================================
+# PASS 1 SCHEMAS
+# ============================================================================
+
+DETECTION_SCHEMA = {
+    "type": "object",
+    "required": ["detection_id", "frame_idx", "bbox", "centroid", "confidence", "track_id"],
+    "properties": {
+        "detection_id": {"type": "string"},
+        "frame_idx": {"type": "integer", "minimum": 0},
+        "bbox": get_bbox_schema(),
+        "centroid": get_centroid_schema(),
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "track_id": {"type": "integer"},
+        "jersey_number": {"type": ["integer", "null"], "minimum": 1, "maximum": 12},
+        "jersey_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "jersey_probs": {"type": ["object", "null"]},
+        "hsv_histogram": {
+            "anyOf": [
+                {"type": "null"},
+                get_hsv_histogram_schema()
+            ]
+        },
+        "is_sam_recovered": {"type": "boolean"},
+        "sam_bbox": {
+            "anyOf": [
+                {"type": "null"},
+                get_bbox_schema()
+            ]
+        }
+    },
+    "additionalProperties": False  # R1: Pass 1 is raw truth only
+}
+
+
+BALL_DETECTION_SCHEMA = {
+    "type": "object",
+    "required": ["frame_idx", "bbox", "centroid", "confidence"],
+    "properties": {
+        "frame_idx": {"type": "integer", "minimum": 0},
+        "bbox": get_bbox_schema(),
+        "centroid": get_centroid_schema(),
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+    }
+}
+
+
+PASS1_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["video_name", "fps", "width", "height", "total_frames", "detections", "ball_detections"],
+    "properties": {
+        "video_name": {"type": "string"},
+        "fps": {"type": "number", "minimum": 1},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "total_frames": {"type": "integer", "minimum": 1},
+        "detections": {
+            "type": "array",
+            "items": DETECTION_SCHEMA
+        },
+        "ball_detections": {
+            "type": "array",
+            "items": BALL_DETECTION_SCHEMA
+        }
+    }
+}
+
+
+# ============================================================================
+# PASS 2A SCHEMAS
+# ============================================================================
+
+FRAGMENT_SCHEMA = {
+    "type": "object",
+    "required": ["fragment_id", "original_track_id", "start_frame", "end_frame", "detection_ids"],
+    "properties": {
+        "fragment_id": {"type": "string", "pattern": "^F\\d{6}$"},  # Format: F000001
+        "original_track_id": {"type": "integer"},
+        "start_frame": {"type": "integer", "minimum": 0},
+        "end_frame": {"type": "integer", "minimum": 0},
+        "detection_ids": {"type": "array", "items": {"type": "string"}},
+        "split_reason": {"type": ["string", "null"]},
+        "parent_fragment_id": {"type": ["string", "null"]}
+    }
+}
+
+
+PASS2A_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["fragments", "split_log"],
+    "properties": {
+        "fragments": {"type": "array", "items": FRAGMENT_SCHEMA},
+        "split_log": {"type": "array", "items": {"type": "object"}}
+    }
+}
+
+
+# ============================================================================
+# PASS 2B SCHEMAS
+# ============================================================================
+
+SCORED_FRAGMENT_SCHEMA = {
+    "type": "object",
+    "required": [
+        "fragment_id", "original_track_id", "start_frame", "end_frame", "detection_ids",
+        "quality", "quality_score"
+    ],
+    "properties": {
+        **FRAGMENT_SCHEMA["properties"],
+        "quality": {"type": "string", "enum": ["high", "medium", "low", "ghost"]},
+        "quality_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "quality_reasons": {"type": "array", "items": {"type": "string"}},
+        "avg_confidence": {"type": "number"},
+        "min_confidence": {"type": "number"},
+        "avg_bbox_stability": {"type": "number"},
+        "jersey_consistency": {"type": "number"},
+        "hsv_consistency": {"type": "number"}
+    }
+}
+
+
+# ============================================================================
+# PASS 2C SCHEMAS
+# ============================================================================
+
+GHOST_FRAGMENT_SCHEMA = {
+    "type": "object",
+    "required": [
+        "fragment_id", "original_track_id", "start_frame", "end_frame",
+        "is_ghost", "ghost_reason", "estimated_position", "estimated_centroid",
+        "source_fragment_id", "source_track_id"
+    ],
+    "properties": {
+        **SCORED_FRAGMENT_SCHEMA["properties"],
+        "is_ghost": {"type": "boolean", "const": True},
+        "ghost_reason": {"type": "string"},
+        "estimated_position": get_bbox_schema(),
+        "estimated_centroid": get_centroid_schema(),
+        "source_fragment_id": {"type": "string"},
+        "source_track_id": {"type": "integer"}
+    }
+}
+
+
+PASS2C_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["fragments", "ghosts"],
+    "properties": {
+        "fragments": {"type": "array", "items": SCORED_FRAGMENT_SCHEMA},
+        "ghosts": {"type": "array", "items": GHOST_FRAGMENT_SCHEMA},
+        "ghost_creation_log": {"type": "array"},
+        "level_timeline": {"type": "array"}
+    }
+}
+
+
+# ============================================================================
+# PASS 3C SCHEMAS
+# ============================================================================
+
+COMMITTED_IDENTITY_SCHEMA = {
+    "type": "object",
+    "required": [
+        "fragment_id", "player_id", "team", "jersey_number",
+        "assignment_method", "assignment_confidence"
+    ],
+    "properties": {
+        "fragment_id": {"type": "string"},
+        "player_id": {"type": "string", "pattern": "^P\\d{2}_(team_a|team_b)$"},  # Format: P07_team_a
+        "team": {"type": "string", "enum": ["team_a", "team_b"]},  # R2: No "unknown"
+        "jersey_number": {"type": "integer", "minimum": 1, "maximum": 12},
+        "assignment_method": {
+            "type": "string",
+            "enum": ["kmeans", "inherited", "constraint_solved", "ghost_inherited"]
+        },
+        "assignment_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "assignment_reasons": {"type": "array", "items": {"type": "string"}},
+        "_locked_team": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "string", "enum": ["team_a", "team_b", "unknown"]}
+            ]
+        }
+    }
+}
+
+
+PASS3C_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["identities"],
+    "properties": {
+        "identities": {"type": "array", "items": COMMITTED_IDENTITY_SCHEMA},
+        "solver_log": {"type": "object"},
+        "unresolved_conflicts": {"type": "array"}  # Should be empty (fail-fast if not)
+    }
+}
+
+
+# ============================================================================
+# BALL INTERPOLATION SCHEMAS
+# ============================================================================
+
+BALL_POSITION_SCHEMA = {
+    "type": "object",
+    "required": ["frame_idx", "centroid", "is_interpolated"],
+    "properties": {
+        "frame_idx": {"type": "integer", "minimum": 0},
+        "centroid": get_centroid_schema(),
+        "bbox": {
+            "anyOf": [
+                {"type": "null"},
+                get_bbox_schema()
+            ]
+        },
+        "is_interpolated": {"type": "boolean"},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+    }
+}
+
+
+BALL_INTERPOLATION_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["ball_positions", "interpolation_method", "total_frames"],
+    "properties": {
+        "ball_positions": {"type": "array", "items": BALL_POSITION_SCHEMA},
+        "interpolation_method": {"type": "string", "enum": ["linear", "kalman"]},
+        "total_frames": {"type": "integer", "minimum": 1},
+        "interpolated_frames": {"type": "array", "items": {"type": "integer"}},
+        "gap_summary": {"type": "array"}
+    }
+}
+
+
+# ============================================================================
+# VALIDATION SCHEMAS
+# ============================================================================
+
+VALIDATION_VIOLATION_SCHEMA = {
+    "type": "object",
+    "required": ["rule", "severity", "message"],
+    "properties": {
+        "rule": {"type": "string"},
+        "severity": {"type": "string", "enum": ["error", "warning"]},
+        "message": {"type": "string"},
+        "frame_idx": {"type": ["integer", "null"]},
+        "fragment_id": {"type": ["string", "null"]},
+        "details": {"type": "object"}
+    }
+}
+
+
+VALIDATION_RESULT_SCHEMA = {
+    "type": "object",
+    "required": ["passed", "timestamp", "pass_name"],
+    "properties": {
+        "passed": {"type": "boolean"},
+        "violations": {"type": "array", "items": VALIDATION_VIOLATION_SCHEMA},
+        "warnings": {"type": "array", "items": VALIDATION_VIOLATION_SCHEMA},
+        "timestamp": {"type": "string"},  # ISO 8601
+        "pass_name": {"type": "string"}
+    }
+}
+
+
+# ============================================================================
+# SCHEMA REGISTRY
+# ============================================================================
+
+SCHEMA_REGISTRY = {
+    "pass1_raw": PASS1_OUTPUT_SCHEMA,
+    "pass2_fragments": PASS2A_OUTPUT_SCHEMA,
+    "pass2_ghosts": PASS2C_OUTPUT_SCHEMA,
+    "pass3_identity_commit": PASS3C_OUTPUT_SCHEMA,
+    "ball_interpolation": BALL_INTERPOLATION_OUTPUT_SCHEMA,
+    "validation_result": VALIDATION_RESULT_SCHEMA,
+}
+
+
+def get_schema(artifact_name: str) -> Dict[str, Any]:
+    """
+    Get JSON schema for a specific artifact.
+
+    Args:
+        artifact_name: Name of the artifact (e.g., "pass1_raw")
+
+    Returns:
+        JSON schema dictionary
+
+    Raises:
+        KeyError: If artifact_name not found in registry
+    """
+    return SCHEMA_REGISTRY[artifact_name]

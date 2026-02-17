@@ -1,0 +1,154 @@
+"""
+Configuration constants for the futsal tracking system.
+
+All magic numbers and thresholds are defined here per CLAUDE.md contract Section 8.
+These values are NON-NEGOTIABLE and must not be changed without contract update.
+"""
+
+from pathlib import Path
+
+# ============================================================================
+# MODEL PATHS
+# ============================================================================
+
+MODELS_DIR = Path("models")
+
+PLAYER_MODEL_PATH = MODELS_DIR / "PLAYER_MODEL_best_v1.pt"
+BALL_MODEL_PATH = MODELS_DIR / "BALL_MODEL_best_v2.pt"
+JERSEY_MODEL_PATH = MODELS_DIR / "JERSEY_MODEL_best_v1.pt"
+
+# ============================================================================
+# DETECTION THRESHOLDS
+# ============================================================================
+
+# YOLO confidence thresholds
+PLAYER_CONF_THRESHOLD = 0.5
+BALL_CONF_THRESHOLD = 0.3
+JERSEY_CONF_THRESHOLD = 0.3  # Lower threshold per memory learnings
+
+# ============================================================================
+# BBOX FILTERING (MULTI-LAYER DEFENSE)
+# ============================================================================
+
+# Layer 1: Absolute size limits
+# Rationale: YOLO occasionally hallucinates huge bboxes (floor, shadows)
+MAX_BBOX_HEIGHT_PX = 800  # Players shouldn't exceed 800px even in 4K
+MAX_BBOX_WIDTH_PX = 600
+MAX_BBOX_AREA_FRACTION = 0.25  # Layer 2: Reject detections > 25% of frame area
+
+# ============================================================================
+# BYTETRACK PARAMETERS
+# ============================================================================
+
+TRACK_HIGH_THRESH = 0.6  # High confidence threshold for track initialization
+TRACK_LOW_THRESH = 0.1   # Low confidence threshold for track continuation
+TRACK_BUFFER = 30        # Number of frames to keep lost tracks
+MIN_TRACK_LENGTH = 5     # Minimum track length in frames
+
+# ============================================================================
+# FRAGMENT PARAMETERS
+# ============================================================================
+
+MIN_FRAGMENT_LENGTH = 10  # Frames - but keep shorter ones, mark as low_quality
+MAX_FRAGMENT_GAP = 60     # Ghost MAX_GAP from memory (2 seconds at 30 FPS)
+MERGE_CONSECUTIVE_SHORT = True  # Merge consecutive short fragments on same track
+
+# ============================================================================
+# HSV CLUSTERING
+# ============================================================================
+
+KMEANS_N_CLUSTERS = 2  # Team A vs Team B
+HSV_BINS = 8           # 8x8x8 = 512 bins for histogram
+HSV_HISTOGRAM_SIZE = HSV_BINS ** 3  # 512 bins total
+
+# ============================================================================
+# JERSEY TEMPORAL EXCLUSIVITY
+# ============================================================================
+
+JERSEY_NUMBERS = list(range(1, 13))  # Futsal: 1-12
+MAX_CONCURRENT_PLAYERS = 12  # Futsal regulation: 6v6
+
+# ============================================================================
+# GHOST PARAMETERS
+# ============================================================================
+
+# Dynamic level (high water mark) - only increases, never decreases
+INITIAL_LEVEL_FRAMES = 10  # Frames to establish initial level
+DYNAMIC_LEVEL_MAX = 12     # Cap at 12 for futsal
+MAX_GHOST_COUNT = 6        # Maximum number of ghosts at any time
+
+# ============================================================================
+# BALL INTERPOLATION
+# ============================================================================
+
+MAX_BALL_GAP_FRAMES = 30  # Maximum gap for interpolation (1 second at 30 FPS)
+BALL_INTERPOLATION_METHOD = "linear"  # or "kalman"
+BALL_MAX_SPEED_PX_PER_FRAME = 100  # Physical limit for validation
+
+# ============================================================================
+# VALIDATION TOLERANCES
+# ============================================================================
+
+# R2: Every player has a team
+MAX_UNKNOWN_FRAGMENTS = 0  # After Pass 3C, no "unknown" allowed
+
+# Team size constraints
+MIN_TEAM_SIZE = 5  # Allow 5-7 players per team
+MAX_TEAM_SIZE = 7
+MAX_TEAM_SIZE_VIOLATION_FRAMES = 5  # Allow brief violations
+
+# R3: One jersey = one player
+MAX_CONCURRENT_JERSEY_VIOLATIONS = 0  # Strict temporal exclusivity
+
+# ============================================================================
+# OUTPUT DIRECTORY STRUCTURE
+# ============================================================================
+
+VIDEOS_INPUT_DIR = Path("videos/input")
+VIDEOS_OUTPUT_DIR = Path("videos/output")
+
+# Artifact filenames
+PASS1_RAW_JSON = "pass1_raw.json"
+PASS1_VALIDATION_JSON = "pass1_validation.json"
+
+PASS2_FRAGMENTS_JSON = "pass2_fragments.json"
+PASS2_GHOSTS_JSON = "pass2_ghosts.json"
+PASS2_VALIDATION_JSON = "pass2_validation.json"
+
+PASS3_CANDIDATES_JSON = "pass3_candidates.json"
+PASS3_CONSTRAINTS_JSON = "pass3_constraints.json"
+PASS3_IDENTITY_COMMIT_JSON = "pass3_identity_commit.json"
+PASS3_VALIDATION_JSON = "pass3_validation.json"
+
+BALL_INTERPOLATION_JSON = "ball_interpolation.json"
+DEBUG_METRICS_JSON = "debug_metrics.json"
+VISUALIZATION_VIDEO = "visualization.mp4"
+
+# ============================================================================
+# SPLIT TRIGGERS (PASS 2A)
+# ============================================================================
+
+# Appearance drift thresholds
+HSV_DRIFT_THRESHOLD = 0.3  # Bhattacharyya distance
+
+# Velocity spike thresholds
+VELOCITY_SPIKE_THRESHOLD = 50  # Pixels per frame
+
+# Confidence drop thresholds
+CONFIDENCE_DROP_THRESHOLD = 0.3  # Relative drop
+
+# ============================================================================
+# FRAGMENT QUALITY THRESHOLDS
+# ============================================================================
+
+# Quality score boundaries (0-1)
+QUALITY_HIGH_THRESHOLD = 0.7
+QUALITY_MEDIUM_THRESHOLD = 0.4
+# Below QUALITY_MEDIUM_THRESHOLD = LOW quality
+
+# ============================================================================
+# LOGGING
+# ============================================================================
+
+LOG_LEVEL = "INFO"  # DEBUG, INFO, WARNING, ERROR
+LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
