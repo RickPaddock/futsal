@@ -25,7 +25,10 @@
       "Bash(PYTHONIOENCODING=utf-8 python:*)",
       "Bash(tee:*)",
       "Bash(venv/Scripts/python -m src.cli visualize:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(curl:*)"
     ]
   }
 }

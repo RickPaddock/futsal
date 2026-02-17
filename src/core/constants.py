@@ -97,10 +97,16 @@ DYNAMIC_LEVEL_MAX = 12     # Cap at 12 for futsal
 MAX_GHOST_COUNT = 6        # Maximum number of ghosts at any time
 
 # ============================================================================
-# BALL INTERPOLATION
+# BALL DETECTION & INTERPOLATION
 # ============================================================================
 
 PASS1_BALL_BATCH_SIZE = 8  # Batch size for Pass 1 ball detector inference
+
+# InferenceSlicer configuration for small-object recall
+# Matches training data tiling strategy (see utils/tile_dataset.py)
+USE_INFERENCE_SLICER = True   # Enable tiling for improved ball recall
+SLICER_OVERLAP_PX = 200       # Pixel overlap between tiles (matches training augmentation)
+SLICER_IOU_THRESHOLD = 0.1    # NMS threshold for merging tile detections (same as model IOU)
 
 MAX_BALL_GAP_FRAMES = 30  # Maximum gap for interpolation (1 second at 30 FPS)
 BALL_INTERPOLATION_METHOD = "linear"  # or "kalman"
