@@ -176,27 +176,59 @@ def validate_pass1_detections(pass1_output: Pass1Output) -> List[ValidationViola
                                 )
                             )
 
-            if detection.hsv_histogram_jersey is None:
-                violations.append(
-                    ValidationViolation(
-                        rule="PASS1_HSV_JERSEY_MISSING",
-                        severity="error",
-                        message=f"Detection {detection.detection_id} has jersey_roi_valid=true but missing hsv_histogram_jersey",
-                        frame_idx=detection.frame_idx,
-                        details={"detection_id": detection.detection_id},
+            if detection.jersey_color_sampled:
+                if detection.hsv_histogram_jersey is None:
+                    violations.append(
+                        ValidationViolation(
+                            rule="PASS1_HSV_JERSEY_MISSING",
+                            severity="error",
+                            message=(
+                                f"Detection {detection.detection_id} has jersey_color_sampled=true "
+                                "but missing hsv_histogram_jersey"
+                            ),
+                            frame_idx=detection.frame_idx,
+                            details={"detection_id": detection.detection_id},
+                        )
                     )
-                )
-            elif not is_histogram_valid(detection.hsv_histogram_jersey):
-                violations.append(
-                    ValidationViolation(
-                        rule="PASS1_HSV_JERSEY_INVALID",
-                        severity="error",
-                        message=f"Detection {detection.detection_id} has invalid jersey HSV histogram",
-                        frame_idx=detection.frame_idx,
-                        details={"detection_id": detection.detection_id},
+                elif not is_histogram_valid(detection.hsv_histogram_jersey):
+                    violations.append(
+                        ValidationViolation(
+                            rule="PASS1_HSV_JERSEY_INVALID",
+                            severity="error",
+                            message=f"Detection {detection.detection_id} has invalid jersey HSV histogram",
+                            frame_idx=detection.frame_idx,
+                            details={"detection_id": detection.detection_id},
+                        )
                     )
-                )
+            else:
+                if detection.hsv_histogram_jersey is not None:
+                    violations.append(
+                        ValidationViolation(
+                            rule="PASS1_HSV_JERSEY_UNSAMPLED_INCONSISTENT",
+                            severity="warning",
+                            message=(
+                                f"Detection {detection.detection_id} has jersey_color_sampled=false "
+                                "but non-null hsv_histogram_jersey"
+                            ),
+                            frame_idx=detection.frame_idx,
+                            details={"detection_id": detection.detection_id},
+                        )
+                    )
         else:
+            if detection.jersey_color_sampled:
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS1_HSV_JERSEY_SAMPLE_WITH_INVALID_ROI",
+                        severity="error",
+                        message=(
+                            f"Detection {detection.detection_id} has jersey_roi_valid=false "
+                            "but jersey_color_sampled=true"
+                        ),
+                        frame_idx=detection.frame_idx,
+                        details={"detection_id": detection.detection_id},
+                    )
+                )
+
             if detection.hsv_histogram_jersey is not None:
                 violations.append(
                     ValidationViolation(

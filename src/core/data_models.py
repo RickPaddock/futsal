@@ -48,6 +48,7 @@ class Detection(BaseModel):
     - jersey_confidence: Confidence for jersey_number.
     - jersey_probs: Full jersey probability distribution for downstream evidence.
     - hsv_histogram_jersey: Jersey-ROI HSV evidence for team clustering.
+    - jersey_color_sampled: Whether HSV extraction was intentionally sampled this frame.
     - jersey_roi_valid: Whether jersey ROI extraction succeeded for this detection.
     - jersey_roi_bbox: Exact ROI box used for jersey HSV extraction.
     - is_sam_recovered: Marker that detection came from SAM-based recovery path.
@@ -67,6 +68,7 @@ class Detection(BaseModel):
     jersey_probs: Optional[JerseyProbs] = None  # Full probability distribution
 
     hsv_histogram_jersey: Optional[HSVHistogram] = None  # PRIMARY for team assignment
+    jersey_color_sampled: bool = False
     jersey_roi_valid: bool = False
     jersey_roi_bbox: Optional[BBox] = None
 

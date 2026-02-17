@@ -119,4 +119,46 @@ class BallDetector:
         Returns:
             List of detections per frame (None if no ball detected)
         """
-        return [self.detect(frame, conf_threshold) for frame in frames]
+        if self.model is None:
+            raise RuntimeError("Model not loaded")
+
+        if not frames:
+            return []
+
+        try:
+            results = self.model(frames, conf=conf_threshold, verbose=False)
+        except Exception as exc:
+            self.logger.warning(f"Batch ball detection failed; falling back to per-frame inference: {exc}")
+            return [self.detect(frame, conf_threshold) for frame in frames]
+
+        detections_per_frame: List[Optional[Tuple[List[float], float]]] = []
+
+        for frame, result in zip(frames, results):
+            frame_height, frame_width = frame.shape[:2]
+            best_detection = None
+            best_conf = 0.0
+
+            if result.boxes is not None and len(result.boxes) > 0:
+                boxes = result.boxes.xyxy.cpu().numpy()
+                confidences = result.boxes.conf.cpu().numpy()
+
+                for bbox, conf in zip(boxes, confidences):
+                    bbox = bbox.tolist()
+
+                    if not bbox_is_valid(bbox, frame_width, frame_height):
+                        self.logger.warning(f"Invalid ball bbox (out of frame): {bbox}")
+                        continue
+
+                    bbox = clip_bbox_to_frame(bbox, frame_width, frame_height)
+
+                    if conf > best_conf:
+                        best_detection = (bbox, float(conf))
+                        best_conf = float(conf)
+
+            detections_per_frame.append(best_detection)
+
+        if len(detections_per_frame) != len(frames):
+            self.logger.warning("Batch output size mismatch; falling back to per-frame ball inference")
+            return [self.detect(frame, conf_threshold) for frame in frames]
+
+        return detections_per_frame

@@ -5,7 +5,7 @@ Loads JERSEY_MODEL_best_v1.pt and applies JERSEY_CONF_THRESHOLD.
 Uses lower confidence threshold (0.3) per memory learnings.
 """
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List
 import numpy as np
 from pathlib import Path
 
@@ -46,6 +46,21 @@ class JerseyClassifier:
         self.model = YOLO(str(self.model_path))
         self.logger.info(f"Loaded jersey classification model: {self.model_path}")
 
+    def _crop_player_region(
+        self,
+        frame: np.ndarray,
+        bbox: list,
+    ) -> Optional[np.ndarray]:
+        """Extract a valid player crop from frame for jersey inference."""
+        x1, y1, x2, y2 = map(int, bbox)
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(frame.shape[1], x2), min(frame.shape[0], y2)
+
+        if x2 <= x1 or y2 <= y1:
+            return None
+
+        return frame[y1:y2, x1:x2]
+
     def classify(
         self,
         frame: np.ndarray,
@@ -66,16 +81,10 @@ class JerseyClassifier:
         if self.model is None:
             raise RuntimeError("Model not loaded")
 
-        # Crop to player bbox
-        x1, y1, x2, y2 = map(int, bbox)
-        x1, y1 = max(0, x1), max(0, y1)
-        x2, y2 = min(frame.shape[1], x2), min(frame.shape[0], y2)
-
-        if x2 <= x1 or y2 <= y1:
+        player_crop = self._crop_player_region(frame, bbox)
+        if player_crop is None:
             self.logger.warning(f"Invalid bbox for jersey classification: {bbox}")
             return None
-
-        player_crop = frame[y1:y2, x1:x2]
 
         # Run YOLO classification
         results = self.model(player_crop, conf=conf_threshold, verbose=False)
@@ -121,9 +130,50 @@ class JerseyClassifier:
             conf_threshold: Confidence threshold
 
         Returns:
-            List of (jersey_number, confidence) tuples or None per bbox
+            List of (jersey_number, confidence) tuples or None per bbox.
+            Output order matches input bboxes exactly.
         """
-        return [self.classify(frame, bbox, conf_threshold) for bbox in bboxes]
+        if self.model is None:
+            raise RuntimeError("Model not loaded")
+
+        if not bboxes:
+            return []
+
+        crops: List[np.ndarray] = []
+        crop_to_bbox_idx: List[int] = []
+        results: List[Optional[Tuple[int, float]]] = [None] * len(bboxes)
+
+        for idx, bbox in enumerate(bboxes):
+            player_crop = self._crop_player_region(frame, bbox)
+            if player_crop is None:
+                self.logger.warning(f"Invalid bbox for jersey classification: {bbox}")
+                continue
+
+            crops.append(player_crop)
+            crop_to_bbox_idx.append(idx)
+
+        if not crops:
+            return results
+
+        try:
+            batch_outputs = self.model(crops, conf=conf_threshold, verbose=False)
+        except Exception as exc:
+            self.logger.warning(f"Batch jersey classification failed; falling back to per-bbox inference: {exc}")
+            return [self.classify(frame, bbox, conf_threshold) for bbox in bboxes]
+
+        for crop_result_idx, result in enumerate(batch_outputs):
+            bbox_idx = crop_to_bbox_idx[crop_result_idx]
+            if result.probs is None:
+                continue
+
+            top_class_idx = result.probs.top1
+            top_conf = float(result.probs.top1conf)
+
+            if top_conf >= conf_threshold:
+                jersey_number = int(top_class_idx) + 1
+                results[bbox_idx] = (jersey_number, top_conf)
+
+        return results
 
     def get_probabilities(
         self,

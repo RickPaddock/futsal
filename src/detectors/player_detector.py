@@ -8,7 +8,13 @@ from typing import List, Tuple
 import numpy as np
 from pathlib import Path
 
-from ..core.constants import PLAYER_CONF_THRESHOLD, MAX_BBOX_HEIGHT_PX, MAX_BBOX_WIDTH_PX, MAX_BBOX_AREA_FRACTION
+from ..core.constants import (
+    PLAYER_CONF_THRESHOLD,
+    MAX_BBOX_HEIGHT_PX,
+    MAX_BBOX_WIDTH_PX,
+    MAX_BBOX_AREA_FRACTION,
+    PLAYER_TRACKER_CONFIG,
+)
 from ..utils.logging_utils import get_logger
 from ..utils.geometry import bbox_is_valid, clip_bbox_to_frame, bbox_width, bbox_height, bbox_area
 
@@ -151,7 +157,13 @@ class PlayerDetector:
         frame_height, frame_width = frame.shape[:2]
 
         # Run YOLO detection + tracking (persist=True maintains track state)
-        results = self.model.track(frame, conf=conf_threshold, persist=True, verbose=False)
+        results = self.model.track(
+            frame,
+            conf=conf_threshold,
+            persist=True,
+            verbose=False,
+            tracker=PLAYER_TRACKER_CONFIG,
+        )
 
         tracked_detections = []
 

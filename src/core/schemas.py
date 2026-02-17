@@ -67,6 +67,7 @@ DETECTION_SCHEMA = {
                 get_hsv_histogram_schema()
             ]
         },
+        "jersey_color_sampled": {"type": "boolean"},
         "jersey_roi_valid": {"type": "boolean"},
         "jersey_roi_bbox": {
             "anyOf": [

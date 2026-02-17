@@ -20,6 +20,19 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 
 ---
 
+## Immediate Next: Ball Detection Accuracy (CRITICAL)
+
+- [ ] **Integrate `supervision.InferenceSlicer` in [src/detectors/ball_detector.py](../src/detectors/ball_detector.py)**
+  - [ ] Add `use_inference_slicer` config flag and wire through Pass 1 extractor
+  - [ ] Lazy-init slicer on first frame using frame dimensions
+  - [ ] Use overlapping 2x2 tiling callback for small-object recall
+  - [ ] Merge tile detections with overlap filtering + NMS (`OverlapFilter.NON_MAX_SUPPRESSION`)
+  - [ ] Keep output schema unchanged (`Detection` objects only) to preserve pass immutability
+  - [ ] Validate on clip8 and clip9 that ball recall improves without violating Pass 1/ball validators
+  - [ ] Fail-fast if slicer path produces malformed/duplicate detections in a frame
+
+---
+
 ## Priority 0: Master Contract (CRITICAL - DO THIS FIRST)
 
 - [x] **Create [CLAUDE.md](../CLAUDE.md)** - Master implementation contract ✅
@@ -219,6 +232,10 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - [x] Load `models/BALL_MODEL_best_v2.pt`
   - [x] `detect(frame)` - Return ball bboxes
   - [x] Apply BALL_CONF_THRESHOLD (0.3)
+  - [ ] **Immediate next enhancement**: integrate `InferenceSlicer` tiling for small-ball recall
+    - [ ] Add tile callback + overlap merge behavior aligned to reference branch
+    - [ ] Ensure scaled-frame inference maps boxes back to original coordinates
+    - [ ] Keep compatibility with ball interpolation input contract
 
 - [x] **[src/detectors/jersey_classifier.py](../src/detectors/jersey_classifier.py)** - YOLO wrapper ✅
   - [x] Load `models/JERSEY_MODEL_best_v1.pt`
@@ -420,6 +437,7 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
     - [ ] Zero jersey temporal conflicts
     - [ ] At most 12 concurrent players per frame
     - [ ] Ball present at every frame (real or interpolated)
+    - [ ] InferenceSlicer-enabled ball detection improves or preserves recall vs full-frame baseline
   - [ ] Assert validation.passed == True for all passes
   - [ ] Assert specific metrics (from memory learnings)
 
@@ -430,6 +448,9 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 - [ ] **[tests/skills/test_pass2a_fragmenter.py](../tests/skills/test_pass2a_fragmenter.py)** - Split logic
 - [ ] **[tests/skills/test_pass2c_ghost_generator.py](../tests/skills/test_pass2c_ghost_generator.py)** - Ghost creation
 - [ ] **[tests/skills/test_pass3c_identity_solver.py](../tests/skills/test_pass3c_identity_solver.py)** - Constraint satisfaction
+- [ ] **[tests/detectors/test_ball_detector.py](../tests/detectors/test_ball_detector.py)** - Slicer vs full-frame behavior
+  - [ ] Verifies slicer output format matches Pass 1 expectations
+  - [ ] Verifies no duplicate/conflicting ball detections after overlap filtering
 
 ### End-to-End Test
 - [ ] Run full pipeline on clip9
@@ -449,6 +470,7 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 - [ ] All 30 implementation files created and tested
 - [ ] Pipeline runs on clip9 without errors
 - [ ] All validation reports pass (passed: true)
+- [ ] Ball detector supports InferenceSlicer mode for small-object recall
 - [ ] Visualization shows:
   - [ ] Correct team colors
   - [ ] Jersey numbers
@@ -475,6 +497,7 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 - ✅ Ghost visualization deduplication (visualizer)
 - ✅ Dynamic level high water mark (Pass 2C)
 - ✅ Track players by original_track_id, not fragment_id (Pass 2C)
+- ⏳ InferenceSlicer tiling for ball recall (Immediate Next)
 
 ### Critical Principles
 - **Root-cause only**: Never patch downstream

@@ -20,15 +20,14 @@ from ..core.data_models import Detection, BallDetection, Pass1Output
 from ..core.constants import (
     PLAYER_CONF_THRESHOLD,
     BALL_CONF_THRESHOLD,
+    PASS1_BALL_BATCH_SIZE,
     JERSEY_CONF_THRESHOLD,
-    JERSEY_CLASSIFY_EVERY_N_FRAMES,
+    JERSEY_NUMBER_CLASSIFY_EVERY_N_FRAMES,
+    JERSEY_COLOR_SAMPLE_EVERY_N_FRAMES,
     JERSEY_ROI_X_MIN_FRAC,
     JERSEY_ROI_X_MAX_FRAC,
     JERSEY_ROI_Y_MIN_FRAC,
     JERSEY_ROI_Y_MAX_FRAC,
-    MAX_BBOX_HEIGHT_PX,
-    MAX_BBOX_WIDTH_PX,
-    MAX_BBOX_AREA_FRACTION,
 )
 from ..detectors import PlayerDetector, BallDetector, JerseyClassifier
 from ..utils.video_io import VideoReader
@@ -65,7 +64,6 @@ class Pass1Extractor:
         """
         self.logger = logger
 
-        # Initialize detectors
         self.logger.info("Initializing detectors...")
         self.player_detector = PlayerDetector(player_model_path)
         self.ball_detector = BallDetector(ball_model_path)
@@ -79,7 +77,7 @@ class Pass1Extractor:
         output_path: str,
         validation_output_path: str,
         start_frame: int = 0,
-        end_frame: int = None,
+        end_frame: Optional[int] = None,
         debug_roi_video_path: Optional[str] = None,
     ) -> Pass1Output:
         """
@@ -100,7 +98,6 @@ class Pass1Extractor:
         self.logger.info(f"  Output: {output_path}")
         self.logger.info(f"  Validation: {validation_output_path}")
 
-        # Open video
         reader = VideoReader(video_path)
         total_frames = reader.total_frames if end_frame is None else min(end_frame, reader.total_frames)
         frames_to_process = total_frames - start_frame
@@ -108,15 +105,17 @@ class Pass1Extractor:
         self.logger.info(f"Video info: {reader.width}x{reader.height} @ {reader.fps}fps, {reader.total_frames} frames")
         self.logger.info(f"Processing frames {start_frame} to {total_frames}")
 
-        # Process frames
-        all_detections = []
-        all_ball_detections = []
+        all_detections: List[Detection] = []
+        all_ball_detections: List[BallDetection] = []
 
         debug_writer = None
         if debug_roi_video_path:
+            fourcc_fn = getattr(cv2, "VideoWriter_fourcc", None)
+            if fourcc_fn is None:
+                fourcc_fn = cv2.VideoWriter.fourcc
             debug_writer = cv2.VideoWriter(
                 debug_roi_video_path,
-                cv2.VideoWriter_fourcc(*"mp4v"),
+                fourcc_fn(*"mp4v"),
                 float(reader.fps),
                 (int(reader.width), int(reader.height)),
             )
@@ -126,34 +125,42 @@ class Pass1Extractor:
 
         try:
             with tqdm(total=frames_to_process, desc="Pass 1: Extracting raw evidence") as pbar:
+                frame_batch: List[Tuple[int, np.ndarray]] = []
+
                 for frame_idx, frame in reader.iter_frames():
                     if frame_idx < start_frame:
                         continue
                     if end_frame is not None and frame_idx >= end_frame:
                         break
 
-                    # Process frame
-                    detections, ball_detection = self._process_frame(
-                        frame=frame,
-                        frame_idx=frame_idx,
+                    frame_batch.append((frame_idx, frame))
+
+                    if len(frame_batch) >= PASS1_BALL_BATCH_SIZE:
+                        batch_detections, batch_ball_detections = self._process_frame_batch(
+                            frame_batch=frame_batch,
+                            frame_width=reader.width,
+                            frame_height=reader.height,
+                            debug_writer=debug_writer,
+                        )
+                        all_detections.extend(batch_detections)
+                        all_ball_detections.extend(batch_ball_detections)
+                        pbar.update(len(frame_batch))
+                        frame_batch = []
+
+                if frame_batch:
+                    batch_detections, batch_ball_detections = self._process_frame_batch(
+                        frame_batch=frame_batch,
                         frame_width=reader.width,
                         frame_height=reader.height,
+                        debug_writer=debug_writer,
                     )
-
-                    all_detections.extend(detections)
-                    if ball_detection:
-                        all_ball_detections.append(ball_detection)
-
-                    if debug_writer is not None:
-                        debug_frame = self._draw_roi_debug_overlay(frame, frame_idx, detections)
-                        debug_writer.write(debug_frame)
-
-                    pbar.update(1)
+                    all_detections.extend(batch_detections)
+                    all_ball_detections.extend(batch_ball_detections)
+                    pbar.update(len(frame_batch))
         finally:
             if debug_writer is not None:
                 debug_writer.release()
 
-        # Get video metadata before closing
         video_name = Path(video_path).stem
         video_fps = reader.fps
         video_width = reader.width
@@ -164,7 +171,6 @@ class Pass1Extractor:
 
         self.logger.info(f"Extraction complete: {len(all_detections)} player detections, {len(all_ball_detections)} ball detections")
 
-        # Create output
         result = Pass1Output(
             video_name=video_name,
             fps=video_fps,
@@ -177,31 +183,60 @@ class Pass1Extractor:
             ball_detections=all_ball_detections,
         )
 
-        # Validate BEFORE saving (CRITICAL)
         self.logger.info("Validating Pass 1 output...")
         validator = Validator()
         validation_result = validator.validate_pass1(result)
 
-        # Save validation result
         validation_data = validation_result.model_dump()
-        save_json(validation_data, validation_output_path, None)  # No schema for validation output
+        save_json(validation_data, validation_output_path, None)
 
-        # FAIL-FAST if validation failed
         if not validation_result.passed:
             error_msg = f"Pass 1 validation failed with {len(validation_result.violations)} violations:\n"
-            error_msg += "\n".join(validation_result.violations[:10])
+            error_msg += "\n".join(v.message for v in validation_result.violations[:10])
             self.logger.error(error_msg)
             raise ValueError(error_msg)
 
         self.logger.info("Pass 1 validation passed ✓")
 
-        # Save output (only after validation passes)
         output_data = result.model_dump(exclude_none=True, exclude_defaults=True)
-        save_json(output_data, output_path, PASS1_OUTPUT_SCHEMA, indent=None)
+        save_json(output_data, output_path, PASS1_OUTPUT_SCHEMA, indent=0)
 
         self.logger.info(f"Pass 1 complete: {output_path}")
 
         return result
+
+    def _process_frame_batch(
+        self,
+        frame_batch: List[Tuple[int, np.ndarray]],
+        frame_width: int,
+        frame_height: int,
+        debug_writer=None,
+    ) -> Tuple[List[Detection], List[BallDetection]]:
+        """Process a frame chunk with batched ball detection and per-frame player tracking."""
+        frames = [frame for _, frame in frame_batch]
+        ball_results = self.ball_detector.detect_batch(frames, BALL_CONF_THRESHOLD)
+
+        all_detections: List[Detection] = []
+        all_ball_detections: List[BallDetection] = []
+
+        for (frame_idx, frame), ball_result in zip(frame_batch, ball_results):
+            detections, ball_detection = self._process_frame(
+                frame=frame,
+                frame_idx=frame_idx,
+                frame_width=frame_width,
+                frame_height=frame_height,
+                precomputed_ball_result=ball_result,
+            )
+
+            all_detections.extend(detections)
+            if ball_detection is not None:
+                all_ball_detections.append(ball_detection)
+
+            if debug_writer is not None:
+                debug_frame = self._draw_roi_debug_overlay(frame, frame_idx, detections)
+                debug_writer.write(debug_frame)
+
+        return all_detections, all_ball_detections
 
     def _process_frame(
         self,
@@ -209,6 +244,7 @@ class Pass1Extractor:
         frame_idx: int,
         frame_width: int,
         frame_height: int,
+        precomputed_ball_result: Optional[Tuple[List[float], float]] = None,
     ) -> Tuple[List[Detection], Optional[BallDetection]]:
         """
         Process a single frame.
@@ -218,49 +254,48 @@ class Pass1Extractor:
             frame_idx: Frame index
             frame_width: Frame width
             frame_height: Frame height
+            precomputed_ball_result: Optional precomputed ball detection for this frame
 
         Returns:
             (detections, ball_detection) tuple
         """
-        # 1. Detect AND track players (with huge bbox filter built-in)
-        # Uses Ultralytics built-in tracking (BoT-SORT) - no separate tracker needed
         tracked_dets = self.player_detector.detect_and_track(frame, PLAYER_CONF_THRESHOLD)
 
-        # 3. Process each tracked detection
+        jersey_results = [None] * len(tracked_dets)
+        if tracked_dets and (frame_idx % JERSEY_NUMBER_CLASSIFY_EVERY_N_FRAMES == 0):
+            jersey_bboxes = [bbox for bbox, _, _ in tracked_dets]
+            jersey_results = self.jersey_classifier.classify_batch(
+                frame,
+                jersey_bboxes,
+                JERSEY_CONF_THRESHOLD,
+            )
+
         detections = []
-        for bbox, conf, track_id in tracked_dets:
-            # 4. Classify jersey number (optimization: only every N frames)
-            # This reduces YOLO calls from 12/frame to ~2.4/frame (5x speedup on jersey classification)
-            if frame_idx % JERSEY_CLASSIFY_EVERY_N_FRAMES == 0:
-                jersey_result = self.jersey_classifier.classify(frame, bbox, JERSEY_CONF_THRESHOLD)
-                if jersey_result:
-                    jersey_number, jersey_conf = jersey_result
-                else:
-                    jersey_number = None
-                    jersey_conf = 0.0
+        for det_idx, (bbox, conf, track_id) in enumerate(tracked_dets):
+            jersey_result = jersey_results[det_idx] if det_idx < len(jersey_results) else None
+            if jersey_result is not None:
+                jersey_number, jersey_conf = jersey_result
             else:
-                # Skip classification on non-sampled frames
                 jersey_number = None
                 jersey_conf = 0.0
 
-            # 5. Extract HSV evidence
-            # Primary (team identity): jersey ROI only
             jersey_roi_bbox = self._get_jersey_roi_bbox(bbox, reader_width=frame_width, reader_height=frame_height)
             jersey_roi_valid = jersey_roi_bbox is not None
-            hsv_histogram_jersey = extract_hsv_histogram(frame, jersey_roi_bbox) if jersey_roi_valid else None
+            jersey_color_sampled = jersey_roi_valid and (frame_idx % JERSEY_COLOR_SAMPLE_EVERY_N_FRAMES == 0)
+            hsv_histogram_jersey = (
+                extract_hsv_histogram(frame, jersey_roi_bbox)
+                if (jersey_color_sampled and jersey_roi_bbox is not None)
+                else None
+            )
 
-            # If extraction failed, mark ROI invalid and keep jersey histogram unset
-            if jersey_roi_valid and hsv_histogram_jersey is None:
+            if jersey_color_sampled and hsv_histogram_jersey is None:
                 jersey_roi_valid = False
                 jersey_roi_bbox = None
+                jersey_color_sampled = False
 
-            # 6. Create detection_id (unique identifier)
             detection_id = self._create_detection_id(frame_idx, track_id, bbox)
-
-            # 7. Calculate centroid
             centroid = bbox_centroid(bbox)
 
-            # 8. Create Detection object (NO team, NO player_id)
             detection = Detection(
                 detection_id=detection_id,
                 frame_idx=frame_idx,
@@ -271,15 +306,18 @@ class Pass1Extractor:
                 jersey_number=jersey_number,
                 jersey_confidence=jersey_conf,
                 hsv_histogram_jersey=hsv_histogram_jersey,
+                jersey_color_sampled=jersey_color_sampled,
                 jersey_roi_valid=jersey_roi_valid,
                 jersey_roi_bbox=jersey_roi_bbox,
             )
 
             detections.append(detection)
 
-        # 9. Detect ball
         ball_detection = None
-        ball_result = self.ball_detector.detect(frame, BALL_CONF_THRESHOLD)
+        ball_result = precomputed_ball_result
+        if ball_result is None:
+            ball_result = self.ball_detector.detect(frame, BALL_CONF_THRESHOLD)
+
         if ball_result:
             ball_bbox, ball_conf = ball_result
             ball_centroid = bbox_centroid(ball_bbox)
@@ -332,19 +370,9 @@ class Pass1Extractor:
         Create unique detection_id.
 
         Format: {frame_idx}_{track_id}_{bbox_hash}
-
-        Args:
-            frame_idx: Frame index
-            track_id: Track ID
-            bbox: Bounding box [x1, y1, x2, y2]
-
-        Returns:
-            Unique detection_id string
         """
-        # Hash bbox to create unique identifier
         bbox_str = f"{bbox[0]:.2f}_{bbox[1]:.2f}_{bbox[2]:.2f}_{bbox[3]:.2f}"
         bbox_hash = hashlib.md5(bbox_str.encode()).hexdigest()[:8]
-
         return f"{frame_idx}_{track_id}_{bbox_hash}"
 
     def _draw_roi_debug_overlay(
@@ -408,27 +436,11 @@ def run_pass1(
     ball_model_path: str = "models/BALL_MODEL_best_v2.pt",
     jersey_model_path: str = "models/JERSEY_MODEL_best_v1.pt",
     start_frame: int = 0,
-    end_frame: int = None,
+    end_frame: Optional[int] = None,
     debug_roi_video_path: Optional[str] = None,
 ) -> Pass1Output:
     """
     Run Pass 1: Raw Evidence Extraction.
-
-    Entry point for the pipeline.
-
-    Args:
-        video_path: Path to input video
-        output_path: Path to save pass1_raw.json
-        validation_output_path: Path to save pass1_validation.json
-        player_model_path: Path to player detection model
-        ball_model_path: Path to ball detection model
-        jersey_model_path: Path to jersey classification model
-        start_frame: Start frame index (default 0)
-        end_frame: End frame index (default None = process all)
-        debug_roi_video_path: Optional output path for Pass 1 ROI overlay video
-
-    Returns:
-        Pass1Output with detections
     """
     extractor = Pass1Extractor(
         player_model_path=player_model_path,

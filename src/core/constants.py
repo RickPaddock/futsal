@@ -26,8 +26,11 @@ PLAYER_CONF_THRESHOLD = 0.5
 BALL_CONF_THRESHOLD = 0.3
 JERSEY_CONF_THRESHOLD = 0.3  # Lower threshold per memory learnings
 
-# Jersey classification optimization
-JERSEY_CLASSIFY_EVERY_N_FRAMES = 5  # Only classify every N frames (performance optimization)
+# Jersey number classification optimization
+JERSEY_NUMBER_CLASSIFY_EVERY_N_FRAMES = 5  # Only classify jersey number every N frames
+
+# Jersey color (HSV) sampling optimization
+JERSEY_COLOR_SAMPLE_EVERY_N_FRAMES = 5  # Only extract jersey HSV every N frames
 
 # Jersey ROI crop geometry (relative to player bbox)
 # Focus torso/jersey and reduce shorts contamination in HSV signal.
@@ -54,6 +57,7 @@ TRACK_HIGH_THRESH = 0.6  # High confidence threshold for track initialization
 TRACK_LOW_THRESH = 0.1   # Low confidence threshold for track continuation
 TRACK_BUFFER = 30        # Number of frames to keep lost tracks
 MIN_TRACK_LENGTH = 5     # Minimum track length in frames
+PLAYER_TRACKER_CONFIG = "config/bytetrack_fast.yaml"  # Disable GMC for faster tracking
 
 # ============================================================================
 # FRAGMENT PARAMETERS
@@ -95,6 +99,8 @@ MAX_GHOST_COUNT = 6        # Maximum number of ghosts at any time
 # ============================================================================
 # BALL INTERPOLATION
 # ============================================================================
+
+PASS1_BALL_BATCH_SIZE = 8  # Batch size for Pass 1 ball detector inference
 
 MAX_BALL_GAP_FRAMES = 30  # Maximum gap for interpolation (1 second at 30 FPS)
 BALL_INTERPOLATION_METHOD = "linear"  # or "kalman"
