@@ -15,6 +15,14 @@ detection:
   max_detections: 12
   player_iou_nms: 0.35  # NMS IoU threshold - lower = allow closer overlapping players (default 0.45)
 
+  # Geometry filtering (reject pathological YOLO false positives)
+  min_height: 30  # Minimum player bbox height in pixels
+  max_height: 800  # Maximum player bbox height in pixels (even in 4K)
+  max_width: 600  # Maximum player bbox width in pixels
+  min_aspect_ratio: 0.2  # Minimum width/height ratio
+  max_aspect_ratio: 2.0  # Maximum width/height ratio
+  max_area_fraction: 0.25  # Maximum fraction of frame area (25% = reject huge detections)
+
 # Tracking Parameters (Pass 1 - IoU + motion only, NO team/appearance gating)
 tracking:
   track_high_thresh: 0.5  # Lowered from 0.6 to start tracking partially occluded players

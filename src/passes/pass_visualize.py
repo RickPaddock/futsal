@@ -1011,6 +1011,16 @@ def visualize_clip(
             raw_jersey_conf = float(data.get("raw_jersey_conf", 0.0))
             is_ghost = data.get("is_ghost", False)
 
+            # DEFENSIVE: Skip unreasonably large bboxes (false positives from tracker)
+            # Player bboxes should be < 50% of frame width/height
+            bbox_width = bbox[2] - bbox[0]
+            bbox_height = bbox[3] - bbox[1]
+            max_allowed_width = reader.width * 0.5
+            max_allowed_height = reader.height * 0.5
+            if bbox_width > max_allowed_width or bbox_height > max_allowed_height:
+                # Skip rendering this corrupted bbox
+                continue
+
             # Scale bbox to output size
             x1 = int(bbox[0] * output_scale)
             y1 = int(bbox[1] * output_scale)

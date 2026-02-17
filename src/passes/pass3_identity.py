@@ -1882,6 +1882,7 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
             "assignment_reason": reason,  # Add reason for explainability
             "start_frame": fragment.get("start_frame"),
             "end_frame": fragment.get("end_frame"),
+            "frame_count": fragment.get("frame_count"),  # CRITICAL: For visualization
             "identity_jump": fragment.get("identity_jump", False),
             "continuity_locked": fragment.get("continuity_locked", False),
             "team_confidence": fragment.get("team_confidence"),
@@ -1898,6 +1899,9 @@ def process_clip_pass3(pass2_file: Path, output_dir: Path, config: dict, run_dir
             "appearance_mode_confidence": fragment.get("appearance_mode_confidence"),
             # Ghost metadata (for visualization)
             "is_ghost": fragment.get("is_ghost", False),
+            # CRITICAL: Spatial data needed for visualization
+            "original_track_id": fragment.get("original_track_id"),
+            "spatial_footprint": fragment.get("spatial_footprint"),
         }
         identities.append(identity)
 

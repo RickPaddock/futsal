@@ -28,7 +28,7 @@ except ImportError:  # pragma: no cover - optional dependency
     orjson = None
 
 from src.utils.video_io import VideoReader
-from src.detection.player_detector import PlayerDetector
+from src.detection.player_detector import PlayerDetector, filter_detections_by_size
 from src.detection.ball_detector import BallDetector
 from src.detection.jersey_classifier import JerseyClassifier
 from src.detection.tracking import ByteTracker
@@ -215,6 +215,20 @@ def process_clip(
     for frame_idx, frame in tqdm(reader.frames(), total=reader.total_frames, desc=f"{video_path.name}"):
         # Detect players
         player_detections = player_detector.detect(frame, frame_idx)
+
+        # CRITICAL: Filter out pathological YOLO false positives
+        # Reject detections that are too large (likely hallucinations like floor, shadows)
+        player_detections = filter_detections_by_size(
+            player_detections,
+            min_height=config.get('detection', {}).get('min_height', 30),
+            max_height=config.get('detection', {}).get('max_height', 800),
+            max_width=config.get('detection', {}).get('max_width', 600),
+            min_aspect_ratio=config.get('detection', {}).get('min_aspect_ratio', 0.2),
+            max_aspect_ratio=config.get('detection', {}).get('max_aspect_ratio', 2.0),
+            max_area_fraction=config.get('detection', {}).get('max_area_fraction', 0.25),
+            frame_width=reader.width,
+            frame_height=reader.height,
+        )
 
         # Detect ball
         ball_detections = ball_detector.detect_frame(frame, frame_idx)

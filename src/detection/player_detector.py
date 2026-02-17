@@ -205,34 +205,61 @@ def filter_detections_by_size(
     detections: list[PlayerDetection],
     min_height: int = 30,
     max_height: int = 800,
+    max_width: int = 600,
     min_aspect_ratio: float = 0.2,
     max_aspect_ratio: float = 2.0,
+    max_area_fraction: float = 0.25,
+    frame_width: Optional[int] = None,
+    frame_height: Optional[int] = None,
 ) -> list[PlayerDetection]:
     """
     Filter detections by size constraints.
 
     Removes detections that are too small, too large, or have unusual aspect ratios.
+    Also rejects detections that occupy too much of the frame (likely false positives).
 
     Args:
         detections: List of detections to filter
         min_height: Minimum bbox height in pixels
         max_height: Maximum bbox height in pixels
+        max_width: Maximum bbox width in pixels
         min_aspect_ratio: Minimum width/height ratio
         max_aspect_ratio: Maximum width/height ratio
+        max_area_fraction: Maximum fraction of frame area (e.g., 0.25 = 25%)
+        frame_width: Frame width in pixels (required for area filtering)
+        frame_height: Frame height in pixels (required for area filtering)
 
     Returns:
         Filtered list of detections
     """
     filtered = []
-    for det in detections:
-        height = det.bbox.height
-        aspect_ratio = det.bbox.width / height if height > 0 else 0
+    frame_area = None
+    if frame_width is not None and frame_height is not None:
+        frame_area = frame_width * frame_height
 
-        if (
-            min_height <= height <= max_height
-            and min_aspect_ratio <= aspect_ratio <= max_aspect_ratio
-        ):
-            filtered.append(det)
+    for det in detections:
+        width = det.bbox.width
+        height = det.bbox.height
+        bbox_area = det.bbox.area
+        aspect_ratio = width / height if height > 0 else 0
+
+        # Check height and width bounds
+        if not (min_height <= height <= max_height):
+            continue
+        if width > max_width:
+            continue
+
+        # Check aspect ratio
+        if not (min_aspect_ratio <= aspect_ratio <= max_aspect_ratio):
+            continue
+
+        # Check area fraction (reject huge detections)
+        if frame_area is not None and max_area_fraction is not None:
+            area_fraction = bbox_area / frame_area
+            if area_fraction > max_area_fraction:
+                continue
+
+        filtered.append(det)
 
     return filtered
 

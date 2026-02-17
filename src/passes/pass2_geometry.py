@@ -1751,6 +1751,28 @@ def detect_divergences(
     return divergences
 
 
+def detect_frame_gaps(frames: list[int]) -> list[int]:
+    """
+    Return indices where frames are non-contiguous.
+
+    Args:
+        frames: List of frame indices (must be sorted)
+
+    Returns:
+        List of indices where gaps occur (split points)
+
+    Example:
+        frames = [186, 188, 190, 202, 203, 204]
+        detect_frame_gaps(frames) → [1, 3]  # Gaps after 186→188 and 190→202
+    """
+    assert frames == sorted(frames), "Frames must be sorted before gap detection"
+    gaps = []
+    for i in range(len(frames) - 1):
+        if frames[i + 1] != frames[i] + 1:
+            gaps.append(i + 1)  # Split starts at next index
+    return gaps
+
+
 def split_track_into_fragments(
     track_id: str,
     frames: list[int],
@@ -1789,8 +1811,16 @@ def split_track_into_fragments(
     """
     fragments = []
 
+    # CRITICAL: Detect gaps in Pass 1 tracking FIRST
+    # Fragments must be contiguous - split at any gaps
+    gap_split_indices = detect_frame_gaps(frames)
+    gap_split_frames = [frames[idx] for idx in gap_split_indices]
+
     # Extract divergence frame indices
-    split_frames = [d["frame_idx"] for d in divergence_points]
+    divergence_split_frames = [d["frame_idx"] for d in divergence_points]
+
+    # Combine all split points (gaps + divergences)
+    split_frames = sorted(set(gap_split_frames + divergence_split_frames))
 
     # ========================================================================
     # COMPUTE PRE-SPLIT APPEARANCE CENTROID
@@ -1829,7 +1859,7 @@ def split_track_into_fragments(
         )
         identity_jump_reason = divergence_for_split.get("reason") if divergence_for_split else None
         is_identity_jump = identity_jump_reason in {"appearance_drift", "jersey_inconsistency", "jersey_temporal_exclusivity", "velocity_spike"}
-        
+
         fragment_length = split_idx - start_idx
         min_length_for_fragment = 3 if is_identity_jump else min_fragment_length
         
@@ -1950,6 +1980,38 @@ def create_fragment(
     Returns:
         Fragment dict
     """
+    # ========================================================================
+    # VALIDATION: Ensure fragment integrity (fixes huge bbox bug)
+    # ========================================================================
+    n = len(frames)
+
+    # Assert non-empty fragment
+    assert n > 0, f"Empty fragment created for track {track_id}"
+
+    # Assert parallel arrays match
+    assert len(bboxes) == n, f"Bboxes length {len(bboxes)} != frames length {n} for track {track_id}"
+    assert len(centroids) == n, f"Centroids length {len(centroids)} != frames length {n} for track {track_id}"
+    assert len(court_positions) == n, f"Court positions length {len(court_positions)} != frames length {n} for track {track_id}"
+    assert len(confidences) == n, f"Confidences length {len(confidences)} != frames length {n} for track {track_id}"
+    assert len(occlusion_scores) == n, f"Occlusion scores length {len(occlusion_scores)} != frames length {n} for track {track_id}"
+    assert len(hsv_histograms) == n, f"HSV histograms length {len(hsv_histograms)} != frames length {n} for track {track_id}"
+    assert len(jersey_decisions) == n, f"Jersey decisions length {len(jersey_decisions)} != frames length {n} for track {track_id}"
+
+    # Assert contiguity (no gaps in frames)
+    if n > 1:
+        for i in range(n - 1):
+            assert frames[i + 1] == frames[i] + 1, \
+                f"Non-contiguous fragment: frames[{i}]={frames[i]} → frames[{i+1}]={frames[i+1]} (gap={frames[i+1]-frames[i]}) in track {track_id}"
+
+    # Assert span matches data
+    span = frames[-1] - frames[0] + 1
+    assert span == n, \
+        f"Span mismatch: frames {frames[0]}-{frames[-1]} has {n} items, expected span={span} for track {track_id}"
+
+    # ========================================================================
+    # END VALIDATION
+    # ========================================================================
+
     # Aggregate jersey probabilities
     jersey_prob_timeline = {}
     for decision in jersey_decisions:
