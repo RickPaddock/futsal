@@ -108,50 +108,54 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 **⚠️ MUST BE COMPLETED BEFORE ANY PASS IMPLEMENTATION**
 
 ### Global Rules (Non-Negotiable)
-- [ ] **[src/validation/global_rules.py](../src/validation/global_rules.py)** - R1-R5 enforcement
-  - [ ] `R1_Pass1RawTruthOnly` - No team/identity in Pass 1
-  - [ ] `R2_NoUnknownTeams` - Every fragment has team after Pass 3C
-  - [ ] `R3_JerseyTemporalExclusivity` - No jersey overlaps in time
-  - [ ] `R4_PlayerContinuity` - Max 12 concurrent players (high water mark)
-  - [ ] `R5_BallNeverDisappears` - Ball at every frame (real or interpolated)
+- [x] **[src/validation/global_rules.py](../src/validation/global_rules.py)** - R1-R5 enforcement ✅
+  - [x] `validate_r1_pass1_raw_truth()` - No team/identity in Pass 1, multi-layer bbox defense
+  - [x] `validate_r2_no_unknown_teams()` - Every fragment has team after Pass 3C, max 6 per team
+  - [x] `validate_r3_jersey_temporal_exclusivity()` - No jersey overlaps in time
+  - [x] `validate_r4_player_continuity()` - Max 12 concurrent players (high water mark)
+  - [x] `validate_r5_ball_never_disappears()` - Ball state at every frame (real/interpolated/out_of_play)
 
 ### Pass-Specific Validation
-- [ ] **[src/validation/pass1_rules.py](../src/validation/pass1_rules.py)** - Pass 1 validation
-  - [ ] Bbox size limits (multi-layer defense)
-  - [ ] Jersey probability validity
-  - [ ] No duplicate track_id per frame
-  - [ ] HSV histogram validity
+- [x] **[src/validation/pass1_rules.py](../src/validation/pass1_rules.py)** - Pass 1 validation ✅
+  - [x] `validate_pass1_detections()` - Bbox validity, jersey confidence, HSV histogram
+  - [x] `validate_pass1_ball_detections()` - Ball confidence, bbox validity, max 1 per frame
+  - [x] `validate_pass1_frame_coverage()` - Frame index range, detection coverage
+  - [x] `validate_pass1()` - All Pass 1 checks including R1
 
-- [ ] **[src/validation/pass2_rules.py](../src/validation/pass2_rules.py)** - Pass 2 validation
-  - [ ] 100% frame coverage (no gaps)
-  - [ ] No fragment overlap
-  - [ ] Ghost count reasonableness
-  - [ ] Fragment quality distribution
+- [x] **[src/validation/pass2_rules.py](../src/validation/pass2_rules.py)** - Pass 2 validation ✅
+  - [x] `validate_pass2a_fragments()` - No temporal overlaps, unique IDs, valid ranges
+  - [x] `validate_pass2b_quality_scoring()` - Quality enum, score range, consistency metrics
+  - [x] `validate_pass2c_ghosts()` - Ghost quality, source fields, estimated position, R4
+  - [x] `validate_pass2()` - All Pass 2 checks
 
-- [ ] **[src/validation/pass3_rules.py](../src/validation/pass3_rules.py)** - Pass 3 validation
-  - [ ] Team balance (METRIC ONLY - 5v6, 6v5 allowed, do NOT fail pipeline on imbalance)
-  - [ ] Jersey assignment completeness
-  - [ ] No team switches (HARD - fail if violated)
-  - [ ] Constraint satisfaction completeness
-  - [ ] Max 12 concurrent players (HARD - futsal regulation)
+- [x] **[src/validation/pass3_rules.py](../src/validation/pass3_rules.py)** - Pass 3 validation ✅
+  - [x] `validate_pass3a_candidates()` - Candidate evidence scores
+  - [x] `validate_pass3b_constraints()` - Constraint types, fragment references, MUST/SOFT validity
+  - [x] `validate_pass3c_identity_commit()` - No unresolved conflicts, R2, R3, player_id format
+  - [x] `validate_pass3()` - All Pass 3 checks including identity lock point
 
-- [ ] **[src/validation/ball_rules.py](../src/validation/ball_rules.py)** - Ball validation
-  - [ ] Ball STATE exists at every frame (not position - state ∈ {real, interpolated, out_of_play})
-  - [ ] Interpolation only for gaps ≤30 frames
-  - [ ] Out-of-play for gaps >30 frames
-  - [ ] Speed physical limits (for real/interpolated only)
+- [x] **[src/validation/ball_rules.py](../src/validation/ball_rules.py)** - Ball validation ✅
+  - [x] `validate_ball_interpolation()` - R5, gap limits, speed plausibility
+  - [x] `validate_ball_state_consistency()` - State consistency (real has bbox, out_of_play has no position)
+  - [x] Ball STATE exists at every frame (not position - state ∈ {real, interpolated, out_of_play})
+  - [x] Interpolation only for gaps ≤30 frames
+  - [x] Out-of-play for gaps >30 frames
+  - [x] Speed physical limits (max 100px/frame)
 
 ### Validator Orchestrator
-- [ ] **[src/validation/validator.py](../src/validation/validator.py)** - Main validator
-  - [ ] `validate_pass1(data)` - Run all Pass 1 rules
-  - [ ] `validate_pass2(data)` - Run all Pass 2 rules
-  - [ ] `validate_pass3(data)` - Run all Pass 3 rules
-  - [ ] `validate_ball(data)` - Run all ball rules
-  - [ ] `validate_global(data)` - Run cross-pass invariants
-  - [ ] Return `ValidationResult` (passed, violations, warnings)
-  - [ ] **CRITICAL: Validation runs BEFORE writing JSON**
-  - [ ] **Failed pass writes NOTHING (not even partial artifacts)**
-  - [ ] **Validation JSON is the ONLY file written on failure**
+- [x] **[src/validation/validator.py](../src/validation/validator.py)** - Main validator ✅
+  - [x] `Validator` class - Main orchestrator
+  - [x] `validate_pass1(data)` - Run all Pass 1 rules (including R1)
+  - [x] `validate_pass2(data)` - Run all Pass 2 rules (including R4)
+  - [x] `validate_pass3(data)` - Run all Pass 3 rules (including R2, R3)
+  - [x] `validate_ball_interpolation(data)` - Run all ball rules (including R5)
+  - [x] `validate_all()` - Run all validations
+  - [x] `ValidationResult` - Pydantic model (passed, violations, warnings, timestamp)
+  - [x] `ValidationError` exception - Raised on fail-fast
+  - [x] `validate_and_raise()` - Convenience function for fail-fast
+  - [x] **CRITICAL: Validation runs BEFORE writing JSON**
+  - [x] **Failed pass writes NOTHING (not even partial artifacts)**
+  - [x] **Validation JSON is the ONLY file written on failure**
 
 ---
 
