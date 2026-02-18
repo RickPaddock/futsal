@@ -295,6 +295,93 @@ def expand_bbox(bbox: BBox, margin: float) -> BBox:
     return [x1 - margin, y1 - margin, x2 + margin, y2 + margin]
 
 
+def apply_fisheye_bbox_correction(
+    bbox: BBox,
+    frame_width: int,
+    frame_height: int,
+    expansion_strength: Optional[float] = None,
+) -> BBox:
+    """
+    Apply radial bbox expansion to account for fisheye lens distortion.
+
+    Problem:
+    - Fisheye lenses cause radial distortion - players far from center appear tilted
+    - YOLO produces axis-aligned bboxes that cut off tilted players
+    - Incomplete bbox → incomplete jersey crop → wrong HSV → false splits in Pass 2A
+
+    Solution:
+    - Expand bboxes based on distance from frame center
+    - Bboxes far from center get expanded more (radial expansion)
+    - This captures the full player even when tilted by fisheye distortion
+
+    Per CLAUDE.md P0 (Root-Cause Fixes Only):
+    - Fix bbox quality at source (Pass 1), don't patch downstream
+    - Prevents false "jersey color change" detections → prevents false splits
+
+    Args:
+        bbox: [x1, y1, x2, y2] in pixel coordinates
+        frame_width: Frame width in pixels
+        frame_height: Frame height in pixels
+        expansion_strength: Expansion factor strength (0.15 = 15% expansion at corners)
+                           If None, uses FISHEYE_EXPANSION_STRENGTH from constants
+
+    Returns:
+        Corrected bbox with radial expansion, clipped to frame bounds
+
+    Examples:
+        >>> # Player at frame center (no expansion needed)
+        >>> apply_fisheye_bbox_correction([900, 500, 1020, 700], 1920, 1080, 0.15)
+        [900, 500, 1020, 700]  # Minimal expansion
+
+        >>> # Player at frame edge (significant expansion)
+        >>> apply_fisheye_bbox_correction([100, 100, 200, 300], 1920, 1080, 0.15)
+        [85, 85, 215, 315]  # ~15% expansion due to distance from center
+    """
+    if expansion_strength is None:
+        from ..core.constants import FISHEYE_EXPANSION_STRENGTH
+        expansion_strength = FISHEYE_EXPANSION_STRENGTH
+
+    x1, y1, x2, y2 = bbox
+
+    # Compute bbox centroid
+    cx = (x1 + x2) / 2.0
+    cy = (y1 + y2) / 2.0
+
+    # Frame center
+    frame_cx = frame_width / 2.0
+    frame_cy = frame_height / 2.0
+
+    # Normalized distance from center (0 = center, 1 = corner)
+    # Use normalized coordinates so expansion is proportional to frame size
+    dx_norm = (cx - frame_cx) / frame_cx
+    dy_norm = (cy - frame_cy) / frame_cy
+    distance_from_center = (dx_norm**2 + dy_norm**2) ** 0.5
+
+    # Radial expansion factor
+    # Quadratic falloff: expansion is stronger at edges
+    # expansion_factor = 1 + k * distance^2
+    # At center (distance=0): factor = 1.0 (no expansion)
+    # At corner (distance=√2): factor = 1 + k*2 (maximum expansion)
+    expansion_factor = 1.0 + expansion_strength * (distance_from_center ** 2)
+
+    # Expand bbox symmetrically around centroid
+    width = x2 - x1
+    height = y2 - y1
+    new_width = width * expansion_factor
+    new_height = height * expansion_factor
+
+    new_x1 = cx - new_width / 2.0
+    new_y1 = cy - new_height / 2.0
+    new_x2 = cx + new_width / 2.0
+    new_y2 = cy + new_height / 2.0
+
+    # Clip to frame bounds (critical: prevents bbox going out of frame)
+    new_bbox = [new_x1, new_y1, new_x2, new_y2]
+    clipped_bbox = clip_bbox_to_frame(new_bbox, frame_width, frame_height)
+
+    return clipped_bbox
+
+
 def bbox_overlap_1d(a_min: float, a_max: float, b_min: float, b_max: float) -> float:
     """
     Calculate 1D overlap between two intervals.

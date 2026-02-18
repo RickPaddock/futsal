@@ -37,7 +37,7 @@ JERSEY_COLOR_SAMPLE_EVERY_N_FRAMES = 5  # Only extract jersey HSV every N frames
 JERSEY_ROI_X_MIN_FRAC = 0.25
 JERSEY_ROI_X_MAX_FRAC = 0.75
 JERSEY_ROI_Y_MIN_FRAC = 0.20
-JERSEY_ROI_Y_MAX_FRAC = 0.55
+JERSEY_ROI_Y_MAX_FRAC = 0.50  # Raised from 0.55 to avoid shorts contamination
 
 # ============================================================================
 # BBOX FILTERING (MULTI-LAYER DEFENSE)
@@ -48,6 +48,21 @@ JERSEY_ROI_Y_MAX_FRAC = 0.55
 MAX_BBOX_HEIGHT_PX = 800  # Players shouldn't exceed 800px even in 4K
 MAX_BBOX_WIDTH_PX = 600
 MAX_BBOX_AREA_FRACTION = 0.25  # Layer 2: Reject detections > 25% of frame area
+
+# ============================================================================
+# FISHEYE LENS CORRECTION
+# ============================================================================
+
+# Adaptive bbox expansion to account for fisheye distortion
+# Players far from frame center appear tilted → need larger bbox for complete jersey crop
+FISHEYE_CORRECTION_ENABLED = True  # Enable fisheye jersey ROI correction
+FISHEYE_EXPANSION_STRENGTH = 0.15  # Shift strength (0.15 = ~15% shift at frame edges)
+
+# Rationale:
+# - Fisheye distortion causes players at frame edges to appear tilted
+# - Axis-aligned bboxes cut off tilted players → incomplete jersey crops
+# - Incomplete crops → wrong HSV → false "appearance discontinuity" splits in Pass 2A
+# - Solution: Radially expand bboxes based on distance from frame center
 
 # ============================================================================
 # BYTETRACK PARAMETERS
@@ -91,6 +106,12 @@ KMEANS_MIN_HSV_CONSISTENCY = 0.35
 
 JERSEY_NUMBERS = list(range(1, 13))  # Futsal: 1-12
 MAX_CONCURRENT_PLAYERS = 12  # Futsal regulation: 6v6
+
+# Jersey temporal exclusivity thresholds (Pass 2A)
+# Per IMPLEMENTATION_PLAN.md: Use voting/consensus, not first appearance
+JERSEY_MIN_OBSERVATIONS = 3  # Minimum jersey observations to consider it "owned" by a fragment
+JERSEY_MIN_CONFIDENCE = 0.5  # Minimum confidence for jersey observations to count
+JERSEY_MAJORITY_THRESHOLD = 0.5  # Fragment must have ≥50% observations with same jersey to "own" it
 
 # Optional jersey-to-player display labels for visualization overlays.
 # Used only by visualization layer (does NOT affect identity inference or validation).

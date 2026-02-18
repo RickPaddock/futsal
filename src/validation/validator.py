@@ -13,6 +13,7 @@ from datetime import datetime
 from ..core.data_models import (
     Pass1Output,
     Pass2AOutput,
+    Pass2BOutput,
     Pass2COutput,
     Pass3COutput,
     BallInterpolationOutput,
@@ -82,6 +83,22 @@ class Validator:
         violations.extend(validate_pass2a_frame_coverage(pass2a_output, pass1_output))
 
         return self._build_result("pass2a", violations)
+
+    def validate_pass2b(self, pass2b_output: Pass2BOutput) -> ValidationResult:
+        """
+        Validate Pass 2B output (quality scoring).
+
+        Args:
+            pass2b_output: Pass 2B output data
+
+        Returns:
+            ValidationResult with violations (if any)
+        """
+        from .pass2_rules import validate_pass2b_quality_scoring
+
+        violations = validate_pass2b_quality_scoring(pass2b_output)
+
+        return self._build_result("pass2b", violations)
 
     def validate_pass2(self, pass2c_output: Pass2COutput) -> ValidationResult:
         """

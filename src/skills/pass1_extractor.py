@@ -29,6 +29,7 @@ from ..core.constants import (
     JERSEY_ROI_X_MAX_FRAC,
     JERSEY_ROI_Y_MIN_FRAC,
     JERSEY_ROI_Y_MAX_FRAC,
+    FISHEYE_CORRECTION_ENABLED,
 )
 from ..detectors import PlayerDetector, BallDetector, JerseyClassifier
 from ..utils.video_io import VideoReader
@@ -574,6 +575,9 @@ class Pass1Extractor:
         """
         tracked_dets = self.player_detector.detect_and_track(frame, PLAYER_CONF_THRESHOLD)
 
+        # NOTE: Fisheye correction is applied ONLY to jersey ROI (in _get_jersey_roi_bbox),
+        # NOT to the main player bbox. Player bbox stays as-is from YOLO.
+
         jersey_results = [None] * len(tracked_dets)
         if tracked_dets and (frame_idx % JERSEY_NUMBER_CLASSIFY_EVERY_N_FRAMES == 0):
             jersey_bboxes = [bbox for bbox, _, _ in tracked_dets]
@@ -646,11 +650,16 @@ class Pass1Extractor:
 
     def _get_jersey_roi_bbox(self, bbox: list, reader_width: int, reader_height: int) -> Optional[list]:
         """
-        Compute jersey ROI inside player bbox.
+        Compute jersey ROI inside player bbox with fisheye distortion correction.
 
         Default ROI ratios (relative to player bbox):
         - Height: 20% to 55% (upper torso band)
         - Width: 25% to 75% (center torso band)
+
+        Fisheye correction:
+        - Players at LEFT edge lean LEFT → shift ROI LEFT
+        - Players at RIGHT edge lean RIGHT → shift ROI RIGHT
+        - Players at CENTER → no shift
 
         Returns:
             Cropped jersey ROI bbox [x1, y1, x2, y2], or None if invalid
@@ -662,8 +671,55 @@ class Pass1Extractor:
         if width <= 0 or height <= 0:
             return None
 
-        roi_x1 = x1 + (JERSEY_ROI_X_MIN_FRAC * width)
-        roi_x2 = x1 + (JERSEY_ROI_X_MAX_FRAC * width)
+        # FISHEYE CORRECTION: Shift ROI based on player position
+        if FISHEYE_CORRECTION_ENABLED:
+            # Player bbox centroid
+            player_cx = (x1 + x2) / 2.0
+            player_cy = (y1 + y2) / 2.0
+
+            # Frame center
+            frame_cx = reader_width / 2.0
+            frame_cy = reader_height / 2.0
+
+            # Radial direction from frame center to player
+            dx = player_cx - frame_cx
+            dy = player_cy - frame_cy
+            distance = (dx**2 + dy**2) ** 0.5
+
+            if distance > 1.0:
+                # Normalize direction
+                dir_x = dx / distance
+                # dir_y = dy / distance  # Not used for now, focus on horizontal shift
+
+                # Compute shift magnitude (stronger at edges)
+                frame_diag = (reader_width**2 + reader_height**2) ** 0.5
+                normalized_distance = distance / (frame_diag / 2.0)
+
+                # Shift fraction: 0.0 at center, ~0.1 at edge (10% of bbox width)
+                from ..core.constants import FISHEYE_EXPANSION_STRENGTH
+                shift_fraction = FISHEYE_EXPANSION_STRENGTH * (normalized_distance ** 2)
+
+                # Apply horizontal shift to ROI fractions
+                # Positive dir_x (right side) → shift right → increase both x fractions
+                # Negative dir_x (left side) → shift left → decrease both x fractions
+                x_shift = dir_x * shift_fraction
+
+                # Adjust ROI bounds with shift, keeping ROI width constant
+                roi_x_min_frac = JERSEY_ROI_X_MIN_FRAC + x_shift
+                roi_x_max_frac = JERSEY_ROI_X_MAX_FRAC + x_shift
+
+                # Clamp to valid range [0, 1]
+                roi_x_min_frac = max(0.0, min(1.0, roi_x_min_frac))
+                roi_x_max_frac = max(0.0, min(1.0, roi_x_max_frac))
+            else:
+                roi_x_min_frac = JERSEY_ROI_X_MIN_FRAC
+                roi_x_max_frac = JERSEY_ROI_X_MAX_FRAC
+        else:
+            roi_x_min_frac = JERSEY_ROI_X_MIN_FRAC
+            roi_x_max_frac = JERSEY_ROI_X_MAX_FRAC
+
+        roi_x1 = x1 + (roi_x_min_frac * width)
+        roi_x2 = x1 + (roi_x_max_frac * width)
         roi_y1 = y1 + (JERSEY_ROI_Y_MIN_FRAC * height)
         roi_y2 = y1 + (JERSEY_ROI_Y_MAX_FRAC * height)
 

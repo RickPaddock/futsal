@@ -216,6 +216,10 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 - [x] **Debug metrics additions** ✅
   - [x] Add `cluster_compactness_a`, `cluster_compactness_b`, `compactness_ratio` to `debug_metrics.json`
   - [x] Add `team_assignment_mode` (`compactness_guided_kmeans`) to solver log
+- [ ] **Pass 3C debug video** (`--video-output 3c` or `--video-output 3`) - Identity commit (LOCK POINT)
+  - [ ] Show: Fragment bboxes colored by final team (team_a=blue, team_b=red)
+  - [ ] Overlays: player_id, jersey numbers, locked team assignments
+  - [ ] Purpose: Verify final identity commit (are teams correct? jerseys correct? no unknowns?)
 
 ---
 
@@ -266,6 +270,14 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - [x] **Filter huge bboxes** (multi-layer defense built into PlayerDetector):
     - [x] Layer 1: Absolute limits (800px height, 600px width)
     - [x] Layer 2: Relative limit (25% frame area)
+  - [x] **CRITICAL FIX: Fisheye bbox correction** ✅
+    - [x] **Problem**: Fisheye lens → players at edges appear tilted → axis-aligned bbox cuts off jersey → incomplete crop → wrong HSV → false "appearance discontinuity" splits in Pass 2A
+    - [x] **Root Cause**: Bad bbox → bad jersey crop → jersey COLOR change detected (HSV drift) → spurious TRIGGER 4 (Hard Appearance Discontinuity)
+    - [x] **Solution**: Radial bbox expansion based on distance from frame center
+    - [x] **Implementation**: [src/utils/geometry.py](../src/utils/geometry.py) `apply_fisheye_bbox_correction()`
+    - [x] **Applied**: AFTER YOLO detection, BEFORE jersey classification/HSV extraction
+    - [x] **Config**: `FISHEYE_CORRECTION_ENABLED=True`, `FISHEYE_EXPANSION_STRENGTH=0.15` (15% expansion at corners)
+    - [x] **Benefit**: Reduces false jersey temporal exclusivity splits, improves Pass 2A fragment quality
   - [x] Run ByteTrack for temporary track_ids
   - [x] Run jersey classifier (conf ≥ 0.3)
   - [x] Extract HSV histograms (8x8x8 bins) from jersey ROI only (full-body HSV removed)
@@ -277,18 +289,27 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - [x] Validate output (call validator.validate_pass1)
   - [x] FAIL-FAST if validation fails
 - [x] **[test_pass1.py](../test_pass1.py)** - Test script for Pass 1 ✅
+- [x] **Pass 1 debug video** (`--video-output 1`) - Raw detections
+  - [x] Show: YOLO bboxes, ByteTrack IDs, jersey numbers, confidence scores
+  - [x] Purpose: Verify detection quality, track stability, jersey classification
 
 ### Pass 2A: Mechanical Fragmentation
 - [x] **[src/skills/pass2a_fragmenter.py](../src/skills/pass2a_fragmenter.py)** - Track splitting ✅
   - [x] Group detections by track_id
-  - [x] Split triggers:
-    - [x] **Track overlap collision**: Same track_id produces >1 detection in same frame → immediate split (ByteTrack failure - root cause fix)
-    - [x] Appearance drift (HSV histogram change)
-    - [x] Jersey inconsistency (sampling-aware):
-      - [x] ✅ Split: Jersey disappears (#4 → None) only on sampled observations, with debounce against transient misses
-      - [x] ✅ Split: Jersey changes (#7 → #4) on sampled observations
+  - [x] **Split triggers (Per CLAUDE.md Section 5 - EXHAUSTIVE list)**:
+    - [x] **TRIGGER 1: Track Collision** - Same track_id produces >1 detection in same frame (ByteTrack failure)
+    - [x] **TRIGGER 2: Jersey Change** - Jersey NUMBER changes (#7 → #4), NOT disappearance
+      - [x] ❌ NO split: Jersey disappearance (#4 → None) - loss of observability
       - [x] ❌ NO split: Jersey first appearance (None → #4) - player turned around
-    - [x] Jersey temporal exclusivity (same jersey on different tracks simultaneously)
+    - [ ] **TRIGGER 3: Jersey Temporal Exclusivity** - Same jersey on different tracks simultaneously
+      - [ ] **Algorithm**: Use voting/consensus across fragment, NOT first appearance
+      - [ ] **Minimum observations**: Jersey must appear ≥3 times with conf ≥0.5 to be considered "owned"
+      - [ ] **Majority vote**: Fragment "owns" jersey if ≥50% of sampled observations show that jersey
+      - [ ] **Conflict detection**: Two fragments "own" same jersey + overlapping time → split the later one
+      - [ ] **No false positives**: Single misclassified frame does NOT cause split
+    - [x] **TRIGGER 4: Hard Appearance Discontinuity** - ALL required: jersey visible both sides + large HSV + impossible motion
+      - [x] ❌ NO split: Standalone appearance drift - lighting/angle change
+      - [x] ❌ NO split: Standalone velocity spike - player running
   - [x] **Keep ALL fragments** (even < 10 frames)
   - [x] Mark short fragments as `quality = "low"`
   - [x] **Merge consecutive short fragments** on same track
@@ -340,16 +361,21 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - [x] Split-threshold policy checks (HSV/velocity tuning belongs to splitter implementation)
 
 ### Pass 2B: Fragment Quality Scoring
-- [ ] **[src/skills/pass2b_fragment_scoring.py](../src/skills/pass2b_fragment_scoring.py)** - Quality metadata
-  - [ ] Compute quality scores (0-1):
-    - [ ] Detection confidence stability (avg, min)
-    - [ ] Bbox stability (low jitter)
-    - [ ] Jersey consistency
-    - [ ] HSV consistency
-  - [ ] Assign quality: HIGH/MEDIUM/LOW (already GHOST from Pass 2C)
-  - [ ] **Metadata only** (no identity decisions)
-  - [ ] Save scored fragments
-  - [ ] Validate output
+- [x] **[src/skills/pass2b_fragment_scoring.py](../src/skills/pass2b_fragment_scoring.py)** - Quality metadata ✅
+  - [x] Compute quality scores (0-1):
+    - [x] Detection confidence stability (avg, min)
+    - [x] Bbox stability (low jitter)
+    - [x] Jersey consistency
+    - [x] HSV consistency
+  - [x] Assign quality: HIGH/MEDIUM/LOW (already GHOST from Pass 2C)
+  - [x] **Metadata only** (no identity decisions)
+  - [x] Save scored fragments
+  - [x] Validate output
+- [x] **[test_pass2b.py](../test_pass2b.py)** - Test script for Pass 2B ✅
+- [ ] **Pass 2B debug video** (`--video-output 2b`) - Quality scoring
+  - [ ] Show: Fragment bboxes with quality labels (HIGH/MEDIUM/LOW)
+  - [ ] Overlays: Quality scores, quality reasons, metric values
+  - [ ] Purpose: Verify quality scoring logic (are scores reasonable for each fragment?)
 
 ### Pass 2C: Ghost Generation
 - [ ] **[src/skills/pass2c_ghost_generator.py](../src/skills/pass2c_ghost_generator.py)** - Maintain player count
@@ -370,6 +396,10 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - [ ] **Exclude ghosts from K-means clustering** (Pass 3C)
   - [ ] Save `pass2_ghosts.json`, log ghost creation
   - [ ] Validate output
+- [ ] **Pass 2C debug video** (`--video-output 2c`) - Ghost generation
+  - [ ] Show: Real fragments (solid) + ghost fragments (dashed)
+  - [ ] Overlays: Player count ticker (tracked + ghosts = level), ghost reasons
+  - [ ] Purpose: Verify dynamic level, ghost positioning, player count continuity
 
 ---
 
@@ -383,6 +413,10 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
     - [ ] Adjacent fragments (track continuity links)
   - [ ] **NO LOCKING** (just candidates, no decisions)
   - [ ] Save `pass3_candidates.json`
+- [ ] **Pass 3A debug video** (`--video-output 3a`) - Identity candidates
+  - [ ] Show: Fragment bboxes with candidate teams/jerseys
+  - [ ] Overlays: Evidence scores, probability distributions, adjacency links
+  - [ ] Purpose: Verify candidate generation logic (are candidates reasonable?)
 
 ### Pass 3B: Constraint Graph
 - [ ] **[src/skills/pass3b_constraint_builder.py](../src/skills/pass3b_constraint_builder.py)** - Build constraint graph
@@ -392,6 +426,10 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - [ ] Graph structure: fragment_id → constraint_ids
   - [ ] **Note**: Team assignment happens in Pass 3C AFTER identity resolution
   - [ ] Save `pass3_constraints.json`
+- [ ] **Pass 3B debug video** (`--video-output 3b`) - Constraint graph
+  - [ ] Show: Fragment bboxes with constraint edges overlaid
+  - [ ] Overlays: MUST_SAME (green), CANNOT_SAME (red), SOFT_SAME (yellow)
+  - [ ] Purpose: Verify constraint graph structure (are constraints correct?)
 
 ### Pass 3C: Identity Commit (Already completed in Priority 3)
 ✅ See Priority 3
@@ -409,6 +447,10 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - [ ] Validate: ball STATE exists at every frame (not position - state ∈ {real, interpolated, out_of_play})
   - [ ] Save `ball_interpolation.json`
   - [ ] Validate output
+- [ ] **Ball interpolation debug video** (`--video-output ball`) - Ball tracking
+  - [ ] Show: Ball positions (real=solid, interpolated=dashed, out_of_play=none)
+  - [ ] Overlays: Ball state labels, gap lengths, interpolation method
+  - [ ] Purpose: Verify ball interpolation logic (are gaps filled correctly?)
 
 ### Visualization
 - [ ] **[src/skills/visualizer.py](../src/skills/visualizer.py)** - Final video output
@@ -435,6 +477,75 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 
 ---
 
+## Priority 7.5: Pitch Projection & Homography (Tactical Analysis)
+
+### Homography Transformation
+- [ ] **[src/geometry/homography.py](../src/geometry/homography.py)** - Camera to pitch transformation
+  - [ ] **Reference implementation**: `https://github.com/RickPaddock/futsal/blob/rick_claude_2pass_mvp1/src/geometry/homography.py`
+  - [ ] **Input**: `pass3_identity_commit.json`, `ball_interpolation.json` (camera coordinates)
+  - [ ] **Calibration points** (13-point correspondence):
+    - [ ] Source: Pixel coordinates from video frame
+      - [ ]   court_length: 40.0
+      - [ ]   court_width: 20.0
+      - [ ]   goal_width: 3.0
+      - [ ]   output_pixel_scale: 20  # Pixels per meter for 2D pitch (800x400 output)
+      - [ ] Far Left Corner: [680, 595]
+      - [ ] Left Red (PA Far): [843, 638] (3.5m penalty area depth)
+      - [ ] Left Blue (PA Near): [147, 1075]
+      - [ ] Far Right Corner: [3136, 611]
+      - [ ] Right Red (PA Far): [2964, 650]
+      - [ ] Right Blue (PA Near): [3644, 1100]
+      - [ ] Center Black X (Far): [1900, 530]
+      - [ ] Center Black X (Near): [1888, 1592]
+      - [ ] Left Purple (Goal Far): [303, 772]
+      - [ ] Left Orange (Goal Near): [128, 875]
+      - [ ] Right Purple (Goal Far): [3511, 808]
+      - [ ] Right Orange (Goal Near): [3692, 907]
+      - [ ] Center Circle: [1891, 760]
+    - [ ] Destination: Real-world pitch coordinates (meters)
+      - [ ] Pitch dimensions: 40m x 20m (standard futsal)
+      - [ ] Penalty area depth: 3.5m
+      - [ ] Goal width: 3m (posts at y=8.5m and y=11.5m)
+  - [ ] Compute homography matrix using cv2.findHomography() or DLT algorithm
+  - [ ] Project all player centroid positions to pitch coordinates (x, y in meters)
+  - [ ] Project all ball positions to pitch coordinates
+  - [ ] Handle edge cases (players off-court, out of bounds)
+  - [ ] Save `pitch_projection.json`
+  - [ ] Validate output (positions within pitch bounds)
+
+### Tactical Analysis Output
+- [ ] **[src/skills/tactical_analyzer.py](../src/skills/tactical_analyzer.py)** - Compute tactical metrics
+  - [ ] **Input**: `pitch_projection.json`, `pass3_identity_commit.json`
+  - [ ] **Metrics to compute**:
+    - [ ] Team centroids (average position per team)
+    - [ ] Team spread (compactness in pitch space)
+    - [ ] Player heat maps (time spent in each pitch zone)
+    - [ ] Formation detection (4-0, 3-1, 2-2, etc.)
+    - [ ] Player distances (pairwise distances in meters)
+    - [ ] Offside positions (relative to ball and defenders)
+    - [ ] Pass opportunities (player-to-player distances < threshold)
+  - [ ] Save `tactical_metrics.json`
+
+### Pitch Visualization
+- [ ] **[src/skills/pitch_visualizer.py](../src/skills/pitch_visualizer.py)** - 2D overhead pitch view
+  - [ ] **Input**: `pitch_projection.json`, `pass3_identity_commit.json`
+  - [ ] Render 2D top-down pitch (40m x 20m)
+    - [ ] Draw pitch lines (touchlines, goal lines, penalty areas, center circle)
+    - [ ] Draw goal posts
+    - [ ] Draw penalty spots
+  - [ ] Render players as colored dots (team_a=blue, team_b=red)
+  - [ ] Overlay jersey numbers on player dots
+  - [ ] Render ball position (solid=real, dashed=interpolated)
+  - [ ] Optional: Movement trails (last N seconds)
+  - [ ] Optional: Formation lines connecting players
+  - [ ] Save `pitch_visualization.mp4` (side-by-side with camera view, or separate)
+- [ ] **Pitch debug video** (`--video-output pitch`) - Top-down tactical view
+  - [ ] Show: 2D pitch with player/ball positions in real-world coordinates
+  - [ ] Overlays: Team formations, player spacing, tactical metrics
+  - [ ] Purpose: Verify homography transformation, tactical analysis
+
+---
+
 ## Priority 8: Orchestration (Day 10)
 
 ### Pipeline Orchestrator
@@ -448,7 +559,10 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
     6. [ ] Pass 3B: Constraint Graph
     7. [ ] Pass 3C: Identity Commit (LOCK POINT)
     8. [ ] Ball Interpolation
-    9. [ ] Visualization
+    9. [ ] Pitch Projection (Homography)
+    10. [ ] Tactical Analysis
+    11. [ ] Visualization (Camera View)
+    12. [ ] Pitch Visualization (2D Top-Down View)
   - [ ] After each pass:
     - [ ] Load previous pass output
     - [ ] Run skill
@@ -536,6 +650,7 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 
 ### Key Memory Learnings Incorporated
 - ✅ Multi-layer bbox defense (Pass 1)
+- ✅ **Fisheye bbox correction** (Pass 1) - **NEW**: Radial expansion to prevent false splits
 - ✅ Team assignment locking with `_locked_team` (Pass 3C)
 - ✅ Fragment gap prevention (Pass 2A)
 - ✅ Jersey temporal exclusivity (Pass 2A, Pass 3C)
@@ -544,7 +659,7 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 - ✅ Ghost visualization deduplication (visualizer)
 - ✅ Dynamic level high water mark (Pass 2C)
 - ✅ Track players by original_track_id, not fragment_id (Pass 2C)
-- ⏳ InferenceSlicer tiling for ball recall (Immediate Next)
+- ✅ InferenceSlicer tiling for ball recall
 
 ### Critical Principles
 - **Root-cause only**: Never patch downstream

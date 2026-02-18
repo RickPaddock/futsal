@@ -288,12 +288,18 @@ class Pass2AFragmenter:
         """
         Split a single track into fragments based on divergence points.
 
-        Split triggers (per CLAUDE.md):
-        1. Track overlap collision (same track_id, >1 detection per frame)
-        2. Appearance drift (HSV histogram change)
-        3. Jersey inconsistency (jersey disappears or changes, NOT first appearance)
-        4. Jersey temporal exclusivity (handled separately)
-        5. Velocity spikes (sudden position jumps)
+        Per CLAUDE.md Section 5 (Pass 2A) - EXHAUSTIVE allowed split triggers:
+        1. Track Collision: same track_id, >1 detection per frame (ByteTrack failure)
+        2. Jersey Change: #7 → #4 (number to different number, NOT disappearance)
+        3. Jersey Temporal Exclusivity: same jersey on different tracks (handled separately)
+        4. Hard Appearance Discontinuity: ALL of (jersey visible both sides + HSV + impossible motion)
+
+        FORBIDDEN (loss of observability ≠ identity change):
+        - Jersey disappearance (#4 → None)
+        - Jersey first appearance (None → #4)
+        - Standalone appearance drift
+        - Standalone velocity spikes
+        - Occlusion, confidence drops, missed detections, normal drift
 
         Args:
             track_id: Track to split
@@ -319,62 +325,35 @@ class Pass2AFragmenter:
         """
         Detect split points within a track.
 
+        Per CLAUDE.md Section 5 (Pass 2A) - EXHAUSTIVE split triggers only.
+
         Returns:
             List of (frame_idx, reason) tuples where splits should occur
         """
         split_points = []
 
-        # Check for track overlap collision (same track_id, multiple detections per frame)
+        # ============================================================================
+        # TRIGGER 1: Track Collision (ByteTrack failure)
+        # Same track_id produces >1 detection in same frame
+        # ============================================================================
         frame_counts: Dict[int, int] = {}
         for det in detections:
             frame_counts[det.frame_idx] = frame_counts.get(det.frame_idx, 0) + 1
 
         for frame_idx, count in frame_counts.items():
             if count > 1:
-                split_points.append((frame_idx, "track_overlap_collision"))
+                split_points.append((frame_idx, "track_collision"))
                 self.split_log.append({
                     "track_id": track_id,
                     "frame_idx": frame_idx,
-                    "reason": "track_overlap_collision",
-                    "details": f"Track {track_id} has {count} detections at frame {frame_idx}",
+                    "reason": "track_collision",
+                    "details": f"Track {track_id} has {count} detections at frame {frame_idx} (ByteTrack failure)",
                 })
 
-        # Check for appearance drift, jersey inconsistency, velocity spikes
-        for i in range(1, len(detections)):
-            prev_det = detections[i - 1]
-            curr_det = detections[i]
-
-            # Skip if frames are consecutive (splits only at discontinuities)
-            frame_gap = curr_det.frame_idx - prev_det.frame_idx
-            if frame_gap == 1:
-                # Check appearance drift
-                if prev_det.hsv_histogram_jersey and curr_det.hsv_histogram_jersey:
-                    correlation = compare_hsv_histograms(
-                        prev_det.hsv_histogram_jersey,
-                        curr_det.hsv_histogram_jersey,
-                    )
-                    distance = 1.0 - correlation
-
-                    if distance > const.HSV_DRIFT_THRESHOLD:
-                        split_points.append((curr_det.frame_idx, "appearance_drift"))
-                        self.split_log.append({
-                            "track_id": track_id,
-                            "frame_idx": curr_det.frame_idx,
-                            "reason": "appearance_drift",
-                            "details": f"HSV drift distance={distance:.3f} > {const.HSV_DRIFT_THRESHOLD}",
-                        })
-
-                # Check velocity spike
-                dist = centroid_distance(prev_det.centroid, curr_det.centroid)
-                if dist > const.VELOCITY_SPIKE_THRESHOLD:
-                    split_points.append((curr_det.frame_idx, "velocity_spike"))
-                    self.split_log.append({
-                        "track_id": track_id,
-                        "frame_idx": curr_det.frame_idx,
-                        "reason": "velocity_spike",
-                        "details": f"Centroid distance={dist:.1f}px > {const.VELOCITY_SPIKE_THRESHOLD}px",
-                    })
-
+        # ============================================================================
+        # TRIGGER 2: Jersey Change (#7 → #4)
+        # Jersey number changes from one NUMBER to another NUMBER (NOT disappearance)
+        # ============================================================================
         # Check jersey inconsistency ONLY across jersey-classifier sampled observations.
         # This prevents false splits from unsampled frames where jersey_number is intentionally None.
         jersey_sample_every = max(1, int(const.JERSEY_NUMBER_CLASSIFY_EVERY_N_FRAMES))
@@ -387,49 +366,78 @@ class Pass2AFragmenter:
             prev_jersey = prev_det.jersey_number
             curr_jersey = curr_det.jersey_number
 
-            # ✅ SPLIT: Jersey disappears (#4 → None) on sampled observations
-            # Debounce transient single-sample classifier misses:
-            # require sustained disappearance (next sampled obs also None)
-            # OR a strong concurrent motion jump between sampled checkpoints.
-            if prev_jersey is not None and curr_jersey is None:
-                next_det = sampled_observations[i + 1] if (i + 1) < len(sampled_observations) else None
-                disappearance_persists = (next_det is not None and next_det.jersey_number is None)
-
-                sampled_motion = centroid_distance(prev_det.centroid, curr_det.centroid)
-                strong_motion = sampled_motion > (const.VELOCITY_SPIKE_THRESHOLD * 0.6)
-
-                if disappearance_persists or strong_motion:
-                    split_points.append((curr_det.frame_idx, "jersey_disappeared"))
-                    reason_suffix = (
-                        "persistent sampled disappearance"
-                        if disappearance_persists
-                        else f"motion-assisted disappearance (d={sampled_motion:.1f}px)"
-                    )
-                    self.split_log.append({
-                        "track_id": track_id,
-                        "frame_idx": curr_det.frame_idx,
-                        "reason": "jersey_disappeared",
-                        "details": (
-                            f"Jersey #{prev_jersey} disappeared between sampled observations "
-                            f"({prev_det.frame_idx}->{curr_det.frame_idx}); {reason_suffix}"
-                        ),
-                    })
-
             # ✅ SPLIT: Jersey changes (#7 → #4) on sampled observations
-            elif prev_jersey is not None and curr_jersey is not None and prev_jersey != curr_jersey:
-                split_points.append((curr_det.frame_idx, "jersey_changed"))
+            # NUMBER → DIFFERENT NUMBER (hard identity proof)
+            if prev_jersey is not None and curr_jersey is not None and prev_jersey != curr_jersey:
+                split_points.append((curr_det.frame_idx, "jersey_change"))
                 self.split_log.append({
                     "track_id": track_id,
                     "frame_idx": curr_det.frame_idx,
-                    "reason": "jersey_changed",
+                    "reason": "jersey_change",
                     "details": (
                         f"Jersey changed from #{prev_jersey} to #{curr_jersey} "
                         f"between sampled observations ({prev_det.frame_idx}->{curr_det.frame_idx})"
                     ),
                 })
 
+            # ❌ NO SPLIT: Jersey disappearance (#4 → None)
+            # Per CLAUDE.md: This is loss of observability, NOT identity change
+            # Record as metadata only (handled in Pass 2B quality scoring)
+
             # ❌ NO SPLIT: Jersey first appearance (None → #4)
-            # Intentionally ignored (player turned around / became readable)
+            # Per CLAUDE.md: Player turned around / became readable
+            # This is normal, NOT a track jump
+
+        # ============================================================================
+        # TRIGGER 4: Hard Appearance Discontinuity
+        # ALL conditions must hold:
+        # - Jersey visible on BOTH sides of boundary
+        # - Large HSV distance beyond threshold
+        # - Incompatible motion (teleport / impossible velocity)
+        # ============================================================================
+        for i in range(1, len(detections)):
+            prev_det = detections[i - 1]
+            curr_det = detections[i]
+
+            # Only check consecutive frames (frame_gap == 1)
+            frame_gap = curr_det.frame_idx - prev_det.frame_idx
+            if frame_gap != 1:
+                continue
+
+            # Condition 1: Jersey visible on BOTH sides
+            prev_has_jersey = prev_det.jersey_number is not None
+            curr_has_jersey = curr_det.jersey_number is not None
+            if not (prev_has_jersey and curr_has_jersey):
+                continue  # Jersey not visible both sides → NO SPLIT
+
+            # Condition 2: Large HSV distance
+            if not (prev_det.hsv_histogram_jersey and curr_det.hsv_histogram_jersey):
+                continue  # No HSV data → NO SPLIT
+
+            correlation = compare_hsv_histograms(
+                prev_det.hsv_histogram_jersey,
+                curr_det.hsv_histogram_jersey,
+            )
+            hsv_distance = 1.0 - correlation
+            if hsv_distance <= const.HSV_DRIFT_THRESHOLD:
+                continue  # HSV similar → NO SPLIT
+
+            # Condition 3: Incompatible motion (teleport)
+            motion_distance = centroid_distance(prev_det.centroid, curr_det.centroid)
+            if motion_distance <= const.VELOCITY_SPIKE_THRESHOLD:
+                continue  # Motion reasonable → NO SPLIT
+
+            # ALL 3 CONDITIONS MET → SPLIT
+            split_points.append((curr_det.frame_idx, "hard_appearance_discontinuity"))
+            self.split_log.append({
+                "track_id": track_id,
+                "frame_idx": curr_det.frame_idx,
+                "reason": "hard_appearance_discontinuity",
+                "details": (
+                    f"Hard discontinuity: jersey visible both sides, "
+                    f"HSV distance={hsv_distance:.3f}, motion={motion_distance:.1f}px"
+                ),
+            })
 
         # Sort and deduplicate split points
         split_points = sorted(set(split_points), key=lambda x: x[0])
@@ -527,13 +535,12 @@ class Pass2AFragmenter:
         # Use actual detection_ids from Pass 1 (format: {frame_idx}_{track_id}_{bbox_hash})
         detection_ids = [d.detection_id for d in detections]
 
+        # Per CLAUDE.md Section 5 (Pass 2A) - EXHAUSTIVE split rule mapping
         split_rule_by_reason = {
-            "track_overlap_collision": "TRACK_COLLISION",
-            "appearance_drift": "APPEARANCE_DRIFT",
-            "velocity_spike": "VELOCITY_SPIKE",
-            "jersey_disappeared": "JERSEY_DISAPPEARED",
-            "jersey_changed": "JERSEY_CHANGE",
+            "track_collision": "TRACK_COLLISION",
+            "jersey_change": "JERSEY_CHANGE",
             "jersey_temporal_conflict": "JERSEY_TEMPORAL_CONFLICT",
+            "hard_appearance_discontinuity": "HARD_APPEARANCE_DISCONTINUITY",
             "merged_short_fragments": "MERGE_SHORT_FRAGMENTS",
         }
 
@@ -567,9 +574,12 @@ class Pass2AFragmenter:
         """
         Detect and split jersey temporal exclusivity violations.
 
-        Per CLAUDE.md R3 and MEMORY.md:
+        Per CLAUDE.md R3 and IMPLEMENTATION_PLAN.md:
         - Same jersey CANNOT appear on different tracks simultaneously
-        - If jersey #10 appears on Track 5 and Track 8 at overlapping times, split the one where it appears later
+        - Uses VOTING/CONSENSUS across fragment, NOT first appearance
+        - Jersey must appear ≥3 times with conf ≥0.5 to be considered "owned"
+        - Fragment must have ≥50% observations with same jersey to "own" it
+        - If two fragments "own" same jersey with overlapping times → split the later one
 
         Args:
             fragments: All fragments created so far
@@ -578,6 +588,8 @@ class Pass2AFragmenter:
         Returns:
             Fragments with temporal conflicts resolved via splits
         """
+        from collections import Counter
+
         # Build detection lookup by detection_id for fast access
         detection_by_id = {det.detection_id: det for det in all_detections}
 
@@ -585,16 +597,29 @@ class Pass2AFragmenter:
         jersey_timeline: Dict[int, List[Tuple[Fragment, int, int, int]]] = {}
 
         for frag in fragments:
-            # Find first frame where jersey appears in this fragment
+            # Count jersey observations across fragment (VOTING/CONSENSUS)
+            jersey_observations = []
             first_jersey_frame = None
-            jersey_num = None
 
             for det_id in frag.detection_ids:
                 det = detection_by_id.get(det_id)
                 if det and det.jersey_number is not None:
-                    jersey_num = det.jersey_number
-                    first_jersey_frame = det.frame_idx
-                    break  # Found first jersey appearance
+                    # Only count high-confidence observations
+                    if det.jersey_confidence >= const.JERSEY_MIN_CONFIDENCE:
+                        jersey_observations.append(det.jersey_number)
+                        if first_jersey_frame is None:
+                            first_jersey_frame = det.frame_idx
+
+            # Determine if fragment "owns" a jersey via majority vote
+            jersey_num = None
+            if len(jersey_observations) >= const.JERSEY_MIN_OBSERVATIONS:
+                # Count occurrences
+                jersey_counts = Counter(jersey_observations)
+                most_common_jersey, most_common_count = jersey_counts.most_common(1)[0]
+
+                # Check if it's a majority (≥50% of observations)
+                if most_common_count / len(jersey_observations) >= const.JERSEY_MAJORITY_THRESHOLD:
+                    jersey_num = most_common_jersey
 
             if jersey_num is not None and first_jersey_frame is not None:
                 if jersey_num not in jersey_timeline:
