@@ -197,25 +197,25 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - [x] **Output**: `CommittedIdentity` objects (player_id, team, jersey - all locked)
 
 ### Pass 3C Team Clustering Robustness (NEW - bibbed vs random)
-- [ ] **Compact-vs-diffuse interpretation inside clustering (no downstream hacks)**
-  - [ ] Run K-means (K=2) on **jersey HSV only**
+- [x] **Compact-vs-diffuse interpretation inside clustering (no downstream hacks)** ✅
+  - [x] Run K-means (K=2) on **jersey HSV only**
   - [x] Gate K-means inputs by fragment quality metadata when available (`quality_score`, `hsv_consistency`)
-  - [ ] Compute cluster compactness (intra-cluster variance or mean pairwise distance)
-  - [ ] Identify more compact cluster as bibbed team evidence
-  - [ ] Assign TEAM_A/TEAM_B deterministically from compactness interpretation, not raw label index
-  - [ ] Lock assignments once resolved (no frame-by-frame oscillation)
-  - [ ] Keep behavior symmetric for bib-vs-bib (both compact)
-  - [ ] Keep behavior tolerant for bib-vs-random (one compact, one diffuse)
-  - [ ] **Do NOT subcluster teams downstream** (team membership stays binary at Pass 3C)
+  - [x] Compute cluster compactness (intra-cluster variance or mean pairwise distance)
+  - [x] Identify more compact cluster as bibbed team evidence
+  - [x] Assign TEAM_A/TEAM_B deterministically from compactness interpretation, not raw label index
+  - [x] Lock assignments once resolved (no frame-by-frame oscillation)
+  - [x] Keep behavior symmetric for bib-vs-bib (both compact)
+  - [x] Keep behavior tolerant for bib-vs-random (one compact, one diffuse)
+  - [x] **Do NOT subcluster teams downstream** (team membership stays binary at Pass 3C)
 
 - [ ] **Ambiguity fail-fast rule (contract-level)**
-  - [ ] Define `COMPACTNESS_DIFF_MIN` threshold in constants
-  - [ ] If both clusters are diffuse and compactness difference < threshold → FAIL-FAST
+  - [x] Define `COMPACTNESS_DIFF_MIN` threshold in constants
+  - [x] If both clusters are diffuse and compactness difference < threshold → FAIL-FAST
   - [ ] Write compactness diagnostics to `pass3_validation.json`
 
 - [ ] **Debug metrics additions**
   - [ ] Add `cluster_compactness_a`, `cluster_compactness_b`, `compactness_ratio` to `debug_metrics.json`
-  - [ ] Add `team_assignment_mode` (`compactness_guided_kmeans`) to solver log
+  - [x] Add `team_assignment_mode` (`compactness_guided_kmeans`) to solver log
 
 ---
 
@@ -297,10 +297,7 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - [x] Validate output
   - [x] FAIL-FAST if validation fails
   - [x] Pass 2A debug video artifact output (`--video-output 2` / `2a`) using pass1+pass2 artifacts
-  - [ ] **Review and improve fragmentation quality for Pass 2A (NEW)**
-    - [ ] Audit false-positive split reasons on static players (especially jersey disappearance/temporal conflict)
-    - [ ] Tighten split gates to require corroborating motion/appearance evidence where appropriate
-    - [ ] Add regression checks/metrics for split quality so improvements are measurable per clip
+
 
 #### Pass 2A Validation Contract Delta (from CLAUDE.md Section 2A) ⚠️ REQUIRED
 

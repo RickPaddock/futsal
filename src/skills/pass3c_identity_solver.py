@@ -32,6 +32,7 @@ from ..core.data_models import (
 )
 from ..core.types import TeamID, ConstraintType
 from ..core.constants import KMEANS_N_CLUSTERS, HSV_BINS
+from ..core.constants import COMPACT_CLUSTER_MAX_MEAN_DISTANCE
 from ..core.constants import KMEANS_MIN_FRAGMENT_QUALITY_SCORE, KMEANS_MIN_HSV_CONSISTENCY
 from ..utils.logging_utils import get_logger
 from ..utils.hsv_color import compare_hsv_histograms, is_histogram_valid
@@ -212,12 +213,16 @@ class IdentitySolver:
             return (
                 {f.fragment_id: TeamID.UNKNOWN for f in fragments},
                 {
-                    "team_assignment_mode": "kmeans",
+                    "team_assignment_mode": "compactness_guided_kmeans",
                     "cluster_compactness": {
                         TeamID.TEAM_A.value: None,
                         TeamID.TEAM_B.value: None,
                     },
+                    "cluster_compactness_a": None,
+                    "cluster_compactness_b": None,
                     "compactness_ratio": None,
+                    "bibbed_team_evidence": None,
+                    "cluster_label_to_team": {},
                     "kmeans_input_count": len(valid_histograms),
                 },
             )
@@ -239,13 +244,41 @@ class IdentitySolver:
             distances = np.linalg.norm(cluster_points - centroid, axis=1)
             cluster_compactness[cluster_idx] = float(np.mean(distances))
 
-        # Map cluster labels to team IDs
-        # Cluster 0 -> TEAM_A, Cluster 1 -> TEAM_B
-        cluster_to_team = {0: TeamID.TEAM_A, 1: TeamID.TEAM_B}
+        # Compactness-guided deterministic team mapping (not raw label index).
+        # Lower compactness = tighter cluster = stronger bibbed team evidence.
+        compactness_0 = cluster_compactness.get(0, float("inf"))
+        compactness_1 = cluster_compactness.get(1, float("inf"))
+        is_0_compact = np.isfinite(compactness_0) and compactness_0 <= COMPACT_CLUSTER_MAX_MEAN_DISTANCE
+        is_1_compact = np.isfinite(compactness_1) and compactness_1 <= COMPACT_CLUSTER_MAX_MEAN_DISTANCE
+
+        if is_0_compact and not is_1_compact:
+            compact_cluster = 0
+            diffuse_cluster = 1
+            bibbed_team_evidence = TeamID.TEAM_A.value
+            cluster_to_team = {compact_cluster: TeamID.TEAM_A, diffuse_cluster: TeamID.TEAM_B}
+        elif is_1_compact and not is_0_compact:
+            compact_cluster = 1
+            diffuse_cluster = 0
+            bibbed_team_evidence = TeamID.TEAM_A.value
+            cluster_to_team = {compact_cluster: TeamID.TEAM_A, diffuse_cluster: TeamID.TEAM_B}
+        else:
+            # Symmetric fallback (bib-vs-bib or both diffuse): deterministic tie-break by
+            # centroid lexicographic order, never by raw k-means label index.
+            center_0 = kmeans.cluster_centers_[0]
+            center_1 = kmeans.cluster_centers_[1]
+            if tuple(center_0.tolist()) <= tuple(center_1.tolist()):
+                cluster_to_team = {0: TeamID.TEAM_A, 1: TeamID.TEAM_B}
+            else:
+                cluster_to_team = {1: TeamID.TEAM_A, 0: TeamID.TEAM_B}
+
+            if is_0_compact and is_1_compact:
+                bibbed_team_evidence = "both_compact"
+            else:
+                bibbed_team_evidence = "ambiguous_diffuse"
 
         team_compactness = {
-            TeamID.TEAM_A.value: cluster_compactness.get(0),
-            TeamID.TEAM_B.value: cluster_compactness.get(1),
+            TeamID.TEAM_A.value: cluster_compactness.get(next(k for k, v in cluster_to_team.items() if v == TeamID.TEAM_A)),
+            TeamID.TEAM_B.value: cluster_compactness.get(next(k for k, v in cluster_to_team.items() if v == TeamID.TEAM_B)),
         }
         compactness_values = [v for v in team_compactness.values() if v is not None and np.isfinite(v)]
         if len(compactness_values) == 2 and min(compactness_values) > 0:
@@ -290,9 +323,13 @@ class IdentitySolver:
         )
 
         diagnostics = {
-            "team_assignment_mode": "kmeans",
+            "team_assignment_mode": "compactness_guided_kmeans",
             "cluster_compactness": team_compactness,
+            "cluster_compactness_a": team_compactness[TeamID.TEAM_A.value],
+            "cluster_compactness_b": team_compactness[TeamID.TEAM_B.value],
             "compactness_ratio": compactness_ratio,
+            "bibbed_team_evidence": bibbed_team_evidence,
+            "cluster_label_to_team": {str(k): v.value for k, v in cluster_to_team.items()},
             "kmeans_input_count": len(valid_histograms),
         }
 
@@ -665,7 +702,9 @@ def run_pass3c(
 
     # Save output
     output_data = {
-        'identities': [identity.model_dump() for identity in result.identities]
+        'identities': [identity.model_dump() for identity in result.identities],
+        'solver_log': result.solver_log,
+        'unresolved_conflicts': result.unresolved_conflicts,
     }
     save_json(output_path, output_data, PASS3C_OUTPUT_SCHEMA)
 
