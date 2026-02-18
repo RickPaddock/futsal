@@ -8,6 +8,7 @@ Per CLAUDE.md Section 5 (Pass 2: Fragmentation, Scoring, Ghosts):
 """
 
 from typing import List, Dict, Set, Tuple
+from collections import Counter
 from ..core.data_models import (
     Fragment,
     ScoredFragment,
@@ -86,6 +87,50 @@ def validate_pass2a_fragments(pass2a_output: Pass2AOutput) -> List[ValidationVio
                 )
             )
 
+        # Enforce split metadata on non-initial fragments
+        is_non_initial = fragment.split_reason is not None
+        if is_non_initial:
+            if fragment.split_trigger_frame is None:
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS2A_MISSING_SPLIT_TRIGGER_FRAME",
+                        severity="error",
+                        message=f"Fragment {fragment.fragment_id} missing split_trigger_frame",
+                        fragment_id=fragment.fragment_id,
+                        details={"fragment_id": fragment.fragment_id},
+                    )
+                )
+            if fragment.split_rule_id is None:
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS2A_MISSING_SPLIT_RULE_ID",
+                        severity="error",
+                        message=f"Fragment {fragment.fragment_id} missing split_rule_id",
+                        fragment_id=fragment.fragment_id,
+                        details={"fragment_id": fragment.fragment_id},
+                    )
+                )
+
+            if fragment.split_trigger_frame is not None:
+                if not (fragment.start_frame <= fragment.split_trigger_frame <= fragment.end_frame):
+                    violations.append(
+                        ValidationViolation(
+                            rule="PASS2A_INVALID_SPLIT_TRIGGER_FRAME",
+                            severity="error",
+                            message=(
+                                f"Fragment {fragment.fragment_id} split_trigger_frame={fragment.split_trigger_frame} "
+                                f"outside fragment range [{fragment.start_frame}, {fragment.end_frame}]"
+                            ),
+                            fragment_id=fragment.fragment_id,
+                            details={
+                                "fragment_id": fragment.fragment_id,
+                                "split_trigger_frame": fragment.split_trigger_frame,
+                                "start_frame": fragment.start_frame,
+                                "end_frame": fragment.end_frame,
+                            },
+                        )
+                    )
+
         # Group by track
         track_id = fragment.original_track_id
         if track_id not in track_fragments:
@@ -131,65 +176,90 @@ def validate_pass2a_frame_coverage(
     pass1_output: Pass1Output,
 ) -> List[ValidationViolation]:
     """
-    Validate that Pass 2A fragments cover 100% of Pass 1 frames.
+    Validate that Pass 2A fragments cover 100% of Pass 1 detections.
 
     Per CLAUDE.md Section 5 (Pass 2A):
-    - Fragment coverage must be 100% of Pass 1 frames
-    - No gaps allowed
-    - Detections from Pass 1 must map to exactly one fragment
+    - Exact detection-id set equality vs Pass 1
+    - No missing detection_ids
+    - No unknown detection_ids
+    - Cross-track exclusivity: each detection_id appears in exactly one fragment
 
     Args:
         pass2a_output: Pass 2A output data
-        pass1_output: Pass 1 output data (for frame range)
+        pass1_output: Pass 1 output data
 
     Returns:
         List of violations (empty if valid)
     """
     violations = []
 
-    # Build set of frames covered by Pass 1
-    pass1_frames = set()
-    for det in pass1_output.detections:
-        pass1_frames.add(det.frame_idx)
+    pass1_detection_ids = {det.detection_id for det in pass1_output.detections}
 
-    if not pass1_frames:
-        # No detections in Pass 1 - nothing to validate
-        return violations
-
-    # Build set of frames covered by fragments
-    fragment_frames = set()
+    fragment_detection_ids: List[str] = []
     for fragment in pass2a_output.fragments:
-        for frame_idx in range(fragment.start_frame, fragment.end_frame + 1):
-            fragment_frames.add(frame_idx)
+        fragment_detection_ids.extend(fragment.detection_ids)
 
-    # Check for missing frames
-    missing_frames = pass1_frames - fragment_frames
-    if missing_frames:
+    fragment_detection_id_set = set(fragment_detection_ids)
+
+    # Missing Pass 1 detection_ids
+    missing_detection_ids = pass1_detection_ids - fragment_detection_id_set
+    if missing_detection_ids:
         violations.append(
             ValidationViolation(
-                rule="PASS2A_INCOMPLETE_COVERAGE",
+                rule="PASS2A_MISSING_DETECTIONS",
                 severity="error",
-                message=f"Pass 2A fragments do not cover {len(missing_frames)} frames from Pass 1",
+                message=f"Pass 2A fragments missing {len(missing_detection_ids)} detection_ids from Pass 1",
                 details={
-                    "missing_frames_count": len(missing_frames),
-                    "missing_frames_sample": sorted(list(missing_frames))[:10],
-                    "total_pass1_frames": len(pass1_frames),
-                    "coverage_pct": (len(pass1_frames) - len(missing_frames)) / len(pass1_frames) * 100,
+                    "missing_detection_ids_count": len(missing_detection_ids),
+                    "missing_detection_ids_sample": sorted(list(missing_detection_ids))[:10],
+                    "total_pass1_detections": len(pass1_detection_ids),
                 },
             )
         )
 
-    # Check for extra frames (fragments covering frames not in Pass 1)
-    extra_frames = fragment_frames - pass1_frames
-    if extra_frames:
+    # Unknown detection_ids fabricated in Pass 2A
+    unknown_detection_ids = fragment_detection_id_set - pass1_detection_ids
+    if unknown_detection_ids:
         violations.append(
             ValidationViolation(
                 rule="PASS2A_EXTRA_COVERAGE",
-                severity="warning",
-                message=f"Pass 2A fragments cover {len(extra_frames)} frames not in Pass 1 (may be OK if fragments extended)",
+                severity="error",
+                message=f"Pass 2A contains {len(unknown_detection_ids)} unknown detection_ids not present in Pass 1",
                 details={
-                    "extra_frames_count": len(extra_frames),
-                    "extra_frames_sample": sorted(list(extra_frames))[:10],
+                    "unknown_detection_ids_count": len(unknown_detection_ids),
+                    "unknown_detection_ids_sample": sorted(list(unknown_detection_ids))[:10],
+                },
+            )
+        )
+
+    # Cross-track exclusivity: no detection_id may be assigned to multiple fragments
+    counts = Counter(fragment_detection_ids)
+    duplicated_detection_ids = [det_id for det_id, count in counts.items() if count > 1]
+    if duplicated_detection_ids:
+        violations.append(
+            ValidationViolation(
+                rule="PASS2A_DETECTION_ASSIGNED_MULTIPLE_FRAGMENTS",
+                severity="error",
+                message=(
+                    f"Pass 2A assigns {len(duplicated_detection_ids)} detection_ids to multiple fragments"
+                ),
+                details={
+                    "duplicate_detection_ids_count": len(duplicated_detection_ids),
+                    "duplicate_detection_ids_sample": sorted(duplicated_detection_ids)[:10],
+                },
+            )
+        )
+
+    # Exact set equality check (summary guard)
+    if pass1_detection_ids != fragment_detection_id_set:
+        violations.append(
+            ValidationViolation(
+                rule="PASS2A_DETECTION_SET_MISMATCH",
+                severity="error",
+                message="Pass 2A detection_id set does not exactly match Pass 1 detection_id set",
+                details={
+                    "pass1_detection_count": len(pass1_detection_ids),
+                    "pass2_detection_count": len(fragment_detection_id_set),
                 },
             )
         )

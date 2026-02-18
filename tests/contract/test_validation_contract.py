@@ -1,4 +1,5 @@
-from src.core.data_models import Detection, Pass1Output, Fragment, Pass2AOutput
+from src.core.data_models import Detection, Pass1Output, Fragment, Pass2AOutput, ScoredFragment, CommittedIdentity, Pass3COutput
+from src.core.types import FragmentQuality, TeamID, AssignmentMethod
 from src.validation.validator import Validator
 from src.skills.pass1_extractor import _load_pass1_intention_lines
 
@@ -113,3 +114,62 @@ def test_pass2a_validation_fails_on_temporal_overlap():
     assert not result.passed
     rules = {v.rule for v in result.violations}
     assert "PASS2A_TEMPORAL_OVERLAP" in rules
+
+
+def test_pass3_validation_includes_compactness_diagnostics():
+    fragments = [
+        ScoredFragment(
+            fragment_id="F000001",
+            original_track_id=1,
+            start_frame=0,
+            end_frame=5,
+            detection_ids=["0_1_deadbeef"],
+            quality=FragmentQuality.HIGH,
+            quality_score=0.9,
+        ),
+        ScoredFragment(
+            fragment_id="F000002",
+            original_track_id=2,
+            start_frame=0,
+            end_frame=5,
+            detection_ids=["0_2_feedbead"],
+            quality=FragmentQuality.HIGH,
+            quality_score=0.9,
+        )
+    ]
+
+    pass3_output = Pass3COutput(
+        identities=[
+            CommittedIdentity(
+                fragment_id="F000001",
+                player_id="P07_team_a",
+                team=TeamID.TEAM_A,
+                jersey_number=7,
+                assignment_method=AssignmentMethod.KMEANS,
+                assignment_confidence=0.95,
+            ),
+            CommittedIdentity(
+                fragment_id="F000002",
+                player_id="P08_team_b",
+                team=TeamID.TEAM_B,
+                jersey_number=8,
+                assignment_method=AssignmentMethod.KMEANS,
+                assignment_confidence=0.95,
+            )
+        ],
+        solver_log={
+            "team_assignment_mode": "compactness_guided_kmeans",
+            "cluster_compactness": {"team_a": 0.10, "team_b": 0.42},
+            "compactness_ratio": 4.2,
+        },
+        unresolved_conflicts=[],
+    )
+
+    validator = Validator()
+    result = validator.validate_pass3(pass3_output, fragments)
+
+    assert result.passed
+    assert result.diagnostics["team_assignment_mode"] == "compactness_guided_kmeans"
+    assert result.diagnostics["cluster_compactness_a"] == 0.10
+    assert result.diagnostics["cluster_compactness_b"] == 0.42
+    assert result.diagnostics["compactness_ratio"] == 4.2

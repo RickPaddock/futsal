@@ -459,6 +459,7 @@ class Pass2AFragmenter:
         fragments = []
         current_segment: List[Detection] = []
         split_reason = "initial"
+        split_trigger_frame: Optional[int] = None
 
         for det in detections:
             # Check if we hit a split point
@@ -468,12 +469,18 @@ class Pass2AFragmenter:
                     # Save current segment as fragment (if not empty)
                     if current_segment:
                         fragments.append(
-                            self._create_fragment(track_id, current_segment, split_reason)
+                            self._create_fragment(
+                                track_id,
+                                current_segment,
+                                split_reason,
+                                split_trigger_frame,
+                            )
                         )
 
                     # Start new segment
                     current_segment = [det]
                     split_reason = reason
+                    split_trigger_frame = split_frame
                     hit_split = True
                     break
 
@@ -483,7 +490,12 @@ class Pass2AFragmenter:
         # Save final segment
         if current_segment:
             fragments.append(
-                self._create_fragment(track_id, current_segment, split_reason)
+                self._create_fragment(
+                    track_id,
+                    current_segment,
+                    split_reason,
+                    split_trigger_frame,
+                )
             )
 
         return fragments
@@ -493,6 +505,7 @@ class Pass2AFragmenter:
         track_id: TrackID,
         detections: List[Detection],
         split_reason: str,
+        split_trigger_frame: Optional[int] = None,
     ) -> Fragment:
         """
         Create a Fragment from a list of detections.
@@ -514,6 +527,26 @@ class Pass2AFragmenter:
         # Use actual detection_ids from Pass 1 (format: {frame_idx}_{track_id}_{bbox_hash})
         detection_ids = [d.detection_id for d in detections]
 
+        split_rule_by_reason = {
+            "track_overlap_collision": "TRACK_COLLISION",
+            "appearance_drift": "APPEARANCE_DRIFT",
+            "velocity_spike": "VELOCITY_SPIKE",
+            "jersey_disappeared": "JERSEY_DISAPPEARED",
+            "jersey_changed": "JERSEY_CHANGE",
+            "jersey_temporal_conflict": "JERSEY_TEMPORAL_CONFLICT",
+            "merged_short_fragments": "MERGE_SHORT_FRAGMENTS",
+        }
+
+        non_initial = split_reason != "initial"
+        effective_trigger_frame = split_trigger_frame if non_initial else None
+        if effective_trigger_frame is not None:
+            # Secondary split operations (e.g., temporal jersey conflict) can produce
+            # sub-fragments where inherited trigger frame sits outside the new bounds.
+            # Normalize to this fragment boundary to keep metadata self-consistent.
+            if effective_trigger_frame < start_frame or effective_trigger_frame > end_frame:
+                effective_trigger_frame = start_frame
+        effective_rule_id = split_rule_by_reason.get(split_reason) if non_initial else None
+
         return Fragment(
             fragment_id=fragment_id,
             original_track_id=track_id,
@@ -521,6 +554,8 @@ class Pass2AFragmenter:
             end_frame=end_frame,
             detection_ids=detection_ids,
             split_reason=split_reason if split_reason != "initial" else None,
+            split_trigger_frame=effective_trigger_frame,
+            split_rule_id=effective_rule_id,
             parent_fragment_id=None,  # Will be set during jersey temporal exclusivity
         )
 
@@ -646,6 +681,7 @@ class Pass2AFragmenter:
                                 frag.original_track_id,
                                 det_before,
                                 frag.split_reason or "initial",
+                                frag.split_trigger_frame,
                             )
                         )
 
@@ -655,6 +691,7 @@ class Pass2AFragmenter:
                                 frag.original_track_id,
                                 det_after,
                                 "jersey_temporal_conflict",
+                                split_frame,
                             )
                         )
                 else:
@@ -778,6 +815,8 @@ class Pass2AFragmenter:
             end_frame=max(f.end_frame for f in fragments),
             detection_ids=all_detection_ids,
             split_reason="merged_short_fragments",
+            split_trigger_frame=fragments[0].start_frame,
+            split_rule_id="MERGE_SHORT_FRAGMENTS",
             parent_fragment_id=None,
         )
 
@@ -785,7 +824,10 @@ class Pass2AFragmenter:
             "action": "merge",
             "merged_fragment_id": merged.fragment_id,
             "source_fragments": [f.fragment_id for f in fragments],
-            "reason": "consecutive_short_fragments",
+            "track_id": merged.original_track_id,
+            "frame_idx": merged.start_frame,
+            "reason": "merged_short_fragments",
+            "details": "Merged consecutive short fragments on same track",
         })
 
         return merged

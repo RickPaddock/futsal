@@ -21,6 +21,7 @@ from typing import Dict, List, Set, Tuple, Optional, Any
 import numpy as np
 from sklearn.cluster import KMeans
 from collections import defaultdict
+from pathlib import Path
 
 from ..core.data_models import (
     Fragment,
@@ -29,11 +30,14 @@ from ..core.data_models import (
     Constraint,
     CommittedIdentity,
     Pass3COutput,
+    DebugMetrics,
+    FrameMetrics,
 )
 from ..core.types import TeamID, ConstraintType
 from ..core.constants import KMEANS_N_CLUSTERS, HSV_BINS
 from ..core.constants import COMPACT_CLUSTER_MAX_MEAN_DISTANCE
 from ..core.constants import KMEANS_MIN_FRAGMENT_QUALITY_SCORE, KMEANS_MIN_HSV_CONSISTENCY
+from ..core.constants import DEBUG_METRICS_JSON
 from ..utils.logging_utils import get_logger
 from ..utils.hsv_color import compare_hsv_histograms, is_histogram_valid
 
@@ -681,7 +685,12 @@ def run_pass3c(
         Pass3COutput with committed identities
     """
     from ..utils.file_utils import load_json, save_json
-    from ..core.schemas import PASS2C_OUTPUT_SCHEMA, PASS3B_OUTPUT_SCHEMA, PASS3C_OUTPUT_SCHEMA
+    from ..core.schemas import (
+        PASS2C_OUTPUT_SCHEMA,
+        PASS3B_OUTPUT_SCHEMA,
+        PASS3C_OUTPUT_SCHEMA,
+        DEBUG_METRICS_OUTPUT_SCHEMA,
+    )
 
     logger.info(f"Running Pass 3C: Identity Commit")
     logger.info(f"  Fragments: {fragments_path}")
@@ -708,6 +717,106 @@ def run_pass3c(
     }
     save_json(output_path, output_data, PASS3C_OUTPUT_SCHEMA)
 
+    # Save debug metrics artifact (JSON source-of-truth diagnostics)
+    debug_metrics = _build_debug_metrics(fragments, result)
+    debug_metrics_path = str(Path(output_path).parent / DEBUG_METRICS_JSON)
+    save_json(debug_metrics.model_dump(), debug_metrics_path, DEBUG_METRICS_OUTPUT_SCHEMA)
+
     logger.info(f"Pass 3C complete: {len(result.identities)} identities committed")
 
     return result
+
+
+def _build_debug_metrics(fragments: List[Fragment], pass3_output: Pass3COutput) -> DebugMetrics:
+    """Build frame-by-frame debug metrics from committed identities and fragment timeline."""
+    identity_by_fragment = {identity.fragment_id: identity for identity in pass3_output.identities}
+
+    if fragments:
+        total_frames = max(fragment.end_frame for fragment in fragments) + 1
+    else:
+        total_frames = 0
+
+    frame_metrics: List[FrameMetrics] = []
+
+    for frame_idx in range(total_frames):
+        active = [
+            fragment
+            for fragment in fragments
+            if fragment.start_frame <= frame_idx <= fragment.end_frame
+            and fragment.fragment_id in identity_by_fragment
+        ]
+
+        player_ids = set()
+        tracked_ids = set()
+        ghost_ids = set()
+        team_a_ids = set()
+        team_b_ids = set()
+        unknown_ids = set()
+        jersey_to_players: Dict[int, set] = defaultdict(set)
+
+        for fragment in active:
+            identity = identity_by_fragment[fragment.fragment_id]
+            player_ids.add(identity.player_id)
+
+            if isinstance(fragment, GhostFragment) or getattr(fragment, 'is_ghost', False):
+                ghost_ids.add(identity.player_id)
+            else:
+                tracked_ids.add(identity.player_id)
+
+            if identity.team == TeamID.TEAM_A:
+                team_a_ids.add(identity.player_id)
+            elif identity.team == TeamID.TEAM_B:
+                team_b_ids.add(identity.player_id)
+            else:
+                unknown_ids.add(identity.player_id)
+
+            if identity.jersey_number is not None:
+                jersey_to_players[identity.jersey_number].add(identity.player_id)
+
+        conflicts = [
+            f"jersey_{jersey}: {sorted(players)}"
+            for jersey, players in jersey_to_players.items()
+            if len(players) > 1
+        ]
+
+        frame_metrics.append(
+            FrameMetrics(
+                frame_idx=frame_idx,
+                player_count=len(player_ids),
+                tracked_count=len(tracked_ids),
+                ghost_count=len(ghost_ids),
+                team_a_count=len(team_a_ids),
+                team_b_count=len(team_b_ids),
+                unknown_count=len(unknown_ids),
+                jersey_conflicts=conflicts,
+            )
+        )
+
+    avg_player_count = (
+        float(sum(metric.player_count for metric in frame_metrics) / len(frame_metrics))
+        if frame_metrics else 0.0
+    )
+    total_jersey_conflicts = sum(len(metric.jersey_conflicts) for metric in frame_metrics)
+    total_unknown_frames = sum(1 for metric in frame_metrics if metric.unknown_count > 0)
+
+    solver_log = pass3_output.solver_log or {}
+    compactness = solver_log.get("cluster_compactness") if isinstance(solver_log.get("cluster_compactness"), dict) else {}
+    compactness_a = solver_log.get("cluster_compactness_a")
+    compactness_b = solver_log.get("cluster_compactness_b")
+    if compactness_a is None:
+        compactness_a = compactness.get("team_a")
+    if compactness_b is None:
+        compactness_b = compactness.get("team_b")
+
+    return DebugMetrics(
+        video_name="unknown",
+        total_frames=total_frames,
+        frame_metrics=frame_metrics,
+        total_identity_changes=0,
+        total_jersey_conflicts=total_jersey_conflicts,
+        total_unknown_frames=total_unknown_frames,
+        avg_player_count=avg_player_count,
+        cluster_compactness_a=compactness_a,
+        cluster_compactness_b=compactness_b,
+        compactness_ratio=solver_log.get("compactness_ratio"),
+    )

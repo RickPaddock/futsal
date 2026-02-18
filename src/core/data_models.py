@@ -146,6 +146,8 @@ class Fragment(BaseModel):
     - end_frame: Last frame covered by this fragment.
     - detection_ids: Ordered references to Pass 1 detection rows.
     - split_reason: Mechanical reason this fragment was created/split.
+    - split_trigger_frame: Frame where split trigger occurred (non-initial fragments).
+    - split_rule_id: Stable split rule id (e.g., JERSEY_CHANGE, TRACK_COLLISION).
     - parent_fragment_id: Source fragment when created by split operation.
     """
     fragment_id: FragmentID  # Format: F{counter:06d} (globally unique, immutable)
@@ -156,6 +158,8 @@ class Fragment(BaseModel):
 
     # Mechanical split metadata
     split_reason: Optional[str] = None  # "appearance_drift", "jersey_conflict", etc.
+    split_trigger_frame: Optional[FrameIndex] = None
+    split_rule_id: Optional[str] = None
     parent_fragment_id: Optional[FragmentID] = None  # If split from another fragment
 
 
@@ -437,12 +441,14 @@ class ValidationResult(BaseModel):
     - warnings: Non-blocking issues.
     - timestamp: ISO8601 time validation completed.
     - pass_name: Validation scope (pass1/pass2/pass3/ball/etc).
+    - diagnostics: Optional pass-level diagnostics payload for auditability.
     """
     passed: bool
     violations: List[ValidationViolation] = Field(default_factory=list)
     warnings: List[ValidationViolation] = Field(default_factory=list)
     timestamp: str  # ISO 8601
     pass_name: str  # "pass1", "pass2", "pass3", etc.
+    diagnostics: Dict[str, Any] = Field(default_factory=dict)
 
 
 # ============================================================================
@@ -487,6 +493,9 @@ class DebugMetrics(BaseModel):
     - total_jersey_conflicts: Aggregate jersey conflicts across clip.
     - total_unknown_frames: Frames containing unknown-team assignments.
     - avg_player_count: Mean player count across frames.
+    - cluster_compactness_a: Team A compactness diagnostic from Pass 3C.
+    - cluster_compactness_b: Team B compactness diagnostic from Pass 3C.
+    - compactness_ratio: Ratio between diffuse and compact cluster scores.
     """
     video_name: str
     total_frames: int
@@ -497,3 +506,8 @@ class DebugMetrics(BaseModel):
     total_jersey_conflicts: int = 0
     total_unknown_frames: int = 0
     avg_player_count: float = 0.0
+
+    # Pass 3C clustering diagnostics
+    cluster_compactness_a: Optional[float] = None
+    cluster_compactness_b: Optional[float] = None
+    compactness_ratio: Optional[float] = None

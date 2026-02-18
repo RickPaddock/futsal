@@ -249,7 +249,7 @@ def validate_pass3c_identity_commit(
 
     # Check every non-ghost fragment has identity
     for fragment in fragments:
-        if fragment.get('is_ghost', False):
+        if getattr(fragment, 'is_ghost', False):
             continue  # Ghosts can skip identity (inherit from source)
 
         if fragment.fragment_id not in identity_map:

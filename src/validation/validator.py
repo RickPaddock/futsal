@@ -117,8 +117,9 @@ class Validator:
         from .pass3_rules import validate_pass3
 
         violations = validate_pass3(pass3c_output, fragments)
+        diagnostics = self._extract_pass3_diagnostics(pass3c_output)
 
-        return self._build_result("pass3", violations)
+        return self._build_result("pass3", violations, diagnostics=diagnostics)
 
     def validate_ball_interpolation(
         self,
@@ -150,6 +151,7 @@ class Validator:
         self,
         pass_name: str,
         violations: List[ValidationViolation],
+        diagnostics: Optional[Dict[str, Any]] = None,
     ) -> ValidationResult:
         """
         Build ValidationResult from violations.
@@ -174,7 +176,38 @@ class Validator:
             warnings=warnings,
             timestamp=datetime.utcnow().isoformat() + "Z",
             pass_name=pass_name,
+            diagnostics=diagnostics or {},
         )
+
+    def _extract_pass3_diagnostics(self, pass3c_output: Pass3COutput) -> Dict[str, Any]:
+        """
+        Extract compactness and assignment diagnostics for pass3_validation.json.
+
+        This keeps pass-level validation artifacts auditable without reading solver internals.
+        """
+        solver_log = pass3c_output.solver_log or {}
+
+        compactness = solver_log.get("cluster_compactness")
+        compactness_a = solver_log.get("cluster_compactness_a")
+        compactness_b = solver_log.get("cluster_compactness_b")
+
+        # Backfill team-specific compactness if only aggregate object exists.
+        if isinstance(compactness, dict):
+            if compactness_a is None:
+                compactness_a = compactness.get("team_a")
+            if compactness_b is None:
+                compactness_b = compactness.get("team_b")
+
+        return {
+            "team_assignment_mode": solver_log.get("team_assignment_mode"),
+            "cluster_compactness": compactness,
+            "cluster_compactness_a": compactness_a,
+            "cluster_compactness_b": compactness_b,
+            "compactness_ratio": solver_log.get("compactness_ratio"),
+            "bibbed_team_evidence": solver_log.get("bibbed_team_evidence"),
+            "cluster_label_to_team": solver_log.get("cluster_label_to_team"),
+            "kmeans_input_count": solver_log.get("kmeans_input_count"),
+        }
 
     def validate_all(
         self,

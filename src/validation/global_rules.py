@@ -155,7 +155,7 @@ def validate_r2_no_unknown_teams(
 
     # Check each fragment (exclude ghosts - they inherit team from source)
     for fragment in fragments:
-        if fragment.get('is_ghost', False):
+        if getattr(fragment, 'is_ghost', False):
             continue  # Ghosts are excluded
 
         fragment_id = fragment.fragment_id
@@ -195,7 +195,7 @@ def validate_r2_no_unknown_teams(
     frame_team_counts: Dict[int, Dict[str, Set[str]]] = {}
 
     for fragment in fragments:
-        if fragment.get('is_ghost', False):
+        if getattr(fragment, 'is_ghost', False):
             continue  # Exclude ghosts
 
         fragment_id = fragment.fragment_id

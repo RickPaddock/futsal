@@ -208,13 +208,13 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - [x] Keep behavior tolerant for bib-vs-random (one compact, one diffuse)
   - [x] **Do NOT subcluster teams downstream** (team membership stays binary at Pass 3C)
 
-- [ ] **Ambiguity fail-fast rule (contract-level)**
+- [x] **Ambiguity fail-fast rule (contract-level)** ✅
   - [x] Define `COMPACTNESS_DIFF_MIN` threshold in constants
   - [x] If both clusters are diffuse and compactness difference < threshold → FAIL-FAST
-  - [ ] Write compactness diagnostics to `pass3_validation.json`
+  - [x] Write compactness diagnostics to `pass3_validation.json`
 
-- [ ] **Debug metrics additions**
-  - [ ] Add `cluster_compactness_a`, `cluster_compactness_b`, `compactness_ratio` to `debug_metrics.json`
+- [x] **Debug metrics additions** ✅
+  - [x] Add `cluster_compactness_a`, `cluster_compactness_b`, `compactness_ratio` to `debug_metrics.json`
   - [x] Add `team_assignment_mode` (`compactness_guided_kmeans`) to solver log
 
 ---
@@ -301,43 +301,43 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 
 #### Pass 2A Validation Contract Delta (from CLAUDE.md Section 2A) ⚠️ REQUIRED
 
-- [ ] **KEEP (already correct)**
-  - [ ] Fragment ID uniqueness
-  - [ ] `start_frame <= end_frame`
-  - [ ] No temporal overlap within the same `original_track_id`
-  - [ ] Validation is blocking (`severity="error"`)
+- [x] **KEEP (already correct)** ✅
+  - [x] Fragment ID uniqueness
+  - [x] `start_frame <= end_frame`
+  - [x] No temporal overlap within the same `original_track_id`
+  - [x] Validation is blocking (`severity="error"`)
 
-- [ ] **Fix coverage semantics: frame-based → detection-based**
-  - [ ] Replace frame coverage checks with detection ID coverage checks
-  - [ ] Validate exact set equality: Pass 1 `detection_id` set == union of Pass 2A fragment `detection_ids`
-  - [ ] FAIL if any Pass 1 `detection_id` is missing from fragments
-  - [ ] FAIL if any fragment contains unknown `detection_id` not present in Pass 1
-  - [ ] FAIL if any `detection_id` appears in more than one fragment
+- [x] **Fix coverage semantics: frame-based → detection-based** ✅
+  - [x] Replace frame coverage checks with detection ID coverage checks
+  - [x] Validate exact set equality: Pass 1 `detection_id` set == union of Pass 2A fragment `detection_ids`
+  - [x] FAIL if any Pass 1 `detection_id` is missing from fragments
+  - [x] FAIL if any fragment contains unknown `detection_id` not present in Pass 1
+  - [x] FAIL if any `detection_id` appears in more than one fragment
 
-- [ ] **Enforce split metadata for non-initial fragments**
-  - [ ] Add blocking rule: each non-initial fragment must include `split_reason`
-  - [ ] Add blocking rule: each non-initial fragment must include `split_trigger_frame`
-  - [ ] Add blocking rule: each non-initial fragment must include `split_rule_id` (e.g., `JERSEY_CHANGE`, `TRACK_COLLISION`)
-  - [ ] FAIL if split exists without logged trigger reason metadata
+- [x] **Enforce split metadata for non-initial fragments** ✅
+  - [x] Add blocking rule: each non-initial fragment must include `split_reason`
+  - [x] Add blocking rule: each non-initial fragment must include `split_trigger_frame`
+  - [x] Add blocking rule: each non-initial fragment must include `split_rule_id` (e.g., `JERSEY_CHANGE`, `TRACK_COLLISION`)
+  - [x] FAIL if split exists without logged trigger reason metadata
 
-- [ ] **Remove merge assumptions from Pass 2A validation**
-  - [ ] Do not encourage or require merging short fragments
-  - [ ] Do not validate against short-fragment count/length as an error by itself
-  - [ ] Treat short fragments as valid evidence boundaries
+- [x] **Remove merge assumptions from Pass 2A validation** ✅
+  - [x] Do not encourage or require merging short fragments
+  - [x] Do not validate against short-fragment count/length as an error by itself
+  - [x] Treat short fragments as valid evidence boundaries
 
-- [ ] **Tighten extra coverage behavior to blocking**
-  - [ ] Change `PASS2A_EXTRA_COVERAGE` from warning to blocking error
-  - [ ] Exact coverage only; no fabricated fragment extent beyond Pass 1 detection evidence
+- [x] **Tighten extra coverage behavior to blocking** ✅
+  - [x] Change `PASS2A_EXTRA_COVERAGE` from warning to blocking error
+  - [x] Exact coverage only; no fabricated fragment extent beyond Pass 1 detection evidence
 
-- [ ] **Add cross-track exclusivity validation**
-  - [ ] Add global exclusivity check: no detection/frame evidence row can belong to more than one fragment total
-  - [ ] Ensure overlap detection is not limited to same-track comparisons
+- [x] **Add cross-track exclusivity validation** ✅
+  - [x] Add global exclusivity check: no detection/frame evidence row can belong to more than one fragment total
+  - [x] Ensure overlap detection is not limited to same-track comparisons
 
-- [ ] **Out of scope for Pass 2A validator (must NOT be added)**
-  - [ ] Identity/team assignment checks
-  - [ ] Pass 2B quality scoring logic
-  - [ ] Pass 2C ghost logic
-  - [ ] Split-threshold policy checks (HSV/velocity tuning belongs to splitter implementation)
+- [x] **Out of scope for Pass 2A validator (must NOT be added)** ✅
+  - [x] Identity/team assignment checks
+  - [x] Pass 2B quality scoring logic
+  - [x] Pass 2C ghost logic
+  - [x] Split-threshold policy checks (HSV/velocity tuning belongs to splitter implementation)
 
 ### Pass 2B: Fragment Quality Scoring
 - [ ] **[src/skills/pass2b_fragment_scoring.py](../src/skills/pass2b_fragment_scoring.py)** - Quality metadata

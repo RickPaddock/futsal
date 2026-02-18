@@ -147,6 +147,8 @@ FRAGMENT_SCHEMA = {
         "end_frame": {"type": "integer", "minimum": 0},
         "detection_ids": {"type": "array", "items": {"type": "string"}},
         "split_reason": {"type": ["string", "null"]},
+        "split_trigger_frame": {"type": ["integer", "null"], "minimum": 0},
+        "split_rule_id": {"type": ["string", "null"]},
         "parent_fragment_id": {"type": ["string", "null"]}
     }
 }
@@ -299,6 +301,47 @@ BALL_INTERPOLATION_OUTPUT_SCHEMA = {
 
 
 # ============================================================================
+# DEBUG METRICS SCHEMAS
+# ============================================================================
+
+FRAME_METRICS_SCHEMA = {
+    "type": "object",
+    "required": [
+        "frame_idx", "player_count", "tracked_count", "ghost_count",
+        "team_a_count", "team_b_count", "unknown_count", "jersey_conflicts"
+    ],
+    "properties": {
+        "frame_idx": {"type": "integer", "minimum": 0},
+        "player_count": {"type": "integer", "minimum": 0},
+        "tracked_count": {"type": "integer", "minimum": 0},
+        "ghost_count": {"type": "integer", "minimum": 0},
+        "team_a_count": {"type": "integer", "minimum": 0},
+        "team_b_count": {"type": "integer", "minimum": 0},
+        "unknown_count": {"type": "integer", "minimum": 0},
+        "jersey_conflicts": {"type": "array", "items": {"type": "string"}},
+    }
+}
+
+
+DEBUG_METRICS_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["video_name", "total_frames", "frame_metrics"],
+    "properties": {
+        "video_name": {"type": "string"},
+        "total_frames": {"type": "integer", "minimum": 0},
+        "frame_metrics": {"type": "array", "items": FRAME_METRICS_SCHEMA},
+        "total_identity_changes": {"type": "integer", "minimum": 0},
+        "total_jersey_conflicts": {"type": "integer", "minimum": 0},
+        "total_unknown_frames": {"type": "integer", "minimum": 0},
+        "avg_player_count": {"type": "number", "minimum": 0},
+        "cluster_compactness_a": {"type": ["number", "null"]},
+        "cluster_compactness_b": {"type": ["number", "null"]},
+        "compactness_ratio": {"type": ["number", "null"]},
+    }
+}
+
+
+# ============================================================================
 # VALIDATION SCHEMAS
 # ============================================================================
 
@@ -324,7 +367,8 @@ VALIDATION_RESULT_SCHEMA = {
         "violations": {"type": "array", "items": VALIDATION_VIOLATION_SCHEMA},
         "warnings": {"type": "array", "items": VALIDATION_VIOLATION_SCHEMA},
         "timestamp": {"type": "string"},  # ISO 8601
-        "pass_name": {"type": "string"}
+        "pass_name": {"type": "string"},
+        "diagnostics": {"type": "object"},
     }
 }
 
@@ -339,6 +383,7 @@ SCHEMA_REGISTRY = {
     "pass2_ghosts": PASS2C_OUTPUT_SCHEMA,
     "pass3_identity_commit": PASS3C_OUTPUT_SCHEMA,
     "ball_interpolation": BALL_INTERPOLATION_OUTPUT_SCHEMA,
+    "debug_metrics": DEBUG_METRICS_OUTPUT_SCHEMA,
     "validation_result": VALIDATION_RESULT_SCHEMA,
 }
 
