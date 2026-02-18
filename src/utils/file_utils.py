@@ -67,8 +67,8 @@ def save_json(
     if schema is not None:
         try:
             validate(instance=data, schema=schema)
-        except ValidationError as e:
-            raise ValidationError(f"JSON validation failed: {e.message}")
+        except JSONSchemaValidationError as e:
+            raise JSONSchemaValidationError(f"JSON validation failed: {e.message}")
 
     # Convert Path to string
     output_path = str(output_path)

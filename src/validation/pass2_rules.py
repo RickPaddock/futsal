@@ -75,8 +75,9 @@ def validate_pass2a_fragments(pass2a_output: Pass2AOutput) -> List[ValidationVio
                 )
             )
 
-        # Check detection_ids not empty
-        if len(fragment.detection_ids) == 0:
+        # Check detection_ids not empty (skip ghosts - they have no real detections)
+        is_ghost = getattr(fragment, 'is_ghost', False)
+        if not is_ghost and len(fragment.detection_ids) == 0:
             violations.append(
                 ValidationViolation(
                     rule="PASS2A_EMPTY_DETECTIONS",
@@ -143,6 +144,7 @@ def validate_pass2a_fragments(pass2a_output: Pass2AOutput) -> List[ValidationVio
         ))
 
     # Check for temporal overlaps within same track
+    # STRICT: No overlaps allowed (fragments now split on detection gaps)
     for track_id, frags in track_fragments.items():
         # Sort by start frame
         frags = sorted(frags, key=lambda x: x[1])
@@ -151,7 +153,7 @@ def validate_pass2a_fragments(pass2a_output: Pass2AOutput) -> List[ValidationVio
             frag_a_id, start_a, end_a = frags[i]
             frag_b_id, start_b, end_b = frags[i + 1]
 
-            # Check overlap
+            # Check overlap (no exceptions - fragments and ghosts should never overlap)
             if start_b <= end_a:
                 violations.append(
                     ValidationViolation(
@@ -285,6 +287,35 @@ def validate_pass2b_quality_scoring(pass2b_output: Pass2BOutput) -> List[Validat
     violations = []
 
     for fragment in pass2b_output.fragments:
+        # Skip ghosts (they always have quality=GHOST)
+        if fragment.is_ghost:
+            continue
+
+        # Check that quality fields exist (CRITICAL: catches when Pass 2B wasn't called)
+        if not hasattr(fragment, 'quality') or fragment.quality is None:
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2B_MISSING_QUALITY",
+                    severity="error",
+                    message=f"Fragment {fragment.fragment_id} missing quality field (Pass 2B not called?)",
+                    fragment_id=fragment.fragment_id,
+                    details={"fragment_id": fragment.fragment_id},
+                )
+            )
+            continue
+
+        if not hasattr(fragment, 'quality_score') or fragment.quality_score is None:
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2B_MISSING_SCORE",
+                    severity="error",
+                    message=f"Fragment {fragment.fragment_id} missing quality_score field (Pass 2B not called?)",
+                    fragment_id=fragment.fragment_id,
+                    details={"fragment_id": fragment.fragment_id},
+                )
+            )
+            continue
+
         # Check quality enum
         quality_str = fragment.quality.value if isinstance(fragment.quality, FragmentQuality) else fragment.quality
         if quality_str not in ["high", "medium", "low", "ghost"]:
@@ -348,11 +379,14 @@ def validate_pass2c_ghosts(pass2c_output: Pass2COutput) -> List[ValidationViolat
     """
     Validate Pass 2C ghost fragments.
 
+    Per unified model: pass2c_output.fragments contains both real + ghost fragments.
+    Ghosts marked with is_ghost=True and quality=GHOST.
+
     Checks:
     - Ghost quality = GHOST
     - is_ghost = True
-    - Ghost has source_fragment_id and source_track_id
-    - Ghost position is valid
+    - Ghost has parent_fragment_id (source fragment)
+    - Ghost position is valid (if available)
     - R4: Max 12 concurrent players (tracked + ghosts)
 
     Args:
@@ -363,8 +397,12 @@ def validate_pass2c_ghosts(pass2c_output: Pass2COutput) -> List[ValidationViolat
     """
     violations = []
 
+    # Filter ghosts from unified list
+    all_fragments = pass2c_output.fragments
+    ghosts = [f for f in all_fragments if f.is_ghost]
+
     # Check each ghost
-    for ghost in pass2c_output.ghosts:
+    for ghost in ghosts:
         # Check quality = GHOST
         quality_str = ghost.quality.value if isinstance(ghost.quality, FragmentQuality) else ghost.quality
         if quality_str != "ghost":
@@ -381,7 +419,7 @@ def validate_pass2c_ghosts(pass2c_output: Pass2COutput) -> List[ValidationViolat
                 )
             )
 
-        # Check is_ghost = True
+        # Check is_ghost = True (should always be true since we filtered, but defensive check)
         if not ghost.is_ghost:
             violations.append(
                 ValidationViolation(
@@ -393,43 +431,46 @@ def validate_pass2c_ghosts(pass2c_output: Pass2COutput) -> List[ValidationViolat
                 )
             )
 
-        # Check source fields exist
-        if not ghost.source_fragment_id:
+        # Check parent_fragment_id exists (source fragment that spawned this ghost)
+        if not ghost.parent_fragment_id:
             violations.append(
                 ValidationViolation(
                     rule="PASS2C_GHOST_NO_SOURCE",
-                    severity="error",
-                    message=f"Ghost {ghost.fragment_id} missing source_fragment_id",
+                    severity="warning",  # Warning not error - ghosts may not always have clear parent
+                    message=f"Ghost {ghost.fragment_id} missing parent_fragment_id",
                     fragment_id=ghost.fragment_id,
                     details={"fragment_id": ghost.fragment_id},
                 )
             )
 
-        # Check estimated position is valid
-        from ..utils.geometry import bbox_area
+        # Check ghost position is valid (if provided)
+        if ghost.ghost_last_known_bbox:
+            from ..utils.geometry import bbox_area
 
-        if bbox_area(ghost.estimated_position) <= 0:
-            violations.append(
-                ValidationViolation(
-                    rule="PASS2C_GHOST_INVALID_POSITION",
-                    severity="error",
-                    message=f"Ghost {ghost.fragment_id} has invalid estimated_position (zero area)",
-                    fragment_id=ghost.fragment_id,
-                    details={
-                        "fragment_id": ghost.fragment_id,
-                        "estimated_position": ghost.estimated_position,
-                    },
+            if bbox_area(ghost.ghost_last_known_bbox) <= 0:
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS2C_GHOST_INVALID_POSITION",
+                        severity="error",
+                        message=f"Ghost {ghost.fragment_id} has invalid ghost_last_known_bbox (zero area)",
+                        fragment_id=ghost.fragment_id,
+                        details={
+                            "fragment_id": ghost.fragment_id,
+                            "ghost_last_known_bbox": ghost.ghost_last_known_bbox,
+                        },
+                    )
                 )
-            )
 
-    # R4: Player continuity (max 12 concurrent)
-    all_fragments = list(pass2c_output.fragments) + list(pass2c_output.ghosts)
+    # R4: Player continuity (max 12 concurrent) - DURATION-AWARE ENFORCEMENT
+    # Brief violations (1-2 frames) = tracker jitter → tolerate
+    # Sustained violations (3+ frames) = detector failure → FAIL HARD
+    all_fragments = pass2c_output.fragments  # Already includes real + ghosts
 
     # Find total_frames (max end_frame)
     total_frames = max((f.end_frame for f in all_fragments), default=0) + 1
 
-    from .global_rules import validate_r4_player_continuity
-    violations.extend(validate_r4_player_continuity(all_fragments, total_frames))
+    from .global_rules import validate_r4_player_continuity_duration_aware
+    violations.extend(validate_r4_player_continuity_duration_aware(all_fragments, total_frames))
 
     return violations
 

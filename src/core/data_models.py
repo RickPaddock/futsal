@@ -162,6 +162,9 @@ class Fragment(BaseModel):
     split_rule_id: Optional[str] = None
     parent_fragment_id: Optional[FragmentID] = None  # If split from another fragment
 
+    # Ghost metadata (Pass 2C) - available at Fragment level for uniform access
+    is_ghost: bool = False
+
 
 class Pass2AOutput(BaseModel):
     """
@@ -190,6 +193,12 @@ class ScoredFragment(Fragment):
     - avg_bbox_stability: Spatial smoothness metric (higher = steadier box).
     - jersey_consistency: Stability of jersey observations within fragment.
     - hsv_consistency: Stability of HSV appearance within fragment.
+
+    Ghost-specific fields (Pass 2C):
+    - is_ghost: True if this is a ghost fragment (default False).
+    - ghost_last_known_bbox: Last known bbox before occlusion (ghosts only).
+    - ghost_last_known_centroid: Last known centroid before occlusion (ghosts only).
+    - ghost_reason: Why ghost was created (ghosts only).
     """
     quality: FragmentQuality
     quality_score: float  # 0-1 continuous score
@@ -202,6 +211,12 @@ class ScoredFragment(Fragment):
     jersey_consistency: float = 0.0  # How often same jersey appears
     hsv_consistency: float = 0.0  # HSV histogram similarity across frames
 
+    # Ghost-specific fields (Pass 2C)
+    is_ghost: bool = False
+    ghost_last_known_bbox: Optional[BBox] = None
+    ghost_last_known_centroid: Optional[Centroid] = None
+    ghost_reason: Optional[str] = None
+
 
 class Pass2BOutput(BaseModel):
     """
@@ -209,6 +224,7 @@ class Pass2BOutput(BaseModel):
     """
     fragments: List[ScoredFragment]
     quality_distribution: Dict[str, int] = Field(default_factory=dict)  # quality -> count
+    split_log: List[Dict[str, Any]] = Field(default_factory=list)  # Preserved from Pass 2A
 
 
 # ============================================================================
@@ -243,10 +259,13 @@ class GhostFragment(ScoredFragment):
 class Pass2COutput(BaseModel):
     """
     Output from Pass 2C: Ghost Generation.
+
+    Unified list of fragments (real + ghosts) for downstream processing.
+    Ghosts marked with is_ghost=True and quality=GHOST.
     """
-    fragments: List[ScoredFragment]  # Real fragments (from Pass 2B)
-    ghosts: List[GhostFragment]  # Ghost fragments
-    ghost_creation_log: List[Dict[str, Any]] = Field(default_factory=list)
+    fragments: List[ScoredFragment]  # Real fragments + ghosts (unified)
+    split_log: List[Dict[str, Any]] = Field(default_factory=list)  # From Pass 2A (preserved)
+    ghost_creation_log: List[Dict[str, Any]] = Field(default_factory=list)  # Ghost audit trail
     level_timeline: List[Dict[str, Any]] = Field(default_factory=list)  # Frame-by-frame level
 
 

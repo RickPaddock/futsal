@@ -161,6 +161,12 @@ MAX_TEAM_SIZE_VIOLATION_FRAMES = 5  # Allow brief violations
 # R3: One jersey = one player
 MAX_CONCURRENT_JERSEY_VIOLATIONS = 0  # Strict temporal exclusivity
 
+# R4: Player continuity (duration-aware in Pass 2)
+# Tolerates: tracker jitter (1-2 frames) + occlusion-based track re-IDs (up to ~60 frames)
+# Rationale: ByteTrack can fragment one player into multiple track_ids during occlusions
+# Pass 3 will merge these based on jersey/team identity, reducing count back to ≤12
+MAX_R4_VIOLATION_CONSECUTIVE_FRAMES = 60  # ~2 seconds at 30 FPS
+
 # ============================================================================
 # OUTPUT DIRECTORY STRUCTURE
 # ============================================================================

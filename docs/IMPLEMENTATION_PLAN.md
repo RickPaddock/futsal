@@ -301,12 +301,12 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
     - [x] **TRIGGER 2: Jersey Change** - Jersey NUMBER changes (#7 → #4), NOT disappearance
       - [x] ❌ NO split: Jersey disappearance (#4 → None) - loss of observability
       - [x] ❌ NO split: Jersey first appearance (None → #4) - player turned around
-    - [ ] **TRIGGER 3: Jersey Temporal Exclusivity** - Same jersey on different tracks simultaneously
-      - [ ] **Algorithm**: Use voting/consensus across fragment, NOT first appearance
-      - [ ] **Minimum observations**: Jersey must appear ≥3 times with conf ≥0.5 to be considered "owned"
-      - [ ] **Majority vote**: Fragment "owns" jersey if ≥50% of sampled observations show that jersey
-      - [ ] **Conflict detection**: Two fragments "own" same jersey + overlapping time → split the later one
-      - [ ] **No false positives**: Single misclassified frame does NOT cause split
+    - [x] **TRIGGER 3: Jersey Temporal Exclusivity** - Same jersey on different tracks simultaneously ✅
+      - [x] **Algorithm**: Use voting/consensus across fragment, NOT first appearance
+      - [x] **Minimum observations**: Jersey must appear ≥3 times with conf ≥0.5 to be considered "owned"
+      - [x] **Majority vote**: Fragment "owns" jersey if ≥50% of sampled observations show that jersey
+      - [x] **Conflict detection**: Two fragments "own" same jersey + overlapping time → split the later one
+      - [x] **No false positives**: Single misclassified frame does NOT cause split
     - [x] **TRIGGER 4: Hard Appearance Discontinuity** - ALL required: jersey visible both sides + large HSV + impossible motion
       - [x] ❌ NO split: Standalone appearance drift - lighting/angle change
       - [x] ❌ NO split: Standalone velocity spike - player running
@@ -317,7 +317,13 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - [x] Save `pass2_fragments.json`, log all splits
   - [x] Validate output
   - [x] FAIL-FAST if validation fails
-  - [x] Pass 2A debug video artifact output (`--video-output 2` / `2a`) using pass1+pass2 artifacts
+- [x] **Pass 2 unified debug video** (`--video-output 2`) ✅
+  - [x] **Combines all Pass 2 stages (2A fragments + 2B quality + 2C ghosts) in ONE video**
+  - [x] Show: Fragment bboxes color-coded by quality (GREEN=high, YELLOW=medium, RED=low, GRAY=ghost)
+  - [x] Ghosts: Dashed boxes with gray color
+  - [x] Labels: Fragment ID, quality label (e.g., [HIGH]), quality score (Q=0.85), split reason
+  - [x] Overlays: Frame stats (real count by quality H/M/L, ghost count, total players, splits)
+  - [x] Purpose: Verify mechanical fragmentation, quality scoring, and ghost generation (complete Pass 2 view)
 
 
 #### Pass 2A Validation Contract Delta (from CLAUDE.md Section 2A) ⚠️ REQUIRED
@@ -372,30 +378,30 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - [x] Save scored fragments
   - [x] Validate output
 - [x] **[test_pass2b.py](../test_pass2b.py)** - Test script for Pass 2B ✅
-- [ ] **Pass 2B debug video** (`--video-output 2b`) - Quality scoring
-  - [ ] Show: Fragment bboxes with quality labels (HIGH/MEDIUM/LOW)
-  - [ ] Overlays: Quality scores, quality reasons, metric values
-  - [ ] Purpose: Verify quality scoring logic (are scores reasonable for each fragment?)
+- [x] **Pass 2B visualization** - Integrated into unified `--video-output 2` ✅
+  - [x] Quality-based color coding (GREEN=high, YELLOW=medium, RED=low)
+  - [x] Quality scores and labels shown on each fragment
+  - [x] See unified Pass 2 video above for complete visualization
 
 ### Pass 2C: Ghost Generation
-- [ ] **[src/skills/pass2c_ghost_generator.py](../src/skills/pass2c_ghost_generator.py)** - Maintain player count
-  - [ ] Initialize level from first 10 frames
-  - [ ] **Dynamic level (high water mark)**:
-    - [ ] Update if more players enter (never decrease)
-    - [ ] Target level = high water mark up to 12 (futsal max)
-    - [ ] Partial clips: May start with fewer players (e.g., 8 visible)
-    - [ ] Off-screen starts: Level increases as players enter (10 → 11 → 12)
-    - [ ] No substitutions in futsal: Once player enters, they don't leave (except briefly off-screen)
-  - [ ] **Ghosts maintain identity continuity, NOT team symmetry**:
-    - [ ] Team balance (6v6) enforced AFTER Pass 3C, NOT during ghost creation
-  - [ ] Track players by `original_track_id` (NOT `fragment_id`)
-  - [ ] Create ghosts when `tracked_count < level`
-  - [ ] Ghost position: HOLD last known position (no interpolation)
-  - [ ] Ghost duration: until reappearance or MAX_GAP (60 frames)
-  - [ ] Mark ghosts: `is_ghost=True`, `quality="ghost"`
-  - [ ] **Exclude ghosts from K-means clustering** (Pass 3C)
-  - [ ] Save `pass2_ghosts.json`, log ghost creation
-  - [ ] Validate output
+- [x] **[src/skills/pass2c_ghost_generator.py](../src/skills/pass2c_ghost_generator.py)** - Maintain player count ✅
+  - [x] Initialize level from first 10 frames
+  - [x] **Dynamic level (high water mark)**:
+    - [x] Update if more players enter (never decrease)
+    - [x] Target level = high water mark up to 12 (futsal max)
+    - [x] Partial clips: May start with fewer players (e.g., 8 visible)
+    - [x] Off-screen starts: Level increases as players enter (10 → 11 → 12)
+    - [x] No substitutions in futsal: Once player enters, they don't leave (except briefly off-screen)
+  - [x] **Ghosts maintain identity continuity, NOT team symmetry**:
+    - [x] Team balance (6v6) enforced AFTER Pass 3C, NOT during ghost creation
+  - [x] Track players by `original_track_id` (NOT `fragment_id`)
+  - [x] Create ghosts when `tracked_count < level`
+  - [x] Ghost position: HOLD last known position (no interpolation)
+  - [x] Ghost duration: until reappearance or MAX_GAP (60 frames)
+  - [x] Mark ghosts: `is_ghost=True`, `quality="ghost"`
+  - [x] **Exclude ghosts from K-means clustering** (Pass 3C responsibility, ghost flag available)
+  - [x] Save `pass2_ghosts.json`, log ghost creation
+  - [x] Validate output
 - [ ] **Pass 2C debug video** (`--video-output 2c`) - Ghost generation
   - [ ] Show: Real fragments (solid) + ghost fragments (dashed)
   - [ ] Overlays: Player count ticker (tracked + ghosts = level), ghost reasons

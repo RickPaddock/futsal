@@ -100,6 +100,7 @@ class Pass2BFragmentScorer:
         return Pass2BOutput(
             fragments=scored_fragments,
             quality_distribution=quality_distribution,
+            split_log=self.pass2a_output.split_log,  # Preserve from Pass 2A
         )
 
     def _score_fragment(self, fragment: Fragment) -> ScoredFragment:
@@ -408,7 +409,7 @@ def run_pass2b(
 
     # Write validation report
     validation_path = output_dir / const.PASS2_VALIDATION_JSON
-    save_json(validation_path, validation_result.model_dump())
+    save_json(validation_result.model_dump(), str(validation_path))
     logger.info(f"Validation report: {validation_path}")
 
     if not validation_result.passed:
@@ -421,7 +422,7 @@ def run_pass2b(
 
     # Write Pass 2B output (overwrite pass2_fragments.json with scored fragments)
     output_path = output_dir / const.PASS2_FRAGMENTS_JSON
-    save_json(output_path, pass2b_output.model_dump())
+    save_json(pass2b_output.model_dump(), str(output_path))
     logger.info(f"Pass 2B output: {output_path}")
 
     logger.info("=" * 80)

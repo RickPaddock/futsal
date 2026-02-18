@@ -82,8 +82,10 @@ def _draw_text_with_bg(
     text: str,
     org: Tuple[int, int],
     font_scale: float,
+    color: Tuple[int, int, int] = (255, 255, 255),
     thickness: int = 1,
 ) -> None:
+    """Draw text with black background for visibility."""
     font = cv2.FONT_HERSHEY_SIMPLEX
     (text_w, text_h), baseline = cv2.getTextSize(text, font, font_scale, thickness)
     x, y = org
@@ -94,7 +96,59 @@ def _draw_text_with_bg(
     x2 = min(img.shape[1] - 1, x + text_w + pad_x)
     y2 = min(img.shape[0] - 1, y + baseline + pad_y)
     cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 0), -1)
-    cv2.putText(img, text, (x, y), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+    cv2.putText(img, text, (x, y), font, font_scale, color, thickness, cv2.LINE_AA)
+
+
+def _draw_dashed_rectangle(
+    img: np.ndarray,
+    pt1: Tuple[int, int],
+    pt2: Tuple[int, int],
+    color: Tuple[int, int, int],
+    thickness: int,
+    dash_length: int = 10,
+) -> None:
+    """Draw a dashed rectangle for ghost visualization."""
+    x1, y1 = pt1
+    x2, y2 = pt2
+
+    # Draw dashed lines for each edge
+    def draw_dashed_line(p1, p2):
+        dist = int(np.hypot(p2[0] - p1[0], p2[1] - p1[1]))
+        pts = []
+        for i in range(0, dist, dash_length * 2):
+            r = i / dist
+            x = int((p1[0] * (1 - r) + p2[0] * r) + .5)
+            y = int((p1[1] * (1 - r) + p2[1] * r) + .5)
+            pts.append((x, y))
+
+        for i in range(0, len(pts) - 1, 2):
+            cv2.line(img, pts[i], pts[min(i + 1, len(pts) - 1)], color, thickness)
+
+    # Draw four edges
+    draw_dashed_line((x1, y1), (x2, y1))  # Top
+    draw_dashed_line((x2, y1), (x2, y2))  # Right
+    draw_dashed_line((x2, y2), (x1, y2))  # Bottom
+    draw_dashed_line((x1, y2), (x1, y1))  # Left
+
+
+def _quality_color(fragment) -> Tuple[int, int, int]:
+    """Get color based on fragment quality (if available)."""
+    if not hasattr(fragment, 'quality'):
+        return _fragment_color(fragment.fragment_id)
+
+    from ..core.types import FragmentQuality
+    quality = fragment.quality
+
+    if quality == FragmentQuality.HIGH:
+        return (0, 255, 0)  # Green
+    elif quality == FragmentQuality.MEDIUM:
+        return (0, 255, 255)  # Yellow
+    elif quality == FragmentQuality.LOW:
+        return (0, 0, 255)  # Red
+    elif quality == FragmentQuality.GHOST:
+        return (128, 128, 128)  # Gray
+    else:
+        return _fragment_color(fragment.fragment_id)
 
 
 def _draw_pass2a_debug_overlay_frame(
@@ -102,32 +156,68 @@ def _draw_pass2a_debug_overlay_frame(
     frame_idx: int,
     frame_annotations: List[Tuple[Detection, Fragment]],
     split_log_count: int,
+    ghost_count: int = 0,
 ) -> np.ndarray:
-    """Draw Pass 2A fragment overlays for one frame."""
+    """Draw unified Pass 2 overlay (fragments + quality + ghosts)."""
     overlay = frame.copy()
 
     active_fragments: Set[str] = set()
+    active_ghosts: Set[str] = set()
+    quality_counts = {'high': 0, 'medium': 0, 'low': 0}
 
     for det, fragment in frame_annotations:
         x1, y1, x2, y2 = [int(round(v)) for v in det.bbox]
-        color = _fragment_color(fragment.fragment_id)
-        cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 2)
 
-        label = f"{fragment.fragment_id} trk={fragment.original_track_id}"
-        _draw_text_with_bg(overlay, label, (x1, max(18, y1 - 8)), 0.42, 1)
+        # Color by quality if available, otherwise by fragment_id
+        color = _quality_color(fragment)
 
-        reason = fragment.split_reason or "initial"
-        _draw_text_with_bg(overlay, f"reason={reason}", (x1, min(overlay.shape[0] - 6, y2 + 16)), 0.40, 1)
-        active_fragments.add(fragment.fragment_id)
+        # Ghosts: dashed boxes
+        if fragment.is_ghost:
+            _draw_dashed_rectangle(overlay, (x1, y1), (x2, y2), color, 2, dash_length=10)
+            label = f"GHOST {fragment.fragment_id} (T{fragment.original_track_id})"
+            reason = fragment.ghost_reason or "occluded"
+            active_ghosts.add(fragment.fragment_id)
+        else:
+            # Real fragments: solid boxes
+            cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 2)
+
+            # Add quality label if available
+            quality_label = ""
+            if hasattr(fragment, 'quality'):
+                from ..core.types import FragmentQuality
+                q = fragment.quality.value if isinstance(fragment.quality, FragmentQuality) else fragment.quality
+                quality_label = f" [{q.upper()}]"
+                if q in quality_counts:
+                    quality_counts[q] += 1
+
+            label = f"{fragment.fragment_id} (T{fragment.original_track_id}){quality_label}"
+            reason = fragment.split_reason or "initial"
+            active_fragments.add(fragment.fragment_id)
+
+        _draw_text_with_bg(overlay, label, (x1, max(18, y1 - 8)), 0.42, color, 1)
+
+        # Show quality score if available
+        if hasattr(fragment, 'quality_score') and not fragment.is_ghost:
+            score_text = f"Q={fragment.quality_score:.2f} {reason}"
+            _draw_text_with_bg(overlay, score_text, (x1, min(overlay.shape[0] - 6, y2 + 16)), 0.38, color, 1)
+        else:
+            _draw_text_with_bg(overlay, reason, (x1, min(overlay.shape[0] - 6, y2 + 16)), 0.40, color, 1)
 
     intent_lines = _load_pass2_intention_lines()
+
+    # Build runtime stats
+    real_count = len(active_fragments)
+    ghost_count_frame = len(active_ghosts)
+    total_players = real_count + ghost_count_frame
+
     runtime_lines = [
-        "Pass 2A: mechanical fragmentation only (no team/player inference)",
-        "Split triggers: overlap, appearance drift, jersey inconsistency, velocity spikes",
-        f"frame stats: detections={len(frame_annotations)} activeFragments={len(active_fragments)} totalSplits={split_log_count}",
+        "Pass 2: Fragments + Quality + Ghosts (mechanical only, no team/player inference)",
+        "Colors: GREEN=high quality, YELLOW=medium, RED=low, GRAY=ghost | Dashed boxes=ghosts",
+        f"Frame: real={real_count} (H:{quality_counts['high']} M:{quality_counts['medium']} L:{quality_counts['low']}) ghosts={ghost_count_frame} total={total_players}",
+        f"Total splits: {split_log_count}",
     ]
 
-    title = "PASS 2A RESPONSIBILITIES (ACTIVE)"
+    title = "PASS 2: FRAGMENTS + QUALITY + GHOSTS"
     all_lines = intent_lines + runtime_lines
 
     frame_h, frame_w = overlay.shape[:2]
@@ -144,19 +234,20 @@ def _draw_pass2a_debug_overlay_frame(
     cv2.rectangle(panel, (6, panel_top), (frame_w - 6, panel_bottom), (0, 0, 0), -1)
     overlay = cv2.addWeighted(panel, 0.55, overlay, 0.45, 0)
 
-    _draw_text_with_bg(overlay, title, (left, title_y), 0.50, 1)
+    _draw_text_with_bg(overlay, title, (left, title_y), 0.50, (255, 255, 255), 2)
     for idx, line in enumerate(all_lines):
         y = first_rule_y + (idx * line_gap)
-        _draw_text_with_bg(overlay, f"- {line}", (left + 4, y), 0.46, 1)
+        _draw_text_with_bg(overlay, f"- {line}", (left + 4, y), 0.46, (255, 255, 255), 2)
 
     _draw_text_with_bg(
         overlay,
         "Boxes=fragment-colored | Label: Fxxxxxx + original track + split reason",
         (left, footer_y),
         0.45,
-        1,
+        (255, 255, 255),
+        2,
     )
-    _draw_text_with_bg(overlay, f"frame={frame_idx}", (left, footer_y + 18), 0.52, 1)
+    _draw_text_with_bg(overlay, f"frame={frame_idx}", (left, footer_y + 18), 0.52, (255, 255, 255), 2)
 
     return overlay
 
@@ -331,6 +422,32 @@ class Pass2AFragmenter:
             List of (frame_idx, reason) tuples where splits should occur
         """
         split_points = []
+
+        # ============================================================================
+        # TRIGGER 0: Detection Gap (Fragment Temporal Consistency)
+        # Fragments must not have internal gaps - split on detection gaps > threshold
+        # This ensures fragment start/end ranges match actual occupancy (no hollow fragments)
+        # ============================================================================
+        GAP_SPLIT_THRESHOLD = 5  # Split if gap > 5 frames
+
+        for i in range(1, len(detections)):
+            prev_det = detections[i - 1]
+            curr_det = detections[i]
+
+            frame_gap = curr_det.frame_idx - prev_det.frame_idx - 1  # Actual gap size
+
+            if frame_gap > GAP_SPLIT_THRESHOLD:
+                split_points.append((curr_det.frame_idx, "detection_gap"))
+                self.split_log.append({
+                    "track_id": track_id,
+                    "frame_idx": curr_det.frame_idx,
+                    "reason": "detection_gap",
+                    "details": (
+                        f"Detection gap of {frame_gap} frames "
+                        f"(frames {prev_det.frame_idx + 1}-{curr_det.frame_idx - 1}). "
+                        f"Split to maintain fragment temporal consistency."
+                    ),
+                })
 
         # ============================================================================
         # TRIGGER 1: Track Collision (ByteTrack failure)
@@ -542,6 +659,7 @@ class Pass2AFragmenter:
             "jersey_temporal_conflict": "JERSEY_TEMPORAL_CONFLICT",
             "hard_appearance_discontinuity": "HARD_APPEARANCE_DISCONTINUITY",
             "merged_short_fragments": "MERGE_SHORT_FRAGMENTS",
+            "detection_gap": "DETECTION_GAP",
         }
 
         non_initial = split_reason != "initial"
@@ -896,20 +1014,55 @@ def render_pass2a_debug_video_from_artifact(
     debug_video_path: str,
     start_frame: int = 0,
     end_frame: Optional[int] = None,
+    pass2c_ghosts_path: Optional[str] = None,
 ) -> None:
-    """Render Pass 2A debug video using pass1_raw + pass2_fragments artifacts."""
+    """
+    Render Pass 2A debug video using pass1_raw + pass2_fragments artifacts.
+
+    If pass2c_ghosts_path provided, also renders ghosts from Pass 2C (dashed boxes).
+    """
     pass1_output = load_json(Path(pass1_output_path), Pass1Output)
     pass2a_output = load_json(Path(pass2a_output_path), Pass2AOutput)
+
+    # Optionally load Pass 2C ghosts
+    from ..core.data_models import Pass2BOutput, ScoredFragment
+    all_fragments = list(pass2a_output.fragments)
+    ghost_count = 0
+
+    if pass2c_ghosts_path:
+        ghosts_path = Path(pass2c_ghosts_path)
+        if ghosts_path.exists():
+            logger.info(f"Loading Pass 2C ghosts from {ghosts_path}")
+            pass2c_output = load_json(ghosts_path, Pass2BOutput)
+            # Extract only ghosts from unified list
+            all_fragments = pass2c_output.fragments
+            ghost_count = sum(1 for f in all_fragments if f.is_ghost)
+            logger.info(f"Rendering {len(all_fragments)} fragments ({ghost_count} ghosts)")
 
     detection_by_id: Dict[str, Detection] = {det.detection_id: det for det in pass1_output.detections}
 
     frame_annotations: Dict[int, List[Tuple[Detection, Fragment]]] = {}
-    for fragment in pass2a_output.fragments:
-        for detection_id in fragment.detection_ids:
-            det = detection_by_id.get(detection_id)
-            if det is None:
-                continue
-            frame_annotations.setdefault(det.frame_idx, []).append((det, fragment))
+    for fragment in all_fragments:
+        # Real fragments: use detections from Pass 1
+        if not fragment.is_ghost:
+            for detection_id in fragment.detection_ids:
+                det = detection_by_id.get(detection_id)
+                if det is None:
+                    continue
+                frame_annotations.setdefault(det.frame_idx, []).append((det, fragment))
+        else:
+            # Ghosts: create synthetic "detection" from ghost position
+            if fragment.ghost_last_known_bbox and fragment.ghost_last_known_centroid:
+                for frame_idx in range(fragment.start_frame, fragment.end_frame + 1):
+                    # Create a minimal Detection-like object for rendering
+                    from ..core.types import BBox, Centroid
+                    ghost_det = type('obj', (object,), {
+                        'bbox': fragment.ghost_last_known_bbox,
+                        'centroid': fragment.ghost_last_known_centroid,
+                        'frame_idx': frame_idx,
+                        'detection_id': f"ghost_{fragment.fragment_id}_{frame_idx}",
+                    })()
+                    frame_annotations.setdefault(frame_idx, []).append((ghost_det, fragment))
 
     reader = VideoReader(video_path)
     writer = None
@@ -958,6 +1111,7 @@ def render_pass2a_debug_video_from_artifact(
                     frame_idx,
                     annotations,
                     split_log_count=len(pass2a_output.split_log),
+                    ghost_count=ghost_count,
                 )
                 writer.write(debug_frame)
                 pbar.update(1)

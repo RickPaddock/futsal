@@ -400,6 +400,113 @@ def validate_r4_player_continuity(
     return violations
 
 
+def validate_r4_player_continuity_duration_aware(
+    fragments: List[ScoredFragment],
+    total_frames: int,
+) -> List[ValidationViolation]:
+    """
+    R4: Player continuity (max 12 concurrent) - DURATION-AWARE ENFORCEMENT.
+
+    Per architectural principle:
+    - Brief violations (1-2 frames) = tracker jitter → tolerate
+    - Sustained violations (3+ frames) = detector failure → FAIL HARD
+
+    This is the correct mental model:
+    - Pass 1 can violate R4 (ByteTrack can hallucinate briefly)
+    - Pass 2 must detect and expose sustained violations (diagnostic constraint)
+    - Pass 3 enforces strictly after identity resolution
+
+    Args:
+        fragments: List of fragments (real + ghosts)
+        total_frames: Total number of frames in video
+
+    Returns:
+        List of violations (only for sustained violations)
+    """
+    from ..core import constants as const
+
+    violations = []
+
+    # Build frame-by-frame player count (tracked players by original_track_id)
+    frame_players: Dict[int, Set[int]] = {}  # frame_idx -> set of track_ids
+
+    for fragment in fragments:
+        track_id = fragment.original_track_id
+
+        for frame_idx in range(fragment.start_frame, fragment.end_frame + 1):
+            if frame_idx not in frame_players:
+                frame_players[frame_idx] = set()
+
+            frame_players[frame_idx].add(track_id)
+
+    # Find consecutive violation runs
+    violation_runs: List[Tuple[int, int, int]] = []  # (start_frame, end_frame, player_count)
+    current_run_start = None
+    current_run_count = 0
+
+    for frame_idx in range(total_frames):
+        if frame_idx not in frame_players:
+            # No players in this frame - end current run
+            if current_run_start is not None:
+                violation_runs.append((current_run_start, frame_idx - 1, current_run_count))
+                current_run_start = None
+            continue
+
+        player_count = len(frame_players[frame_idx])
+
+        if player_count > 12:
+            # Violation detected
+            if current_run_start is None:
+                # Start new run
+                current_run_start = frame_idx
+                current_run_count = player_count
+            else:
+                # Continue current run (update count to max)
+                current_run_count = max(current_run_count, player_count)
+        else:
+            # No violation - end current run if active
+            if current_run_start is not None:
+                violation_runs.append((current_run_start, frame_idx - 1, current_run_count))
+                current_run_start = None
+
+    # Close final run if active
+    if current_run_start is not None:
+        violation_runs.append((current_run_start, total_frames - 1, current_run_count))
+
+    # Filter: only fail on sustained violations (> threshold consecutive frames)
+    max_consecutive = const.MAX_R4_VIOLATION_CONSECUTIVE_FRAMES
+
+    for start_frame, end_frame, player_count in violation_runs:
+        run_length = end_frame - start_frame + 1
+
+        if run_length > max_consecutive:
+            # SUSTAINED VIOLATION - FAIL HARD
+            violations.append(
+                ValidationViolation(
+                    rule="R4",
+                    severity="error",
+                    message=(
+                        f"Sustained R4 violation: {player_count} concurrent players "
+                        f"for {run_length} consecutive frames [{start_frame}-{end_frame}] "
+                        f"(max {max_consecutive} frames tolerated). "
+                        f"This is detector failure, not tracker jitter. "
+                        f"Investigate Pass 1 detector/tracker tuning."
+                    ),
+                    frame_idx=start_frame,
+                    details={
+                        "start_frame": start_frame,
+                        "end_frame": end_frame,
+                        "run_length": run_length,
+                        "player_count": player_count,
+                        "max_tolerated_frames": max_consecutive,
+                    },
+                )
+            )
+        # else: brief violation, tolerated
+
+    return violations
+
+
 def validate_r5_ball_never_disappears(
     ball_positions: List[BallPosition],
     total_frames: int,

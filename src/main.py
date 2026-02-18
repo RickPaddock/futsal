@@ -21,22 +21,24 @@ from .utils.file_utils import get_output_dir, load_json
 from .utils.logging_utils import get_logger
 from .skills.pass1_extractor import run_pass1, render_pass1_debug_video_from_artifact
 from .skills.pass2a_fragmenter import run_pass2a, render_pass2a_debug_video_from_artifact
+from .skills.pass2b_fragment_scoring import run_pass2b
+from .skills.pass2c_ghost_generator import run_pass2c
 from .core.data_models import Pass1Output
 
 logger = get_logger("main")
 
-ALLOWED_VIDEO_OUTPUT_PASSES = {"1", "2", "2a", "2b", "3", "3a", "3b", "3c", "ball", "viz"}
-IMPLEMENTED_VIDEO_OUTPUT_PASSES = {"1", "2a"}
+ALLOWED_VIDEO_OUTPUT_PASSES = {"1", "2", "3", "3a", "3b", "3c", "ball", "viz"}
+IMPLEMENTED_VIDEO_OUTPUT_PASSES = {"1", "2"}
 
 
 def _parse_video_output_option(value: str) -> Set[str]:
     """
     Parse --video-output option into normalized pass keys.
 
-    Accepts comma-separated values such as: "1,2a,2b".
+    Accepts comma-separated values such as: "1,2,3".
     Aliases:
-        2 -> 2a
-        3 -> 3c
+        2 -> unified Pass 2 (fragments + quality + ghosts)
+        3 -> 3c (identity commit)
     """
     if not value:
         return set()
@@ -121,9 +123,9 @@ Examples:
         type=_parse_video_output_option,
         default=set(),
         help=(
-            "Comma-separated pass keys for debug video output "
-            "(examples: 1,2a,2b,3c,ball,viz). "
-            "Currently implemented: 1,2a"
+            "Comma-separated pass keys for debug video output. "
+            "Examples: 1,2,3. "
+            "Implemented: 1 (raw detections), 2 (fragments + quality + ghosts)"
         )
     )
 
@@ -280,18 +282,40 @@ Examples:
 
             logger.info(f"   Output: {output_dir / 'pass2_fragments.json'}")
             logger.info(f"   Validation: {output_dir / 'pass2_validation.json'}")
+
+            # Run Pass 2B quality scoring
+            logger.info("")
+            run_pass2b(
+                pass1_json_path=pass1_output_path,
+                pass2a_json_path=output_dir / "pass2_fragments.json",
+                output_dir=output_dir,
+            )
+            logger.info(f"[OK] Pass 2B Complete!")
+
+            # Run Pass 2C ghost generation
+            logger.info("")
+            pass2c_output = run_pass2c(input_dir=output_dir, output_dir=output_dir)
+            logger.info(f"[OK] Pass 2C Complete!")
+            logger.info(f"   Total fragments (with ghosts): {len(pass2c_output.fragments)}")
+            ghost_count = sum(1 for f in pass2c_output.fragments if f.is_ghost)
+            logger.info(f"   Ghosts created: {ghost_count}")
+            logger.info(f"   Output: {output_dir / 'pass2_ghosts.json'}")
+
             if "2a" in args.video_output:
-                pass2a_debug_path = output_dir / "pass2a_debug.mp4"
-                logger.info("   Rendering Pass 2A debug video from artifacts...")
+                pass2_debug_path = output_dir / "pass2_debug.mp4"
+                logger.info("   Rendering Pass 2 debug video (fragments + quality + ghosts)...")
+                # Check if ghosts JSON exists (from Pass 2C)
+                ghosts_path = output_dir / "pass2_ghosts.json"
                 render_pass2a_debug_video_from_artifact(
                     video_path=str(video_path),
                     pass1_output_path=str(output_dir / "pass1_raw.json"),
                     pass2a_output_path=str(output_dir / "pass2_fragments.json"),
-                    debug_video_path=str(pass2a_debug_path),
+                    debug_video_path=str(pass2_debug_path),
                     start_frame=args.start_frame,
                     end_frame=args.end_frame,
+                    pass2c_ghosts_path=str(ghosts_path) if ghosts_path.exists() else None,
                 )
-                logger.info(f"   Debug video: {pass2a_debug_path}")
+                logger.info(f"   Debug video: {pass2_debug_path}")
             logger.info("")
 
         if "2a" in args.video_output and 2 not in passes_to_run:
@@ -299,26 +323,28 @@ Examples:
             pass2a_output_path = output_dir / "pass2_fragments.json"
 
             if not pass1_output_path.exists():
-                logger.error(f"Cannot render Pass 2A debug video: missing {pass1_output_path}")
+                logger.error(f"Cannot render Pass 2 debug video: missing {pass1_output_path}")
                 logger.error("Run Pass 1 and Pass 2 first or run without --pass to generate artifacts")
                 return 1
 
             if not pass2a_output_path.exists():
-                logger.error(f"Cannot render Pass 2A debug video: missing {pass2a_output_path}")
+                logger.error(f"Cannot render Pass 2 debug video: missing {pass2a_output_path}")
                 logger.error("Run Pass 2 first or run without --pass to generate pass2_fragments.json")
                 return 1
 
-            pass2a_debug_path = output_dir / "pass2a_debug.mp4"
-            logger.info("Generating Pass 2A debug video from existing artifacts")
+            pass2_debug_path = output_dir / "pass2_debug.mp4"
+            ghosts_path = output_dir / "pass2_ghosts.json"
+            logger.info("Generating Pass 2 debug video from existing artifacts (fragments + quality + ghosts)")
             render_pass2a_debug_video_from_artifact(
                 video_path=str(video_path),
                 pass1_output_path=str(pass1_output_path),
                 pass2a_output_path=str(pass2a_output_path),
-                debug_video_path=str(pass2a_debug_path),
+                debug_video_path=str(pass2_debug_path),
                 start_frame=args.start_frame,
                 end_frame=args.end_frame,
+                pass2c_ghosts_path=str(ghosts_path) if ghosts_path.exists() else None,
             )
-            logger.info(f"Pass 2A debug video written: {pass2a_debug_path}")
+            logger.info(f"Pass 2 debug video written: {pass2_debug_path}")
             logger.info("")
 
         # TODO: Run Pass 3
