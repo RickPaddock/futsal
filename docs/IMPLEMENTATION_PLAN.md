@@ -279,23 +279,28 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 - [x] **[test_pass1.py](../test_pass1.py)** - Test script for Pass 1 ✅
 
 ### Pass 2A: Mechanical Fragmentation
-- [ ] **[src/skills/pass2a_fragmenter.py](../src/skills/pass2a_fragmenter.py)** - Track splitting
-  - [ ] Group detections by track_id
-  - [ ] Split triggers:
-    - [ ] **Track overlap collision**: Same track_id produces >1 detection in same frame → immediate split (ByteTrack failure - root cause fix)
-    - [ ] Appearance drift (HSV histogram change)
-    - [ ] Jersey inconsistency:
-      - [ ] ✅ Split: Jersey disappears (#4 → None) - track lost player
-      - [ ] ✅ Split: Jersey changes (#7 → #4) - track jumped
-      - [ ] ❌ NO split: Jersey first appearance (None → #4) - player turned around
-    - [ ] Jersey temporal exclusivity (same jersey on different tracks simultaneously)
-  - [ ] **Keep ALL fragments** (even < 10 frames)
-  - [ ] Mark short fragments as `quality = "low"`
-  - [ ] **Merge consecutive short fragments** on same track
-  - [ ] Assign fragment_id: `F{counter:06d}`
-  - [ ] Save `pass2_fragments.json`, log all splits
-  - [ ] Validate output
-  - [ ] FAIL-FAST if validation fails
+- [x] **[src/skills/pass2a_fragmenter.py](../src/skills/pass2a_fragmenter.py)** - Track splitting ✅
+  - [x] Group detections by track_id
+  - [x] Split triggers:
+    - [x] **Track overlap collision**: Same track_id produces >1 detection in same frame → immediate split (ByteTrack failure - root cause fix)
+    - [x] Appearance drift (HSV histogram change)
+    - [x] Jersey inconsistency (sampling-aware):
+      - [x] ✅ Split: Jersey disappears (#4 → None) only on sampled observations, with debounce against transient misses
+      - [x] ✅ Split: Jersey changes (#7 → #4) on sampled observations
+      - [x] ❌ NO split: Jersey first appearance (None → #4) - player turned around
+    - [x] Jersey temporal exclusivity (same jersey on different tracks simultaneously)
+  - [x] **Keep ALL fragments** (even < 10 frames)
+  - [x] Mark short fragments as `quality = "low"`
+  - [x] **Merge consecutive short fragments** on same track
+  - [x] Assign fragment_id: `F{counter:06d}`
+  - [x] Save `pass2_fragments.json`, log all splits
+  - [x] Validate output
+  - [x] FAIL-FAST if validation fails
+  - [x] Pass 2A debug video artifact output (`--video-output 2` / `2a`) using pass1+pass2 artifacts
+  - [ ] **Review and improve fragmentation quality for Pass 2A (NEW)**
+    - [ ] Audit false-positive split reasons on static players (especially jersey disappearance/temporal conflict)
+    - [ ] Tighten split gates to require corroborating motion/appearance evidence where appropriate
+    - [ ] Add regression checks/metrics for split quality so improvements are measurable per clip
 
 ### Pass 2B: Fragment Quality Scoring
 - [ ] **[src/skills/pass2b_fragment_scoring.py](../src/skills/pass2b_fragment_scoring.py)** - Quality metadata
