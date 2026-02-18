@@ -75,6 +75,11 @@ KMEANS_N_CLUSTERS = 2  # Team A vs Team B
 HSV_BINS = 8           # 8x8x8 = 512 bins for histogram
 HSV_HISTOGRAM_SIZE = HSV_BINS ** 3  # 512 bins total
 
+# Pass 3C compactness diagnostics and ambiguity guardrails.
+# Compactness is measured as mean L2 distance to cluster centroid in HSV space.
+COMPACT_CLUSTER_MAX_MEAN_DISTANCE = 0.35
+COMPACTNESS_DIFF_MIN = 0.05
+
 # Optional quality gates for Pass 3C K-means input selection.
 # Applied only when quality metadata exists on fragments.
 KMEANS_MIN_FRAGMENT_QUALITY_SCORE = 0.40

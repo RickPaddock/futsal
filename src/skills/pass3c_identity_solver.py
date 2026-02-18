@@ -17,7 +17,7 @@ Input: Pass 3B constraints, Pass 2C fragments
 Output: CommittedIdentity objects (player_id, team, jersey - all locked)
 """
 
-from typing import Dict, List, Set, Tuple, Optional
+from typing import Dict, List, Set, Tuple, Optional, Any
 import numpy as np
 from sklearn.cluster import KMeans
 from collections import defaultdict
@@ -67,7 +67,7 @@ class IdentitySolver:
         self.logger.info(f"Resolved {len(identity_groups)} identity groups from MUST_SAME constraints")
 
         # Step 2: Assign teams via K-means (exclude ghosts)
-        team_assignments = self._assign_and_lock_teams(fragments, identity_groups)
+        team_assignments, team_diagnostics = self._assign_and_lock_teams(fragments, identity_groups)
         self.logger.info(f"Assigned teams: {sum(1 for t in team_assignments.values() if t == TeamID.TEAM_A)} team_a, "
                         f"{sum(1 for t in team_assignments.values() if t == TeamID.TEAM_B)} team_b")
 
@@ -92,7 +92,10 @@ class IdentitySolver:
         self._validate_final_state(committed_identities, fragments)
         self.logger.info("Final state validation passed")
 
-        return Pass3COutput(identities=committed_identities)
+        return Pass3COutput(
+            identities=committed_identities,
+            solver_log=team_diagnostics,
+        )
 
     def _resolve_identity_groups(
         self,
@@ -145,7 +148,7 @@ class IdentitySolver:
         self,
         fragments: List[Fragment],
         identity_groups: Dict[str, Set[str]],
-    ) -> Dict[str, TeamID]:
+    ) -> Tuple[Dict[str, TeamID], Dict[str, Any]]:
         """
         Assign teams via K-means clustering (exclude ghosts).
 
@@ -153,7 +156,9 @@ class IdentitySolver:
         Teams are locked immediately via the assignment.
 
         Returns:
-            Dict mapping fragment_id -> TeamID
+            Tuple of:
+            - Dict mapping fragment_id -> TeamID
+            - Compactness diagnostics for validator/JSON audit trail
         """
         # Build fragment lookup
         frag_lookup = {f.fragment_id: f for f in fragments}
@@ -204,16 +209,49 @@ class IdentitySolver:
                 f"Not enough valid histograms for K-means ({len(valid_histograms)} < {KMEANS_N_CLUSTERS}). "
                 "All fragments will be assigned to UNKNOWN."
             )
-            return {f.fragment_id: TeamID.UNKNOWN for f in fragments}
+            return (
+                {f.fragment_id: TeamID.UNKNOWN for f in fragments},
+                {
+                    "team_assignment_mode": "kmeans",
+                    "cluster_compactness": {
+                        TeamID.TEAM_A.value: None,
+                        TeamID.TEAM_B.value: None,
+                    },
+                    "compactness_ratio": None,
+                    "kmeans_input_count": len(valid_histograms),
+                },
+            )
 
         # K-means clustering
         X = np.array(valid_histograms)
         kmeans = KMeans(n_clusters=KMEANS_N_CLUSTERS, random_state=42, n_init=10)
         labels = kmeans.fit_predict(X)
 
+        # Compute compactness as mean L2 distance to each cluster centroid.
+        cluster_compactness: Dict[int, float] = {}
+        for cluster_idx in range(KMEANS_N_CLUSTERS):
+            cluster_points = X[labels == cluster_idx]
+            if len(cluster_points) == 0:
+                cluster_compactness[cluster_idx] = float("inf")
+                continue
+
+            centroid = kmeans.cluster_centers_[cluster_idx]
+            distances = np.linalg.norm(cluster_points - centroid, axis=1)
+            cluster_compactness[cluster_idx] = float(np.mean(distances))
+
         # Map cluster labels to team IDs
         # Cluster 0 -> TEAM_A, Cluster 1 -> TEAM_B
         cluster_to_team = {0: TeamID.TEAM_A, 1: TeamID.TEAM_B}
+
+        team_compactness = {
+            TeamID.TEAM_A.value: cluster_compactness.get(0),
+            TeamID.TEAM_B.value: cluster_compactness.get(1),
+        }
+        compactness_values = [v for v in team_compactness.values() if v is not None and np.isfinite(v)]
+        if len(compactness_values) == 2 and min(compactness_values) > 0:
+            compactness_ratio = float(max(compactness_values) / min(compactness_values))
+        else:
+            compactness_ratio = None
 
         # Assign teams to fragments that participated in K-means
         assignments = {}
@@ -251,7 +289,14 @@ class IdentitySolver:
             f"{sum(1 for t in assignments.values() if t == TeamID.UNKNOWN)} UNKNOWN"
         )
 
-        return assignments
+        diagnostics = {
+            "team_assignment_mode": "kmeans",
+            "cluster_compactness": team_compactness,
+            "compactness_ratio": compactness_ratio,
+            "kmeans_input_count": len(valid_histograms),
+        }
+
+        return assignments, diagnostics
 
     def _apply_jersey_inheritance(
         self,

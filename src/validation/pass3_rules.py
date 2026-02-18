@@ -8,6 +8,7 @@ Per CLAUDE.md Section 5 (Pass 3: Identity Resolution):
 """
 
 from typing import List, Dict, Set
+import math
 from ..core.data_models import (
     IdentityCandidate,
     Constraint,
@@ -19,6 +20,7 @@ from ..core.data_models import (
     ValidationViolation,
 )
 from ..core.types import TeamID, ConstraintType
+from ..core.constants import COMPACT_CLUSTER_MAX_MEAN_DISTANCE, COMPACTNESS_DIFF_MIN
 
 
 def validate_pass3a_candidates(pass3a_output: Pass3AOutput) -> List[ValidationViolation]:
@@ -268,6 +270,125 @@ def validate_pass3c_identity_commit(
     # R3: Jersey temporal exclusivity
     from .global_rules import validate_r3_jersey_temporal_exclusivity
     violations.extend(validate_r3_jersey_temporal_exclusivity(pass3c_output.identities, fragments))
+
+    # Compactness-aware team validation (contract extension)
+    resolved_teams = {
+        identity.team.value if isinstance(identity.team, TeamID) else identity.team
+        for identity in pass3c_output.identities
+    }
+    expected_teams = {TeamID.TEAM_A.value, TeamID.TEAM_B.value}
+    if resolved_teams != expected_teams:
+        violations.append(
+            ValidationViolation(
+                rule="PASS3C_TEAM_COUNT_INVALID",
+                severity="error",
+                message=(
+                    "Pass 3C must resolve exactly 2 teams (team_a, team_b) "
+                    f"but got {sorted(list(resolved_teams))}"
+                ),
+                details={
+                    "resolved_teams": sorted(list(resolved_teams)),
+                    "expected_teams": sorted(list(expected_teams)),
+                },
+            )
+        )
+
+    solver_log = pass3c_output.solver_log or {}
+    cluster_compactness = solver_log.get("cluster_compactness")
+    compactness_ratio = solver_log.get("compactness_ratio")
+
+    if cluster_compactness is None:
+        violations.append(
+            ValidationViolation(
+                rule="PASS3C_MISSING_CLUSTER_COMPACTNESS",
+                severity="error",
+                message="Pass 3C solver_log missing required 'cluster_compactness' diagnostics",
+            )
+        )
+    if compactness_ratio is None:
+        violations.append(
+            ValidationViolation(
+                rule="PASS3C_MISSING_COMPACTNESS_RATIO",
+                severity="error",
+                message="Pass 3C solver_log missing required 'compactness_ratio' diagnostics",
+            )
+        )
+
+    compactness_a = None
+    compactness_b = None
+    if isinstance(cluster_compactness, dict):
+        compactness_a = cluster_compactness.get(TeamID.TEAM_A.value)
+        compactness_b = cluster_compactness.get(TeamID.TEAM_B.value)
+    elif cluster_compactness is not None:
+        violations.append(
+            ValidationViolation(
+                rule="PASS3C_INVALID_CLUSTER_COMPACTNESS",
+                severity="error",
+                message="Pass 3C cluster_compactness must be an object with team_a/team_b values",
+                details={"cluster_compactness_type": type(cluster_compactness).__name__},
+            )
+        )
+
+    if compactness_a is not None and (not isinstance(compactness_a, (int, float)) or not math.isfinite(compactness_a)):
+        violations.append(
+            ValidationViolation(
+                rule="PASS3C_INVALID_CLUSTER_COMPACTNESS_VALUE",
+                severity="error",
+                message="Pass 3C cluster_compactness.team_a must be a finite number",
+                details={"value": compactness_a},
+            )
+        )
+        compactness_a = None
+
+    if compactness_b is not None and (not isinstance(compactness_b, (int, float)) or not math.isfinite(compactness_b)):
+        violations.append(
+            ValidationViolation(
+                rule="PASS3C_INVALID_CLUSTER_COMPACTNESS_VALUE",
+                severity="error",
+                message="Pass 3C cluster_compactness.team_b must be a finite number",
+                details={"value": compactness_b},
+            )
+        )
+        compactness_b = None
+
+    if compactness_ratio is not None and (not isinstance(compactness_ratio, (int, float)) or not math.isfinite(compactness_ratio) or compactness_ratio <= 0):
+        violations.append(
+            ValidationViolation(
+                rule="PASS3C_INVALID_COMPACTNESS_RATIO",
+                severity="error",
+                message="Pass 3C compactness_ratio must be a finite number > 0",
+                details={"compactness_ratio": compactness_ratio},
+            )
+        )
+        compactness_ratio = None
+
+    if compactness_a is not None and compactness_b is not None:
+        is_a_compact = compactness_a <= COMPACT_CLUSTER_MAX_MEAN_DISTANCE
+        is_b_compact = compactness_b <= COMPACT_CLUSTER_MAX_MEAN_DISTANCE
+
+        # Bib-vs-random tolerant: both diffuse is allowed only if clearly separable.
+        if not (is_a_compact or is_b_compact):
+            compactness_diff = abs(compactness_a - compactness_b)
+            if compactness_diff < COMPACTNESS_DIFF_MIN:
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS3C_AMBIGUOUS_DIFFUSE_CLUSTERS",
+                        severity="error",
+                        message=(
+                            "Both clusters are diffuse and compactness difference is below threshold "
+                            "(FAIL-FAST)."
+                        ),
+                        details={
+                            "cluster_compactness": {
+                                TeamID.TEAM_A.value: compactness_a,
+                                TeamID.TEAM_B.value: compactness_b,
+                            },
+                            "compactness_diff": compactness_diff,
+                            "compactness_diff_min": COMPACTNESS_DIFF_MIN,
+                            "compact_cluster_max_mean_distance": COMPACT_CLUSTER_MAX_MEAN_DISTANCE,
+                        },
+                    )
+                )
 
     return violations
 

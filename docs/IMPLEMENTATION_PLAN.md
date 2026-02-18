@@ -146,11 +146,11 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - [x] `validate_pass3b_constraints()` - Constraint types, fragment references, MUST/SOFT validity
   - [x] `validate_pass3c_identity_commit()` - No unresolved conflicts, R2, R3, player_id format
   - [x] `validate_pass3()` - All Pass 3 checks including identity lock point
-  - [ ] **Add compactness-aware team validation (NEW)**
-    - [ ] Assert exactly 2 resolved teams after Pass 3C
-    - [ ] Assert compactness metrics exist (`cluster_compactness`, `compactness_ratio`)
-    - [ ] Assert one cluster is compact OR both clusters compact (bib-vs-random tolerant)
-    - [ ] FAIL-FAST if both clusters are diffuse and compactness difference < threshold
+  - [x] **Add compactness-aware team validation (NEW)** ✅
+    - [x] Assert exactly 2 resolved teams after Pass 3C
+    - [x] Assert compactness metrics exist (`cluster_compactness`, `compactness_ratio`)
+    - [x] Assert one cluster is compact OR both clusters compact (bib-vs-random tolerant)
+    - [x] FAIL-FAST if both clusters are diffuse and compactness difference < threshold
 
 - [x] **[src/validation/ball_rules.py](../src/validation/ball_rules.py)** - Ball validation ✅
   - [x] `validate_ball_interpolation()` - R5, gap limits, speed plausibility
