@@ -206,31 +206,123 @@ Viz      → Visualization (confirmation layer)
 - FAIL IF: jersey probabilities invalid
 - FAIL IF: duplicate track_id in same frame
 
-### Pass 2A: Mechanical Fragmentation
-**Input**: `pass1_raw.json`
+### Pass 2A: Mechanical Fragmentation (HARD CONTRACT)
+
+**Input**: `pass1_raw.json`  
 **Output**: `pass2_fragments.json`, `pass2_validation.json`
 
-**Responsibilities:**
-- Detect divergence points ONLY (no identity logic)
-- Split tracks into fragments based on:
-  - **Track overlap collision**: Same track_id produces >1 detection in same frame (ByteTrack failure) → immediate split
-  - Velocity spikes
-  - Appearance drift (HSV histogram change)
-  - Jersey inconsistency:
-    - ✅ SPLIT: Jersey disappears (#4 → None) - track lost player
-    - ✅ SPLIT: Jersey changes (#7 → #4) - track jumped
-    - ❌ NO SPLIT: Jersey first appearance (None → #4) - player turned around
-  - Jersey temporal exclusivity (same jersey on different tracks)
-  - Occlusion confidence drop
-  - Spatial crossings
-- **Keep ALL fragments** (even < 10 frames)
-- Mark short fragments as `quality = "low"`
-- **Merge consecutive short fragments** on same track
 
-**Validation (BLOCKING):**
-- FAIL IF: Fragment coverage < 100% of Pass 1 frames
-- FAIL IF: Fragment overlap detected
-- FAIL IF: Player count + ghosts > 12
+## Purpose (NON-NEGOTIABLE)
+Pass 2A exists **only** to detect points where a tracker has *provably jumped from one physical player to another*.
+
+It **must not**:
+- Infer identity
+- Infer teams
+- Penalise low visibility
+- Repair tracking errors
+
+Loss of observability ≠ identity change.
+
+---
+
+## Responsibilities (STRICT)
+- Detect **divergence points only**
+- Split a track into fragments **only when there is hard evidence of identity discontinuity**
+- Preserve *all* evidence for downstream passes
+- Never “fix” or smooth tracking artefacts
+
+---
+
+## Allowed Split Triggers (EXHAUSTIVE)
+
+A split **MUST occur** if and only if one of the following is true:
+
+1. **Track Collision (ByteTrack failure)**  
+   - Same `track_id` produces >1 detection in the same frame  
+   → **Immediate split**
+
+2. **Jersey Change (Hard Identity Proof)**  
+   - Jersey value changes from one valid number to another  
+     - Example: `#7 → #4`  
+   → **Split**
+
+3. **Jersey Temporal Exclusivity Violation**  
+   - Same jersey number visible on two different tracks in the same frame window  
+   → **Split at earliest contradiction point**
+
+4. **Hard Appearance Discontinuity (Guarded)**  
+   All conditions must hold:
+   - Jersey visible on both sides of the boundary
+   - Large HSV distance beyond threshold
+   - Incompatible motion (teleport / impossible velocity)  
+   → **Split**
+
+---
+
+## Explicit Non-Triggers (MUST NOT SPLIT)
+
+The following **must never cause a split**:
+
+- Jersey disappearance (`#4 → None`)
+- Jersey first appearance (`None → #4`)
+- Occlusion
+- Confidence drops
+- Missed detections
+- Short gaps
+- Spatial crossings without identity contradiction
+- Normal appearance drift
+- Player turning away from camera
+
+These are **loss-of-observability signals**, not identity changes.
+
+They must be recorded as fragment metadata only.
+
+---
+
+## Fragment Handling Rules
+
+- **All fragments must be kept**, regardless of length
+- Fragments < `MIN_FRAGMENT_FRAMES`:
+  - Mark as `quality = "low"`
+  - Do **not** discard
+- **Do NOT merge fragments**
+  - Even if consecutive
+  - Even if same track_id  
+  Fragment boundaries are ground truth evidence and must remain intact
+
+---
+
+## Metadata to Record per Fragment
+- `track_id`
+- `start_frame`, `end_frame`
+- `jersey_visible_ratio`
+- `occlusion_ratio`
+- `mean_velocity`
+- `appearance_stability_score`
+- `quality` (`high | low`)
+
+No identity labels allowed.
+
+---
+
+## Validation (BLOCKING — MUST FAIL PIPELINE)
+
+Pass 2A must fail if **any** of the following are true:
+
+- Fragment coverage < **100%** of Pass 1 detections
+- Any frame belongs to >1 fragment
+- Any detection belongs to no fragment
+- Fragment time ranges overlap
+- A split occurs without a logged trigger reason
+- Player detections + ghosts > 12 in any frame
+
+---
+
+## Output Guarantees
+- Fragment boundaries correspond **only** to provable identity discontinuities
+- No fragmentation caused by visibility loss
+- All downstream identity errors are traceable to real upstream evidence
+
 
 ### Pass 2B: Fragment Quality Scoring
 **Input**: `pass2_fragments.json`

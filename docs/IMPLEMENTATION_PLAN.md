@@ -302,6 +302,46 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
     - [ ] Tighten split gates to require corroborating motion/appearance evidence where appropriate
     - [ ] Add regression checks/metrics for split quality so improvements are measurable per clip
 
+#### Pass 2A Validation Contract Delta (from CLAUDE.md Section 2A) ⚠️ REQUIRED
+
+- [ ] **KEEP (already correct)**
+  - [ ] Fragment ID uniqueness
+  - [ ] `start_frame <= end_frame`
+  - [ ] No temporal overlap within the same `original_track_id`
+  - [ ] Validation is blocking (`severity="error"`)
+
+- [ ] **Fix coverage semantics: frame-based → detection-based**
+  - [ ] Replace frame coverage checks with detection ID coverage checks
+  - [ ] Validate exact set equality: Pass 1 `detection_id` set == union of Pass 2A fragment `detection_ids`
+  - [ ] FAIL if any Pass 1 `detection_id` is missing from fragments
+  - [ ] FAIL if any fragment contains unknown `detection_id` not present in Pass 1
+  - [ ] FAIL if any `detection_id` appears in more than one fragment
+
+- [ ] **Enforce split metadata for non-initial fragments**
+  - [ ] Add blocking rule: each non-initial fragment must include `split_reason`
+  - [ ] Add blocking rule: each non-initial fragment must include `split_trigger_frame`
+  - [ ] Add blocking rule: each non-initial fragment must include `split_rule_id` (e.g., `JERSEY_CHANGE`, `TRACK_COLLISION`)
+  - [ ] FAIL if split exists without logged trigger reason metadata
+
+- [ ] **Remove merge assumptions from Pass 2A validation**
+  - [ ] Do not encourage or require merging short fragments
+  - [ ] Do not validate against short-fragment count/length as an error by itself
+  - [ ] Treat short fragments as valid evidence boundaries
+
+- [ ] **Tighten extra coverage behavior to blocking**
+  - [ ] Change `PASS2A_EXTRA_COVERAGE` from warning to blocking error
+  - [ ] Exact coverage only; no fabricated fragment extent beyond Pass 1 detection evidence
+
+- [ ] **Add cross-track exclusivity validation**
+  - [ ] Add global exclusivity check: no detection/frame evidence row can belong to more than one fragment total
+  - [ ] Ensure overlap detection is not limited to same-track comparisons
+
+- [ ] **Out of scope for Pass 2A validator (must NOT be added)**
+  - [ ] Identity/team assignment checks
+  - [ ] Pass 2B quality scoring logic
+  - [ ] Pass 2C ghost logic
+  - [ ] Split-threshold policy checks (HSV/velocity tuning belongs to splitter implementation)
+
 ### Pass 2B: Fragment Quality Scoring
 - [ ] **[src/skills/pass2b_fragment_scoring.py](../src/skills/pass2b_fragment_scoring.py)** - Quality metadata
   - [ ] Compute quality scores (0-1):
