@@ -87,6 +87,14 @@ KMEANS_MIN_HSV_CONSISTENCY = 0.35
 JERSEY_NUMBERS = list(range(1, 13))  # Futsal: 1-12
 MAX_CONCURRENT_PLAYERS = 12  # Futsal regulation: 6v6
 
+# Optional jersey-to-player display labels for visualization overlays.
+# Used only by visualization layer (does NOT affect identity inference or validation).
+PLAYER_NAME_BY_JERSEY = {
+	4: "Spyros",
+	7: "Rick",
+	10: "Kiki",
+}
+
 # ============================================================================
 # GHOST PARAMETERS
 # ============================================================================

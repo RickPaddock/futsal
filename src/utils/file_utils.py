@@ -12,8 +12,25 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Optional
-from jsonschema import validate, ValidationError
+from typing import Any, Dict, Optional, Type, TypeVar, Union
+
+# Optional jsonschema support
+try:
+    from jsonschema import validate, ValidationError as JSONSchemaValidationError
+    HAS_JSONSCHEMA = True
+except ImportError:
+    HAS_JSONSCHEMA = False
+    JSONSchemaValidationError = Exception
+    validate = None
+
+# For Pydantic model support
+try:
+    from pydantic import BaseModel, ValidationError as PydanticValidationError
+except ImportError:
+    BaseModel = None
+    PydanticValidationError = Exception
+
+T = TypeVar('T')
 
 
 def save_json(
@@ -83,17 +100,19 @@ def save_json(
 
 def load_json(
     input_path: str,
-    schema: Optional[Dict[str, Any]] = None,
+    schema: Optional[Union[Dict[str, Any], Type[BaseModel]]] = None,
 ) -> Any:
     """
     Load data from JSON file with optional schema validation.
 
+    Supports both JSON Schema (dict) and Pydantic models (BaseModel subclass).
+
     Args:
         input_path: Path to input JSON file
-        schema: Optional JSON schema for validation
+        schema: Optional JSON schema (dict) or Pydantic model class for validation
 
     Returns:
-        Loaded data (dict, list, etc.)
+        Loaded data (dict, list, etc.) or Pydantic model instance if schema is a Pydantic model
 
     Raises:
         FileNotFoundError: If input file doesn't exist
@@ -104,6 +123,14 @@ def load_json(
         >>> data = load_json("/tmp/test.json")
         >>> data
         {'foo': 'bar'}
+
+        >>> # With Pydantic model
+        >>> from pydantic import BaseModel
+        >>> class MyModel(BaseModel):
+        ...     foo: str
+        >>> model = load_json("/tmp/test.json", schema=MyModel)
+        >>> model.foo
+        'bar'
     """
     input_path = str(input_path)
 
@@ -115,10 +142,22 @@ def load_json(
 
     # Validate against schema if provided
     if schema is not None:
-        try:
-            validate(instance=data, schema=schema)
-        except ValidationError as e:
-            raise ValidationError(f"JSON validation failed for {input_path}: {e.message}")
+        # Check if schema is a Pydantic model class
+        if BaseModel is not None and isinstance(schema, type) and issubclass(schema, BaseModel):
+            # Use Pydantic validation
+            try:
+                return schema.parse_obj(data)
+            except PydanticValidationError as e:
+                raise ValueError(f"Pydantic validation failed for {input_path}: {e}")
+        else:
+            # Use JSON Schema validation (if available)
+            if HAS_JSONSCHEMA:
+                try:
+                    validate(instance=data, schema=schema)
+                except JSONSchemaValidationError as e:
+                    raise ValueError(f"JSON schema validation failed for {input_path}: {e.message}")
+            else:
+                raise ValueError(f"JSON Schema validation requested but jsonschema module not installed. Install with: pip install jsonschema")
 
     return data
 

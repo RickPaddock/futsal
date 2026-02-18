@@ -12,6 +12,7 @@ from ..core.data_models import (
     Fragment,
     ScoredFragment,
     GhostFragment,
+    Pass1Output,
     Pass2AOutput,
     Pass2BOutput,
     Pass2COutput,
@@ -121,6 +122,77 @@ def validate_pass2a_fragments(pass2a_output: Pass2AOutput) -> List[ValidationVio
                         },
                     )
                 )
+
+    return violations
+
+
+def validate_pass2a_frame_coverage(
+    pass2a_output: Pass2AOutput,
+    pass1_output: Pass1Output,
+) -> List[ValidationViolation]:
+    """
+    Validate that Pass 2A fragments cover 100% of Pass 1 frames.
+
+    Per CLAUDE.md Section 5 (Pass 2A):
+    - Fragment coverage must be 100% of Pass 1 frames
+    - No gaps allowed
+    - Detections from Pass 1 must map to exactly one fragment
+
+    Args:
+        pass2a_output: Pass 2A output data
+        pass1_output: Pass 1 output data (for frame range)
+
+    Returns:
+        List of violations (empty if valid)
+    """
+    violations = []
+
+    # Build set of frames covered by Pass 1
+    pass1_frames = set()
+    for det in pass1_output.detections:
+        pass1_frames.add(det.frame_idx)
+
+    if not pass1_frames:
+        # No detections in Pass 1 - nothing to validate
+        return violations
+
+    # Build set of frames covered by fragments
+    fragment_frames = set()
+    for fragment in pass2a_output.fragments:
+        for frame_idx in range(fragment.start_frame, fragment.end_frame + 1):
+            fragment_frames.add(frame_idx)
+
+    # Check for missing frames
+    missing_frames = pass1_frames - fragment_frames
+    if missing_frames:
+        violations.append(
+            ValidationViolation(
+                rule="PASS2A_INCOMPLETE_COVERAGE",
+                severity="error",
+                message=f"Pass 2A fragments do not cover {len(missing_frames)} frames from Pass 1",
+                details={
+                    "missing_frames_count": len(missing_frames),
+                    "missing_frames_sample": sorted(list(missing_frames))[:10],
+                    "total_pass1_frames": len(pass1_frames),
+                    "coverage_pct": (len(pass1_frames) - len(missing_frames)) / len(pass1_frames) * 100,
+                },
+            )
+        )
+
+    # Check for extra frames (fragments covering frames not in Pass 1)
+    extra_frames = fragment_frames - pass1_frames
+    if extra_frames:
+        violations.append(
+            ValidationViolation(
+                rule="PASS2A_EXTRA_COVERAGE",
+                severity="warning",
+                message=f"Pass 2A fragments cover {len(extra_frames)} frames not in Pass 1 (may be OK if fragments extended)",
+                details={
+                    "extra_frames_count": len(extra_frames),
+                    "extra_frames_sample": sorted(list(extra_frames))[:10],
+                },
+            )
+        )
 
     return violations
 

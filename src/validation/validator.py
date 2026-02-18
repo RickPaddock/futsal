@@ -12,6 +12,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from ..core.data_models import (
     Pass1Output,
+    Pass2AOutput,
     Pass2COutput,
     Pass3COutput,
     BallInterpolationOutput,
@@ -58,6 +59,29 @@ class Validator:
         violations = validate_pass1(pass1_output)
 
         return self._build_result("pass1", violations)
+
+    def validate_pass2a(
+        self,
+        pass2a_output: Pass2AOutput,
+        pass1_output: Pass1Output,
+    ) -> ValidationResult:
+        """
+        Validate Pass 2A output (fragmentation only).
+
+        Args:
+            pass2a_output: Pass 2A output data
+            pass1_output: Pass 1 output (for frame coverage validation)
+
+        Returns:
+            ValidationResult with violations (if any)
+        """
+        from .pass2_rules import validate_pass2a_fragments, validate_pass2a_frame_coverage
+
+        violations = []
+        violations.extend(validate_pass2a_fragments(pass2a_output))
+        violations.extend(validate_pass2a_frame_coverage(pass2a_output, pass1_output))
+
+        return self._build_result("pass2a", violations)
 
     def validate_pass2(self, pass2c_output: Pass2COutput) -> ValidationResult:
         """

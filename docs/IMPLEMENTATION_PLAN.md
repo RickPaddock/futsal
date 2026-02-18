@@ -374,6 +374,8 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
     - [ ] Bboxes colored by player_id
     - [ ] Team colors (team_a, team_b)
     - [ ] Jersey numbers overlaid
+    - [ ] Label rule: if jersey number known, show `<number> - <name>` when mapped (e.g., 4-Spyros, 7-Rick, 10-Kiki)
+    - [ ] Label fallback: if jersey known but unmapped, show jersey number; if jersey unknown, show player_id
     - [ ] Ghosts rendered as dashed bboxes
     - [ ] Ball rendering by state:
       - [ ] `real`: solid circle
@@ -460,6 +462,7 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 - [ ] Verify visualization quality:
   - [ ] Players colored by team
   - [ ] Jersey numbers visible
+  - [ ] Name labels shown for mapped jerseys (4=Spyros, 7=Rick, 10=Kiki)
   - [ ] Ghosts shown as dashed during occlusions
   - [ ] Ball tracked throughout (solid/dashed)
   - [ ] No "unknown" grey boxes
@@ -475,6 +478,7 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 - [ ] Visualization shows:
   - [ ] Correct team colors
   - [ ] Jersey numbers
+  - [ ] Jersey-name labels for known mappings (4/7/10)
   - [ ] Ghosts during occlusions
   - [ ] Ball tracking (real + interpolated)
   - [ ] Zero "unknown" fragments

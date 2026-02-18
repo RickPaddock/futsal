@@ -109,6 +109,24 @@ def validate_pass1_detections(pass1_output: Pass1Output) -> List[ValidationViola
                     )
                 )
 
+        if detection.jersey_crop_quality is not None:
+            if not (0 <= detection.jersey_crop_quality <= 1):
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS1_JERSEY_CROP_QUALITY_RANGE",
+                        severity="error",
+                        message=(
+                            f"Detection {detection.detection_id} has jersey_crop_quality="
+                            f"{detection.jersey_crop_quality:.3f} outside [0, 1]"
+                        ),
+                        frame_idx=detection.frame_idx,
+                        details={
+                            "detection_id": detection.detection_id,
+                            "jersey_crop_quality": detection.jersey_crop_quality,
+                        },
+                    )
+                )
+
         from ..utils.hsv_color import is_histogram_valid
 
         # Jersey HSV validity contract (primary team signal)

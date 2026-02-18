@@ -51,6 +51,7 @@ class Detection(BaseModel):
     - jersey_color_sampled: Whether HSV extraction was intentionally sampled this frame.
     - jersey_roi_valid: Whether jersey ROI extraction succeeded for this detection.
     - jersey_roi_bbox: Exact ROI box used for jersey HSV extraction.
+    - jersey_crop_quality: Heuristic crop quality score in [0,1] for jersey visibility.
     - is_sam_recovered: Marker that detection came from SAM-based recovery path.
     - sam_bbox: SAM-derived bbox when recovery is used.
     """
@@ -71,6 +72,7 @@ class Detection(BaseModel):
     jersey_color_sampled: bool = False
     jersey_roi_valid: bool = False
     jersey_roi_bbox: Optional[BBox] = None
+    jersey_crop_quality: Optional[float] = None
 
     # SAM recovery markers (if detection recovered via segmentation)
     is_sam_recovered: bool = False

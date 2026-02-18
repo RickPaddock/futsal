@@ -75,6 +75,12 @@ DETECTION_SCHEMA = {
                 get_bbox_schema()
             ]
         },
+        "jersey_crop_quality": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "number", "minimum": 0, "maximum": 1}
+            ]
+        },
         "is_sam_recovered": {"type": "boolean"},
         "sam_bbox": {
             "anyOf": [

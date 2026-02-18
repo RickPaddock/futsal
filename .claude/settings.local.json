@@ -28,7 +28,8 @@
       "Bash(echo:*)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(iconv:*)"
     ]
   }
 }
