@@ -153,6 +153,13 @@ class Pass2BFragmentScorer:
         else:
             quality = FragmentQuality.LOW
 
+        # Pass 2B contract: binary fragment classification (identity-agnostic)
+        # quality tiers remain metadata only.
+        if quality == FragmentQuality.LOW or min_confidence < const.PLAYER_CONF_THRESHOLD:
+            presence_class = "occlusion_candidate"
+        else:
+            presence_class = "real"
+
         # Create ScoredFragment
         return ScoredFragment(
             # Copy Fragment fields
@@ -174,6 +181,7 @@ class Pass2BFragmentScorer:
             avg_bbox_stability=avg_bbox_stability,
             jersey_consistency=jersey_consistency,
             hsv_consistency=hsv_consistency,
+            presence_class=presence_class,
         )
 
     def _compute_avg_confidence(self, detections: List[Detection]) -> float:
@@ -362,6 +370,7 @@ class Pass2BFragmentScorer:
             quality=FragmentQuality.LOW,
             quality_score=quality_score,
             quality_reasons=reasons,
+            presence_class="occlusion_candidate",
             avg_confidence=0.0,
             min_confidence=0.0,
             avg_bbox_stability=0.0,

@@ -4,10 +4,10 @@ Pass 2 validation rules.
 Per CLAUDE.md Section 5 (Pass 2: Fragmentation, Scoring, Ghosts):
 - Pass 2A: Fragment validity (no overlaps, complete coverage)
 - Pass 2B: Quality scoring validity
-- Pass 2C: Ghost fragment validity (high water mark, max 12 concurrent)
+- Pass 2C: Ghost fragment validity (presence continuity, chain integrity)
 """
 
-from typing import List, Dict, Set, Tuple
+from typing import List, Dict, Set, Tuple, Optional
 from collections import Counter
 from ..core.data_models import (
     Fragment,
@@ -137,24 +137,31 @@ def validate_pass2a_fragments(pass2a_output: Pass2AOutput) -> List[ValidationVio
         if track_id not in track_fragments:
             track_fragments[track_id] = []
 
+        is_ghost = getattr(fragment, 'is_ghost', False)
+
         track_fragments[track_id].append((
             fragment.fragment_id,
             fragment.start_frame,
             fragment.end_frame,
+            is_ghost,
         ))
 
     # Check for temporal overlaps within same track
-    # STRICT: No overlaps allowed (fragments now split on detection gaps)
     for track_id, frags in track_fragments.items():
         # Sort by start frame
         frags = sorted(frags, key=lambda x: x[1])
 
         for i in range(len(frags) - 1):
-            frag_a_id, start_a, end_a = frags[i]
-            frag_b_id, start_b, end_b = frags[i + 1]
+            frag_a_id, start_a, end_a, is_ghost_a = frags[i]
+            frag_b_id, start_b, end_b, is_ghost_b = frags[i + 1]
 
-            # Check overlap (no exceptions - fragments and ghosts should never overlap)
+            # Check overlap
+            # ALLOW: Ghost-real overlap on same track (ghost fills detection gaps)
+            # FAIL: Real-real or ghost-ghost overlap
             if start_b <= end_a:
+                if (is_ghost_a and not is_ghost_b) or (not is_ghost_a and is_ghost_b):
+                    continue
+
                 violations.append(
                     ValidationViolation(
                         rule="PASS2A_TEMPORAL_OVERLAP",
@@ -166,6 +173,8 @@ def validate_pass2a_fragments(pass2a_output: Pass2AOutput) -> List[ValidationVio
                             "fragment_b": frag_b_id,
                             "overlap_start": start_b,
                             "overlap_end": min(end_a, end_b),
+                            "is_ghost_a": is_ghost_a,
+                            "is_ghost_b": is_ghost_b,
                         },
                     )
                 )
@@ -266,6 +275,63 @@ def validate_pass2a_frame_coverage(
             )
         )
 
+    # Explicit per-track frame-span invariant (geometry-only fragmentation contract):
+    # For each original track_id, union of fragment detection frames must equal
+    # Pass 1 detection frames for that track (no missing, no duplication).
+    det_by_id = {det.detection_id: det for det in pass1_output.detections}
+
+    pass1_track_frames: Dict[int, Set[int]] = {}
+    for det in pass1_output.detections:
+        if det.track_id not in pass1_track_frames:
+            pass1_track_frames[det.track_id] = set()
+        pass1_track_frames[det.track_id].add(det.frame_idx)
+
+    fragment_track_frame_counts: Dict[int, Dict[int, int]] = {}
+    for fragment in pass2a_output.fragments:
+        track_id = fragment.original_track_id
+        if track_id not in fragment_track_frame_counts:
+            fragment_track_frame_counts[track_id] = {}
+
+        for det_id in fragment.detection_ids:
+            det = det_by_id.get(det_id)
+            if det is None:
+                continue
+
+            frame_idx = det.frame_idx
+            fragment_track_frame_counts[track_id][frame_idx] = (
+                fragment_track_frame_counts[track_id].get(frame_idx, 0) + 1
+            )
+
+    all_track_ids = set(pass1_track_frames.keys()) | set(fragment_track_frame_counts.keys())
+    for track_id in sorted(all_track_ids):
+        expected = pass1_track_frames.get(track_id, set())
+        observed_counts = fragment_track_frame_counts.get(track_id, {})
+        observed = set(observed_counts.keys())
+
+        missing_frames = sorted(expected - observed)
+        extra_frames = sorted(observed - expected)
+        duplicated_frames = sorted([f for f, c in observed_counts.items() if c > 1])
+
+        if missing_frames or extra_frames or duplicated_frames:
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2A_TRACK_FRAME_SPAN_MISMATCH",
+                    severity="error",
+                    message=(
+                        f"Track {track_id}: fragment frame union does not match Pass 1 track frame set"
+                    ),
+                    details={
+                        "track_id": track_id,
+                        "missing_frames_count": len(missing_frames),
+                        "missing_frames_sample": missing_frames[:20],
+                        "extra_frames_count": len(extra_frames),
+                        "extra_frames_sample": extra_frames[:20],
+                        "duplicated_frames_count": len(duplicated_frames),
+                        "duplicated_frames_sample": duplicated_frames[:20],
+                    },
+                )
+            )
+
     return violations
 
 
@@ -274,9 +340,9 @@ def validate_pass2b_quality_scoring(pass2b_output: Pass2BOutput) -> List[Validat
     Validate Pass 2B quality scoring.
 
     Checks:
-    - Quality enum valid (HIGH, MEDIUM, LOW, GHOST)
-    - Quality score in [0, 1]
-    - Quality consistency metrics are valid
+    - Binary presence classification valid (real | occlusion_candidate)
+    - Exactly one classification per fragment
+    - Quality tiers/metrics are diagnostics only (non-blocking)
 
     Args:
         pass2b_output: Pass 2B output data
@@ -291,12 +357,32 @@ def validate_pass2b_quality_scoring(pass2b_output: Pass2BOutput) -> List[Validat
         if fragment.is_ghost:
             continue
 
-        # Check that quality fields exist (CRITICAL: catches when Pass 2B wasn't called)
+        # Pass 2B hard contract: binary classification only.
+        presence_class = getattr(fragment, "presence_class", None)
+        if presence_class not in {"real", "occlusion_candidate"}:
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2B_INVALID_PRESENCE_CLASS",
+                    severity="error",
+                    message=(
+                        f"Fragment {fragment.fragment_id} has invalid presence_class='{presence_class}'. "
+                        "Expected one of {'real', 'occlusion_candidate'}."
+                    ),
+                    fragment_id=fragment.fragment_id,
+                    details={
+                        "fragment_id": fragment.fragment_id,
+                        "presence_class": presence_class,
+                    },
+                )
+            )
+
+        # Quality fields are metadata only in Pass 2B (non-blocking diagnostics).
+        # Keep checks as warnings for observability.
         if not hasattr(fragment, 'quality') or fragment.quality is None:
             violations.append(
                 ValidationViolation(
                     rule="PASS2B_MISSING_QUALITY",
-                    severity="error",
+                    severity="warning",
                     message=f"Fragment {fragment.fragment_id} missing quality field (Pass 2B not called?)",
                     fragment_id=fragment.fragment_id,
                     details={"fragment_id": fragment.fragment_id},
@@ -308,7 +394,7 @@ def validate_pass2b_quality_scoring(pass2b_output: Pass2BOutput) -> List[Validat
             violations.append(
                 ValidationViolation(
                     rule="PASS2B_MISSING_SCORE",
-                    severity="error",
+                    severity="warning",
                     message=f"Fragment {fragment.fragment_id} missing quality_score field (Pass 2B not called?)",
                     fragment_id=fragment.fragment_id,
                     details={"fragment_id": fragment.fragment_id},
@@ -316,13 +402,13 @@ def validate_pass2b_quality_scoring(pass2b_output: Pass2BOutput) -> List[Validat
             )
             continue
 
-        # Check quality enum
+        # Check quality enum (diagnostic-only)
         quality_str = fragment.quality.value if isinstance(fragment.quality, FragmentQuality) else fragment.quality
         if quality_str not in ["high", "medium", "low", "ghost"]:
             violations.append(
                 ValidationViolation(
                     rule="PASS2B_INVALID_QUALITY",
-                    severity="error",
+                    severity="warning",
                     message=f"Fragment {fragment.fragment_id} has invalid quality='{quality_str}'",
                     fragment_id=fragment.fragment_id,
                     details={
@@ -337,7 +423,7 @@ def validate_pass2b_quality_scoring(pass2b_output: Pass2BOutput) -> List[Validat
             violations.append(
                 ValidationViolation(
                     rule="PASS2B_INVALID_SCORE",
-                    severity="error",
+                    severity="warning",
                     message=f"Fragment {fragment.fragment_id} quality_score={fragment.quality_score} out of range [0, 1]",
                     fragment_id=fragment.fragment_id,
                     details={
@@ -375,7 +461,10 @@ def validate_pass2b_quality_scoring(pass2b_output: Pass2BOutput) -> List[Validat
     return violations
 
 
-def validate_pass2c_ghosts(pass2c_output: Pass2COutput) -> List[ValidationViolation]:
+def validate_pass2c_ghosts(
+    pass2c_output: Pass2COutput,
+    pass1_output: Optional[Pass1Output] = None,
+) -> List[ValidationViolation]:
     """
     Validate Pass 2C ghost fragments.
 
@@ -387,7 +476,7 @@ def validate_pass2c_ghosts(pass2c_output: Pass2COutput) -> List[ValidationViolat
     - is_ghost = True
     - Ghost has parent_fragment_id (source fragment)
     - Ghost position is valid (if available)
-    - R4: Max 12 concurrent players (tracked + ghosts)
+    - Per-track lifespan continuity: exactly one of {real, ghost} at each frame
 
     Args:
         pass2c_output: Pass 2C output data
@@ -461,21 +550,260 @@ def validate_pass2c_ghosts(pass2c_output: Pass2COutput) -> List[ValidationViolat
                     )
                 )
 
-    # R4: Player continuity (max 12 concurrent) - DURATION-AWARE ENFORCEMENT
-    # Brief violations (1-2 frames) = tracker jitter → tolerate
-    # Sustained violations (3+ frames) = detector failure → FAIL HARD
-    all_fragments = pass2c_output.fragments  # Already includes real + ghosts
+    all_fragments = pass2c_output.fragments
 
-    # Find total_frames (max end_frame)
-    total_frames = max((f.end_frame for f in all_fragments), default=0) + 1
+    # Build frame-level real and ghost presence maps
+    frame_real_tracks: Dict[int, Set[int]] = {}
+    if pass1_output is not None:
+        for det in pass1_output.detections:
+            if det.frame_idx not in frame_real_tracks:
+                frame_real_tracks[det.frame_idx] = set()
+            frame_real_tracks[det.frame_idx].add(det.track_id)
 
-    from .global_rules import validate_r4_player_continuity_duration_aware
-    violations.extend(validate_r4_player_continuity_duration_aware(all_fragments, total_frames))
+    frame_ghost_tracks: Dict[int, Set[int]] = {}
+    for ghost in ghosts:
+        track_id = ghost.original_track_id
+        for frame_idx in range(ghost.start_frame, ghost.end_frame + 1):
+            if frame_idx not in frame_ghost_tracks:
+                frame_ghost_tracks[frame_idx] = set()
+            frame_ghost_tracks[frame_idx].add(track_id)
+
+    # Explicit per-identity lifespan audit (same-track only).
+    # For each original_track_id lifespan [first_real_frame, last_real_frame],
+    # require exactly one presence source at each frame: real XOR ghost.
+    real_by_track: Dict[int, List[ScoredFragment]] = {}
+    ghost_by_track: Dict[int, List[ScoredFragment]] = {}
+    for fragment in all_fragments:
+        track_id = fragment.original_track_id
+        if fragment.is_ghost:
+            if track_id not in ghost_by_track:
+                ghost_by_track[track_id] = []
+            ghost_by_track[track_id].append(fragment)
+        else:
+            if track_id not in real_by_track:
+                real_by_track[track_id] = []
+            real_by_track[track_id].append(fragment)
+
+    for track_id, real_frags in real_by_track.items():
+        lifespan_start = min(f.start_frame for f in real_frags)
+        lifespan_end = max(f.end_frame for f in real_frags)
+        ghost_frags = ghost_by_track.get(track_id, [])
+
+        real_detection_frames = set()
+        if pass1_output is not None:
+            for frame_idx, track_ids in frame_real_tracks.items():
+                if track_id in track_ids:
+                    real_detection_frames.add(frame_idx)
+
+        gap_frames: List[int] = []
+        overlap_frames: List[int] = []
+
+        for frame_idx in range(lifespan_start, lifespan_end + 1):
+            if pass1_output is not None:
+                has_real = frame_idx in real_detection_frames
+            else:
+                has_real = any(f.start_frame <= frame_idx <= f.end_frame for f in real_frags)
+            has_ghost = any(f.start_frame <= frame_idx <= f.end_frame for f in ghost_frags)
+            sources = int(has_real) + int(has_ghost)
+
+            if sources == 0:
+                gap_frames.append(frame_idx)
+            elif sources > 1:
+                overlap_frames.append(frame_idx)
+
+        if gap_frames:
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2C_TRACK_LIFESPAN_GAP",
+                    severity="error",
+                    message=(
+                        f"Track {track_id} has {len(gap_frames)} gap frames in lifespan "
+                        f"[{lifespan_start}, {lifespan_end}] with neither real nor ghost presence."
+                    ),
+                    details={
+                        "track_id": track_id,
+                        "lifespan_start": lifespan_start,
+                        "lifespan_end": lifespan_end,
+                        "gap_count": len(gap_frames),
+                        "gap_frames_sample": gap_frames[:20],
+                    },
+                )
+            )
+
+        if overlap_frames:
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2C_TRACK_LIFESPAN_OVERLAP",
+                    severity="error",
+                    message=(
+                        f"Track {track_id} has {len(overlap_frames)} frames in lifespan "
+                        f"[{lifespan_start}, {lifespan_end}] with overlapping real+ghost presence."
+                    ),
+                    details={
+                        "track_id": track_id,
+                        "lifespan_start": lifespan_start,
+                        "lifespan_end": lifespan_end,
+                        "overlap_count": len(overlap_frames),
+                        "overlap_frames_sample": overlap_frames[:20],
+                    },
+                )
+            )
+
+    # Resolve validation frame range
+    if pass1_output is not None:
+        start_frame = pass1_output.processed_start_frame
+        end_frame = (
+            pass1_output.processed_end_frame_exclusive - 1
+            if pass1_output.processed_end_frame_exclusive is not None
+            else pass1_output.total_frames - 1
+        )
+    else:
+        start_frame = min((f.start_frame for f in all_fragments), default=0)
+        end_frame = max((f.end_frame for f in all_fragments), default=-1)
+
+    # Pass 2C validation semantics (identity-agnostic):
+    # - BLOCKING: Presence completeness and chain continuity (R4 presence layer)
+    # - NON-BLOCKING: >12 concurrent presence (identity collision signal for Pass 3)
+    from ..core import constants as const
+
+    if end_frame >= start_frame:
+        init_end = min(end_frame, start_frame + const.INITIAL_LEVEL_FRAMES - 1)
+        level = 0
+        for frame_idx in range(start_frame, init_end + 1):
+            level = max(level, len(frame_real_tracks.get(frame_idx, set())))
+        level = min(level, const.DYNAMIC_LEVEL_MAX)
+
+        too_many_frames: List[Tuple[int, int]] = []
+        r4_deficit_frames: List[Tuple[int, int, int]] = []  # frame, count, level
+
+        for frame_idx in range(start_frame, end_frame + 1):
+            real_count = len(frame_real_tracks.get(frame_idx, set()))
+            level = min(max(level, real_count), const.DYNAMIC_LEVEL_MAX)
+
+            presence_tracks = frame_real_tracks.get(frame_idx, set()) | frame_ghost_tracks.get(frame_idx, set())
+            presence_count = len(presence_tracks)
+
+            if presence_count > const.DYNAMIC_LEVEL_MAX:
+                too_many_frames.append((frame_idx, presence_count))
+
+            # Blocking R4 condition in Pass 2C: any deficit is a hard failure.
+            # Overages are reported separately as identity-collision evidence.
+            if presence_count < level:
+                r4_deficit_frames.append((frame_idx, presence_count, level))
+
+        if too_many_frames:
+            max_count = max(c for _, c in too_many_frames)
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2C_PHYSICAL_MAX_EXCEEDED_DEFERRED",
+                    severity="warning",
+                    message=(
+                        f"{len(too_many_frames)} frames have >12 concurrent presence (max={max_count}). "
+                        f"This indicates unresolved identity collisions and is deferred to Pass 3 identity resolution."
+                    ),
+                    details={
+                        "violation_count": len(too_many_frames),
+                        "max_concurrent_count": max_count,
+                        "deferred_to_pass": "pass3",
+                        "sample_violations": [
+                            {"frame": f, "count": c} for f, c in too_many_frames[:20]
+                        ],
+                    },
+                )
+            )
+
+        if r4_deficit_frames:
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2C_R4_INVARIANT_VIOLATED",
+                    severity="error",
+                    message=(
+                        f"R4 presence continuity violated on {len(r4_deficit_frames)} frames: "
+                        f"tracked + ghosts < dynamic level. Per CLAUDE.md this is ZERO TOLERANCE."
+                    ),
+                    details={
+                        "violation_count": len(r4_deficit_frames),
+                        "sample_violations": [
+                            {
+                                "frame": f,
+                                "presence_count": c,
+                                "expected_level": lv,
+                                "deficit": lv - c,
+                            }
+                            for f, c, lv in r4_deficit_frames[:20]
+                        ],
+                    },
+                )
+            )
+
+    # Ghost must terminate when same-track real detection is present.
+    if pass1_output is not None:
+        for ghost in ghosts:
+            track_id = ghost.original_track_id
+            overlap_frames = [
+                frame_idx
+                for frame_idx in range(ghost.start_frame, ghost.end_frame + 1)
+                if track_id in frame_real_tracks.get(frame_idx, set())
+            ]
+
+            if overlap_frames:
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS2C_GHOST_OVERLAPS_REAL",
+                        severity="error",
+                        message=(
+                            f"Ghost {ghost.fragment_id} (track {track_id}) overlaps real detections "
+                            f"on {len(overlap_frames)} frames. Ghost must end before reappearance."
+                        ),
+                        fragment_id=ghost.fragment_id,
+                        details={
+                            "ghost_fragment": ghost.fragment_id,
+                            "track_id": track_id,
+                            "first_overlap_frame": overlap_frames[0],
+                            "last_overlap_frame": overlap_frames[-1],
+                            "overlap_count": len(overlap_frames),
+                        },
+                    )
+                )
+
+        # CLAUDE.md R4 ghost chaining: if a ghost ends before clip end,
+        # the next frame must contain either real reappearance for that track
+        # or another ghost for that track (zero-gap chaining).
+        for ghost in ghosts:
+            next_frame = ghost.end_frame + 1
+            if next_frame > end_frame:
+                continue
+
+            track_id = ghost.original_track_id
+            has_real = track_id in frame_real_tracks.get(next_frame, set())
+            has_ghost = track_id in frame_ghost_tracks.get(next_frame, set())
+
+            if not has_real and not has_ghost:
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS2C_GHOST_CHAIN_BROKEN",
+                        severity="error",
+                        message=(
+                            f"Ghost {ghost.fragment_id} (track {track_id}) ends at frame {ghost.end_frame} "
+                            f"with no real or ghost continuation at frame {next_frame}."
+                        ),
+                        fragment_id=ghost.fragment_id,
+                        details={
+                            "ghost_fragment": ghost.fragment_id,
+                            "track_id": track_id,
+                            "ghost_end_frame": ghost.end_frame,
+                            "missing_continuation_frame": next_frame,
+                        },
+                    )
+                )
 
     return violations
 
 
-def validate_pass2(pass2c_output: Pass2COutput) -> List[ValidationViolation]:
+def validate_pass2(
+    pass2c_output: Pass2COutput,
+    pass1_output: Optional[Pass1Output] = None,
+) -> List[ValidationViolation]:
     """
     Run all Pass 2 validations.
 
@@ -494,6 +822,10 @@ def validate_pass2(pass2c_output: Pass2COutput) -> List[ValidationViolation]:
     })()
     violations.extend(validate_pass2a_fragments(pass2a_mock))
 
+    # Pass 2A explicit frame-span coverage checks when Pass 1 context is available.
+    if pass1_output is not None:
+        violations.extend(validate_pass2a_frame_coverage(pass2a_mock, pass1_output))
+
     # Pass 2B checks (quality scoring)
     pass2b_mock = type('obj', (object,), {
         'fragments': pass2c_output.fragments,
@@ -502,6 +834,6 @@ def validate_pass2(pass2c_output: Pass2COutput) -> List[ValidationViolation]:
     violations.extend(validate_pass2b_quality_scoring(pass2b_mock))
 
     # Pass 2C checks (ghosts)
-    violations.extend(validate_pass2c_ghosts(pass2c_output))
+    violations.extend(validate_pass2c_ghosts(pass2c_output, pass1_output))
 
     return violations

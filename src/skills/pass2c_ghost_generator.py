@@ -25,6 +25,7 @@ from typing import List, Dict, Optional, Set, Tuple
 from pathlib import Path
 import logging
 from collections import defaultdict
+import bisect
 
 from ..core.data_models import (
     Fragment,
@@ -129,7 +130,7 @@ class Pass2CGhostGenerator:
         # Validate BEFORE writing (CRITICAL - fail-fast)
         logger.info("Pass 2C: Validating output")
         validator = Validator()
-        validation_result = validator.validate_pass2(output)
+        validation_result = validator.validate_pass2(output, pass1_output)
 
         if not validation_result.passed:
             # Write validation JSON ONLY (no ghosts JSON)
@@ -172,7 +173,8 @@ class Pass2CGhostGenerator:
         - Initialize level from first INITIAL_LEVEL_FRAMES frames
         - Dynamic level (high water mark): increases as more players enter, never decreases
         - Track players by original_track_id (NOT fragment_id)
-        - Create ghosts when tracked_count < level
+        - Do NOT resolve identity across different track_id values (Pass 3 responsibility)
+        - Create ghosts for every disappearance (same-track continuity)
         - Ghost position: HOLD last known position
         - Ghost duration: until reappearance or MAX_GAP frames
 
@@ -190,8 +192,13 @@ class Pass2CGhostGenerator:
 
         # Build detection lookup (detection_id -> Detection)
         detection_by_id = {}
+        track_detection_frames: Dict[TrackID, List[int]] = defaultdict(list)
         if pass1_output:
             detection_by_id = {det.detection_id: det for det in pass1_output.detections}
+            for det in pass1_output.detections:
+                track_detection_frames[det.track_id].append(det.frame_idx)
+            for track_id in track_detection_frames:
+                track_detection_frames[track_id].sort()
 
         # Build frame-by-frame inventory: which fragments exist at each frame
         # CRITICAL: Only count frames with actual detections (handles internal gaps)
@@ -210,11 +217,57 @@ class Pass2CGhostGenerator:
             active_fragments = frame_inventory.get(frame_idx, [])
             active_track_ids = {f.original_track_id for f in active_fragments}
 
-            # Update level (high water mark)
-            current_count = len(active_track_ids)
-            if current_count > level:
-                logger.info(f"Pass 2C: Level increased from {level} to {current_count} at frame {frame_idx}")
-                level = min(current_count, const.DYNAMIC_LEVEL_MAX)
+            # CRITICAL: Zero-gap ghost chaining (CLAUDE.md R4).
+            # If a ghost expired last frame and track has not reappeared, create
+            # a successor ghost immediately at current frame.
+            if frame_idx > start_frame:
+                expiring_ghosts = [
+                    f for f in all_fragments
+                    if f.is_ghost and f.end_frame == frame_idx - 1
+                ]
+
+                for expired in expiring_ghosts:
+                    track_id = expired.original_track_id
+
+                    # If same-track real detection exists now, chain terminates.
+                    if track_id in active_track_ids:
+                        continue
+
+                    # Already chained by another ghost at this frame.
+                    if self._find_active_ghost(all_fragments, track_id, frame_idx):
+                        continue
+
+                    # Need player state to position held ghost.
+                    if track_id not in player_states:
+                        continue
+
+                    chained_ghost = self._create_ghost_fragment(
+                        track_id,
+                        player_states[track_id],
+                        frame_idx,
+                        end_frame,
+                        real_fragments,
+                        track_detection_frames,
+                    )
+                    if chained_ghost:
+                        all_fragments.append(chained_ghost)
+
+            # Include currently active ghosts in presence count.
+            # R4 presence is tracked + ghosts, not tracked-only.
+            active_ghost_track_ids = {
+                f.original_track_id
+                for f in all_fragments
+                if f.is_ghost and f.start_frame <= frame_idx <= f.end_frame
+            }
+
+            active_presence_track_ids = active_track_ids | active_ghost_track_ids
+
+            # Update level (high water mark) from REAL detections only.
+            # Presence (real + ghosts) is used for deficit checking, not level estimation.
+            real_count = len(active_track_ids)
+            if real_count > level:
+                logger.info(f"Pass 2C: Level increased from {level} to {real_count} at frame {frame_idx}")
+                level = min(real_count, const.DYNAMIC_LEVEL_MAX)
 
             # Update player states
             for frag in active_fragments:
@@ -232,55 +285,58 @@ class Pass2CGhostGenerator:
                     "fragment_id": frag.fragment_id,
                 }
 
-            # Check if we need ghosts (NEVER exceed 12 total)
-            if current_count < level:
-                missing_count = level - current_count
+            # CRITICAL: Update last presence timestamp for active ghosts too.
+            # Ghost chaining must be based on presence continuity, not real-only detections.
+            # Without this, a track falls out of missing-player eligibility immediately
+            # after one MAX_FRAGMENT_GAP segment and chaining breaks.
+            for track_id in active_ghost_track_ids:
+                if track_id in active_track_ids:
+                    continue
 
-                # CRITICAL: Cap to never exceed 12 total players (R4 hard constraint)
-                max_allowed = const.DYNAMIC_LEVEL_MAX - current_count
-                if missing_count > max_allowed:
-                    logger.warning(
-                        f"Pass 2C: Frame {frame_idx}: Would create {missing_count} ghosts, "
-                        f"but capping at {max_allowed} to maintain max {const.DYNAMIC_LEVEL_MAX} total players"
-                    )
-                    missing_count = max_allowed
+                active_ghost = self._find_active_ghost(all_fragments, track_id, frame_idx)
+                if not active_ghost:
+                    continue
 
-                if missing_count <= 0:
-                    continue  # No ghosts needed
+                prior_state = player_states.get(track_id, {})
+                player_states[track_id] = {
+                    "last_frame": frame_idx,
+                    "last_bbox": prior_state.get("last_bbox") or active_ghost.ghost_last_known_bbox,
+                    "last_centroid": prior_state.get("last_centroid") or active_ghost.ghost_last_known_centroid,
+                    "fragment_id": prior_state.get("fragment_id") or active_ghost.parent_fragment_id,
+                }
 
-                logger.debug(f"Pass 2C: Frame {frame_idx}: {current_count}/{level} players, need {missing_count} ghosts")
+            # Create ghosts for every missing track (identity-local continuity).
+            # CRITICAL: this is independent of global count/physical cap.
+            missing_players = self._find_missing_players(
+                player_states,
+                active_presence_track_ids,
+                frame_idx,
+            )
 
-                # Find missing players (were active before, not active now)
-                missing_players = self._find_missing_players(
-                    player_states,
-                    active_track_ids,
+            for track_id in missing_players:
+                # Check if we already have a ghost for this player
+                existing_ghost = self._find_active_ghost(
+                    all_fragments,
+                    track_id,
                     frame_idx,
                 )
 
-                # Create ghosts for missing players (up to missing_count)
-                for track_id in missing_players[:missing_count]:
-                    # Check if we already have a ghost for this player
-                    existing_ghost = self._find_active_ghost(
-                        all_fragments,
+                if existing_ghost:
+                    # Ghost already exists - extend it
+                    if frame_idx > existing_ghost.end_frame:
+                        existing_ghost.end_frame = frame_idx
+                else:
+                    # Create new ghost
+                    ghost = self._create_ghost_fragment(
                         track_id,
+                        player_states[track_id],
                         frame_idx,
+                        end_frame,
+                        real_fragments,
+                        track_detection_frames,
                     )
-
-                    if existing_ghost:
-                        # Ghost already exists - extend it
-                        if frame_idx > existing_ghost.end_frame:
-                            existing_ghost.end_frame = frame_idx
-                    else:
-                        # Create new ghost
-                        ghost = self._create_ghost_fragment(
-                            track_id,
-                            player_states[track_id],
-                            frame_idx,
-                            end_frame,
-                            real_fragments,
-                        )
-                        if ghost:
-                            all_fragments.append(ghost)
+                    if ghost:
+                        all_fragments.append(ghost)
 
         return all_fragments
 
@@ -388,9 +444,9 @@ class Pass2CGhostGenerator:
             if track_id in active_track_ids:
                 continue
 
-            # Check if recently active (within MAX_GAP)
+            # Check if previously active (no MAX_GAP suppression).
             gap = current_frame - state["last_frame"]
-            if gap > 0 and gap <= const.MAX_FRAGMENT_GAP:
+            if gap > 0:
                 missing.append((track_id, state["last_frame"]))
 
         # Sort by last_frame (most recent first)
@@ -432,6 +488,7 @@ class Pass2CGhostGenerator:
         current_frame: int,
         end_frame: int,
         real_fragments: List[Fragment],
+        track_detection_frames: Optional[Dict[TrackID, List[int]]] = None,
     ) -> Optional[Fragment]:
         """
         Create a ghost fragment for a missing player.
@@ -457,6 +514,7 @@ class Pass2CGhostGenerator:
             current_frame,
             end_frame,
             real_fragments,
+            track_detection_frames,
         )
 
         # Determine ghost duration
@@ -464,7 +522,7 @@ class Pass2CGhostGenerator:
             ghost_end = reappearance_frame - 1  # Ghost ends just before reappearance
         else:
             # No reappearance - ghost continues for MAX_GAP or until end of clip
-            gap_limit = current_frame + const.MAX_FRAGMENT_GAP
+            gap_limit = current_frame + const.MAX_FRAGMENT_GAP - 1
             ghost_end = min(gap_limit, end_frame)
 
         # Don't create ghost if duration is too short
@@ -521,6 +579,7 @@ class Pass2CGhostGenerator:
         start_frame: int,
         end_frame: int,
         real_fragments: List[Fragment],
+        track_detection_frames: Optional[Dict[TrackID, List[int]]] = None,
     ) -> Optional[int]:
         """
         Find when a player reappears (if at all).
@@ -534,6 +593,16 @@ class Pass2CGhostGenerator:
         Returns:
             Frame index where player reappears, or None
         """
+        # Primary: Pass 1 detection frames (source-of-truth for reappearance)
+        if track_detection_frames is not None:
+            frames = track_detection_frames.get(track_id, [])
+            idx = bisect.bisect_right(frames, start_frame)
+            if idx < len(frames):
+                candidate = frames[idx]
+                if candidate <= end_frame:
+                    return candidate
+
+        # Fallback: fragment-boundary heuristic
         for frag in real_fragments:
             if frag.original_track_id != track_id:
                 continue

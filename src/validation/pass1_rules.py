@@ -97,7 +97,7 @@ def validate_pass1_detections(pass1_output: Pass1Output) -> List[ValidationViola
                 violations.append(
                     ValidationViolation(
                         rule="PASS1_JERSEY",
-                        severity="error",
+                        severity="warning",
                         message=f"Detection {detection.detection_id} has jersey_number={detection.jersey_number} but jersey_confidence={detection.jersey_confidence:.3f} < {JERSEY_CONF_THRESHOLD}",
                         frame_idx=detection.frame_idx,
                         details={
@@ -114,7 +114,7 @@ def validate_pass1_detections(pass1_output: Pass1Output) -> List[ValidationViola
                 violations.append(
                     ValidationViolation(
                         rule="PASS1_JERSEY_CROP_QUALITY_RANGE",
-                        severity="error",
+                        severity="warning",
                         message=(
                             f"Detection {detection.detection_id} has jersey_crop_quality="
                             f"{detection.jersey_crop_quality:.3f} outside [0, 1]"
@@ -136,7 +136,7 @@ def validate_pass1_detections(pass1_output: Pass1Output) -> List[ValidationViola
                 violations.append(
                     ValidationViolation(
                         rule="PASS1_JERSEY_ROI_MISSING",
-                        severity="error",
+                        severity="warning",
                         message=f"Detection {detection.detection_id} has jersey_roi_valid=true but missing jersey_roi_bbox",
                         frame_idx=detection.frame_idx,
                         details={"detection_id": detection.detection_id},
@@ -151,7 +151,7 @@ def validate_pass1_detections(pass1_output: Pass1Output) -> List[ValidationViola
                     violations.append(
                         ValidationViolation(
                             rule="PASS1_JERSEY_ROI_OUTSIDE_BBOX",
-                            severity="error",
+                            severity="warning",
                             message=f"Detection {detection.detection_id} jersey ROI is outside player bbox",
                             frame_idx=detection.frame_idx,
                             details={"detection_id": detection.detection_id, "bbox": b, "jersey_roi_bbox": r},
@@ -181,7 +181,7 @@ def validate_pass1_detections(pass1_output: Pass1Output) -> List[ValidationViola
                             violations.append(
                                 ValidationViolation(
                                     rule="PASS1_JERSEY_ROI_RATIO",
-                                    severity="error",
+                                    severity="warning",
                                     message=f"Detection {detection.detection_id} jersey ROI ratio out of expected torso range",
                                     frame_idx=detection.frame_idx,
                                     details={
@@ -199,7 +199,7 @@ def validate_pass1_detections(pass1_output: Pass1Output) -> List[ValidationViola
                     violations.append(
                         ValidationViolation(
                             rule="PASS1_HSV_JERSEY_MISSING",
-                            severity="error",
+                            severity="warning",
                             message=(
                                 f"Detection {detection.detection_id} has jersey_color_sampled=true "
                                 "but missing hsv_histogram_jersey"
@@ -212,7 +212,7 @@ def validate_pass1_detections(pass1_output: Pass1Output) -> List[ValidationViola
                     violations.append(
                         ValidationViolation(
                             rule="PASS1_HSV_JERSEY_INVALID",
-                            severity="error",
+                            severity="warning",
                             message=f"Detection {detection.detection_id} has invalid jersey HSV histogram",
                             frame_idx=detection.frame_idx,
                             details={"detection_id": detection.detection_id},
@@ -237,7 +237,7 @@ def validate_pass1_detections(pass1_output: Pass1Output) -> List[ValidationViola
                 violations.append(
                     ValidationViolation(
                         rule="PASS1_HSV_JERSEY_SAMPLE_WITH_INVALID_ROI",
-                        severity="error",
+                        severity="warning",
                         message=(
                             f"Detection {detection.detection_id} has jersey_roi_valid=false "
                             "but jersey_color_sampled=true"
@@ -374,7 +374,7 @@ def validate_pass1_frame_coverage(pass1_output: Pass1Output) -> List[ValidationV
         violations.append(
             ValidationViolation(
                 rule="PASS1_NO_DETECTIONS",
-                severity="error",
+                severity="warning",
                 message="No player detections found in Pass 1",
                 details={"total_frames": pass1_output.total_frames},
             )

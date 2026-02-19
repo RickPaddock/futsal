@@ -21,6 +21,7 @@ from ..core.data_models import (
 )
 from ..core.types import TeamID, ConstraintType
 from ..core.constants import COMPACT_CLUSTER_MAX_MEAN_DISTANCE, COMPACTNESS_DIFF_MIN
+from ..core import constants as const
 
 
 def validate_pass3a_candidates(pass3a_output: Pass3AOutput) -> List[ValidationViolation]:
@@ -389,6 +390,135 @@ def validate_pass3c_identity_commit(
                         },
                     )
                 )
+
+    # Pass 3 global reality validations (first stage allowed to enforce physical reality).
+    frag_lookup = {f.fragment_id: f for f in fragments}
+    identity_by_fragment = {i.fragment_id: i for i in pass3c_output.identities}
+
+    frame_player_sources: Dict[int, Dict[str, List[Dict[str, object]]]] = {}
+
+    for fragment_id, identity in identity_by_fragment.items():
+        fragment = frag_lookup.get(fragment_id)
+        if fragment is None:
+            continue
+
+        player_id = identity.player_id
+        is_ghost = bool(getattr(fragment, "is_ghost", False))
+
+        for frame_idx in range(fragment.start_frame, fragment.end_frame + 1):
+            if frame_idx not in frame_player_sources:
+                frame_player_sources[frame_idx] = {}
+            if player_id not in frame_player_sources[frame_idx]:
+                frame_player_sources[frame_idx][player_id] = []
+
+            frame_player_sources[frame_idx][player_id].append(
+                {
+                    "fragment_id": fragment_id,
+                    "is_ghost": is_ghost,
+                }
+            )
+
+    if frame_player_sources:
+        start_frame = min(frame_player_sources.keys())
+        end_frame = max(frame_player_sources.keys())
+
+        init_end = min(end_frame, start_frame + const.INITIAL_LEVEL_FRAMES - 1)
+        level = 0
+        for frame_idx in range(start_frame, init_end + 1):
+            level = max(level, len(frame_player_sources.get(frame_idx, {})))
+        level = min(level, const.DYNAMIC_LEVEL_MAX)
+
+        over_cap_frames: List[Dict[str, int]] = []
+        deficit_frames: List[Dict[str, int]] = []
+
+        for frame_idx in range(start_frame, end_frame + 1):
+            player_sources = frame_player_sources.get(frame_idx, {})
+            frame_count = len(player_sources)
+
+            # Physical cap: <= 12 identities per frame.
+            if frame_count > const.DYNAMIC_LEVEL_MAX:
+                over_cap_frames.append({"frame": frame_idx, "count": frame_count})
+
+            level = min(max(level, frame_count), const.DYNAMIC_LEVEL_MAX)
+
+            # Global R4 after reconciliation: exactly level identities per frame.
+            if frame_count != level:
+                deficit_frames.append({
+                    "frame": frame_idx,
+                    "count": frame_count,
+                    "expected_level": level,
+                })
+
+            # No identity splits / duplicate same-player presences at same frame.
+            for player_id, sources in player_sources.items():
+                if len(sources) > 1:
+                    violations.append(
+                        ValidationViolation(
+                            rule="PASS3C_PLAYER_OVERLAP_SAME_FRAME",
+                            severity="error",
+                            message=(
+                                f"Frame {frame_idx}: player {player_id} has overlapping presences "
+                                f"across {len(sources)} fragments"
+                            ),
+                            frame_idx=frame_idx,
+                            details={
+                                "frame": frame_idx,
+                                "player_id": player_id,
+                                "sources": sources,
+                            },
+                        )
+                    )
+
+                # Ghost retirement: matched real and ghost cannot overlap.
+                has_real = any(not bool(s["is_ghost"]) for s in sources)
+                has_ghost = any(bool(s["is_ghost"]) for s in sources)
+                if has_real and has_ghost:
+                    violations.append(
+                        ValidationViolation(
+                            rule="PASS3C_GHOST_NOT_RETIRED",
+                            severity="error",
+                            message=(
+                                f"Frame {frame_idx}: player {player_id} has both real and ghost presence. "
+                                "Ghost must retire once matched to real."
+                            ),
+                            frame_idx=frame_idx,
+                            details={
+                                "frame": frame_idx,
+                                "player_id": player_id,
+                                "sources": sources,
+                            },
+                        )
+                    )
+
+        if over_cap_frames:
+            violations.append(
+                ValidationViolation(
+                    rule="PASS3C_PHYSICAL_CAP_EXCEEDED",
+                    severity="error",
+                    message=(
+                        f"{len(over_cap_frames)} frames exceed physical cap of {const.DYNAMIC_LEVEL_MAX} identities."
+                    ),
+                    details={
+                        "violation_count": len(over_cap_frames),
+                        "sample_violations": over_cap_frames[:20],
+                    },
+                )
+            )
+
+        if deficit_frames:
+            violations.append(
+                ValidationViolation(
+                    rule="PASS3C_R4_GLOBAL_MISMATCH",
+                    severity="error",
+                    message=(
+                        f"Global R4 mismatch on {len(deficit_frames)} frames: reconciled identities != dynamic level."
+                    ),
+                    details={
+                        "violation_count": len(deficit_frames),
+                        "sample_violations": deficit_frames[:20],
+                    },
+                )
+            )
 
     return violations
 

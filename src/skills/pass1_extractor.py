@@ -575,6 +575,26 @@ class Pass1Extractor:
         """
         tracked_dets = self.player_detector.detect_and_track(frame, PLAYER_CONF_THRESHOLD)
 
+        # Pass 1 physical plausibility filter (observation layer):
+        # A futsal frame cannot physically contain >12 players.
+        # Keep best-12 detections and log saturation explicitly.
+        MAX_CONCURRENT_PLAYERS = 12
+        if len(tracked_dets) > MAX_CONCURRENT_PLAYERS:
+            ranked = sorted(
+                tracked_dets,
+                key=lambda entry: (
+                    entry[1],
+                    -((entry[0][2] - entry[0][0]) * (entry[0][3] - entry[0][1])),
+                ),
+                reverse=True,
+            )
+            dropped = len(tracked_dets) - MAX_CONCURRENT_PLAYERS
+            logger.warning(
+                f"Frame {frame_idx}: physical saturation ({len(tracked_dets)} player detections > {MAX_CONCURRENT_PLAYERS}). "
+                f"Keeping best {MAX_CONCURRENT_PLAYERS}, dropping {dropped}."
+            )
+            tracked_dets = ranked[:MAX_CONCURRENT_PLAYERS]
+
         # NOTE: Fisheye correction is applied ONLY to jersey ROI (in _get_jersey_roi_bbox),
         # NOT to the main player bbox. Player bbox stays as-is from YOLO.
 

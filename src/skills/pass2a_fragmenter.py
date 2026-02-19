@@ -424,32 +424,6 @@ class Pass2AFragmenter:
         split_points = []
 
         # ============================================================================
-        # TRIGGER 0: Detection Gap (Fragment Temporal Consistency)
-        # Fragments must not have internal gaps - split on detection gaps > threshold
-        # This ensures fragment start/end ranges match actual occupancy (no hollow fragments)
-        # ============================================================================
-        GAP_SPLIT_THRESHOLD = 5  # Split if gap > 5 frames
-
-        for i in range(1, len(detections)):
-            prev_det = detections[i - 1]
-            curr_det = detections[i]
-
-            frame_gap = curr_det.frame_idx - prev_det.frame_idx - 1  # Actual gap size
-
-            if frame_gap > GAP_SPLIT_THRESHOLD:
-                split_points.append((curr_det.frame_idx, "detection_gap"))
-                self.split_log.append({
-                    "track_id": track_id,
-                    "frame_idx": curr_det.frame_idx,
-                    "reason": "detection_gap",
-                    "details": (
-                        f"Detection gap of {frame_gap} frames "
-                        f"(frames {prev_det.frame_idx + 1}-{curr_det.frame_idx - 1}). "
-                        f"Split to maintain fragment temporal consistency."
-                    ),
-                })
-
-        # ============================================================================
         # TRIGGER 1: Track Collision (ByteTrack failure)
         # Same track_id produces >1 detection in same frame
         # ============================================================================
@@ -659,7 +633,6 @@ class Pass2AFragmenter:
             "jersey_temporal_conflict": "JERSEY_TEMPORAL_CONFLICT",
             "hard_appearance_discontinuity": "HARD_APPEARANCE_DISCONTINUITY",
             "merged_short_fragments": "MERGE_SHORT_FRAGMENTS",
-            "detection_gap": "DETECTION_GAP",
         }
 
         non_initial = split_reason != "initial"

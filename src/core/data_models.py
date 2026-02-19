@@ -217,6 +217,10 @@ class ScoredFragment(Fragment):
     ghost_last_known_centroid: Optional[Centroid] = None
     ghost_reason: Optional[str] = None
 
+    # Pass 2B binary presence classification (identity-agnostic)
+    # Allowed values: "real" | "occlusion_candidate"
+    presence_class: str = "real"
+
 
 class Pass2BOutput(BaseModel):
     """

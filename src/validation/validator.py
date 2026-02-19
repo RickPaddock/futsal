@@ -100,19 +100,20 @@ class Validator:
 
         return self._build_result("pass2b", violations)
 
-    def validate_pass2(self, pass2c_output: Pass2COutput) -> ValidationResult:
+    def validate_pass2(self, pass2c_output: Pass2COutput, pass1_output: Pass1Output = None) -> ValidationResult:
         """
         Validate Pass 2 output (2A/2B/2C combined).
 
         Args:
             pass2c_output: Pass 2C output data
+            pass1_output: Pass 1 output data (optional, required for new R4 zero-tolerance rules)
 
         Returns:
             ValidationResult with violations (if any)
         """
         from .pass2_rules import validate_pass2
 
-        violations = validate_pass2(pass2c_output)
+        violations = validate_pass2(pass2c_output, pass1_output)
 
         return self._build_result("pass2", violations)
 
@@ -255,7 +256,7 @@ class Validator:
             results["pass1"] = self.validate_pass1(pass1_output)
 
         if pass2c_output:
-            results["pass2"] = self.validate_pass2(pass2c_output)
+            results["pass2"] = self.validate_pass2(pass2c_output, pass1_output)
 
         if pass3c_output and fragments:
             results["pass3"] = self.validate_pass3(pass3c_output, fragments)

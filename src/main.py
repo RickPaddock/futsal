@@ -27,7 +27,7 @@ from .core.data_models import Pass1Output
 
 logger = get_logger("main")
 
-ALLOWED_VIDEO_OUTPUT_PASSES = {"1", "2", "3", "3a", "3b", "3c", "ball", "viz"}
+ALLOWED_VIDEO_OUTPUT_PASSES = {"1", "2", "3", "ball", "viz"}
 IMPLEMENTED_VIDEO_OUTPUT_PASSES = {"1", "2"}
 
 
@@ -36,9 +36,7 @@ def _parse_video_output_option(value: str) -> Set[str]:
     Parse --video-output option into normalized pass keys.
 
     Accepts comma-separated values such as: "1,2,3".
-    Aliases:
-        2 -> unified Pass 2 (fragments + quality + ghosts)
-        3 -> 3c (identity commit)
+    Pass 2 = unified video (fragments + quality + ghosts)
     """
     if not value:
         return set()
@@ -47,19 +45,11 @@ def _parse_video_output_option(value: str) -> Set[str]:
     tokens = [token.strip().lower() for token in value.split(",") if token.strip()]
 
     for token in tokens:
-        if token == "2":
-            normalized.add("2a")
-            continue
-        if token == "3":
-            normalized.add("3c")
-            continue
-
         if token not in ALLOWED_VIDEO_OUTPUT_PASSES:
             allowed = ", ".join(sorted(ALLOWED_VIDEO_OUTPUT_PASSES))
             raise argparse.ArgumentTypeError(
                 f"Invalid --video-output value '{token}'. Allowed values: {allowed}"
             )
-
         normalized.add(token)
 
     return normalized
@@ -171,8 +161,8 @@ Examples:
     logger.info(f"Output directory: {output_dir}")
     logger.info(f"Processing frames: {args.start_frame} to {args.end_frame or 'end'}")
     if args.video_output:
-        requested_video_outputs = ", ".join(sorted(args.video_output))
-        logger.info(f"Debug video outputs requested for passes: {requested_video_outputs}")
+        passes = ", ".join(sorted(args.video_output))
+        logger.info(f"Debug video outputs requested: Pass {passes}")
     else:
         logger.info("Debug video outputs requested: none")
 
@@ -301,7 +291,7 @@ Examples:
             logger.info(f"   Ghosts created: {ghost_count}")
             logger.info(f"   Output: {output_dir / 'pass2_ghosts.json'}")
 
-            if "2a" in args.video_output:
+            if "2" in args.video_output:
                 pass2_debug_path = output_dir / "pass2_debug.mp4"
                 logger.info("   Rendering Pass 2 debug video (fragments + quality + ghosts)...")
                 # Check if ghosts JSON exists (from Pass 2C)

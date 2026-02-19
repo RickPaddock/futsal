@@ -29,7 +29,11 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(curl:*)",
-      "Bash(iconv:*)"
+      "Bash(iconv:*)",
+      "Bash(venv/Scripts/python.exe:*)",
+      "Bash(./venv/Scripts/python.exe:*)",
+      "Bash(.venv/Scripts/python.exe -m src.main:*)",
+      "Bash(.venv/Scripts/python.exe:*)"
     ]
   }
 }

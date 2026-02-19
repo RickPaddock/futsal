@@ -43,6 +43,37 @@ These apply to all code, all changes, all future modifications.
 
 ---
 
+## 0.5 Mandatory Pre-Change Gate (REQUIRED)
+
+Before making ANY code or contract change, the following questions MUST be answered
+in the terminal or PR description. If any answer is unclear, the change must not proceed.
+
+1. **Is this change fixing the issue at its source, or papering over a downstream symptom?**
+   - If downstream: STOP. Re-evaluate.
+
+2. **Which entities are involved in this change?**
+   - Explicitly list which of the following are touched:
+     players, tracks, fragments, ghosts, frames, splits
+   - State the layer for each (identity vs presence).
+
+3. **Which invariant(s) does this change affect?**
+   - Must reference invariant IDs (e.g. R4).
+   - State whether enforcement is strengthened, weakened, or unchanged.
+
+4. **If this change is wrong, how does it fail?**
+   - Loud (validation error)
+   - Silent but bounded
+   - Silent and propagating (NOT ACCEPTABLE)
+
+5. **What prevents this same class of bug from reappearing?**
+   - New validation rule
+   - Tightened contract language
+   - Explicit non-goal documented
+
+**This is process, not documentation. Any change that bypasses this gate is invalid.**
+
+---
+
 ## 1. DIRECTORY & FILE SYSTEM CONTRACT (MANDATORY)
 
 ### Input
@@ -137,20 +168,51 @@ These identifiers MUST exist and NEVER be confused.
 - **Jersey change triggers split**: If jersey changes (#7 → #4), track jumped to different player → SPLIT
 - **Jersey first appearance does NOT trigger split**: If jersey appears (None → #4), player turned around → NO SPLIT
 
-### R4 — Players Never Disappear
-- **Missing detections → ghost fragments created**
-- **Dynamic level (high water mark)**: Level only increases as more players enter, never decreases
-- **Target level**: High water mark up to 12 (futsal regulation max)
-  - Partial clips: May start with fewer players (e.g., 8 visible)
-  - Off-screen starts: Level increases as players enter (10 → 11 → 12)
-  - No substitutions in futsal: Once a player enters, they don't leave (except briefly off-screen)
-- **Ghosts maintain identity continuity, NOT team symmetry**:
-  - Ghosts fill gaps to maintain player count at high-water mark
-  - Team balance (6v6) is enforced AFTER Pass 3C team assignment, NOT during ghost creation
-- **Track players by `original_track_id`** (NOT `fragment_id`):
-  - Fragment splits don't create disappearances
-  - Track jumps create new fragments but same player
-- **Max 12 concurrent players** (HARD rule - futsal regulation)
+### R4 — Players Never Disappear (ZERO TOLERANCE)
+
+**HARD INVARIANT (Pass 2C Presence Layer)**: At every frame: `tracked_count + ghost_count >= level`
+
+`level` is the dynamic high-water mark. Any deficit (`< level`) is a hard failure.
+Overages (`> level`) are treated as unresolved identity collisions and are reconciled in Pass 3.
+
+**Rules**:
+1. **Dynamic Level (High Water Mark)**:
+   - Initialize from first 10 frames
+   - Increase when more players enter (10 → 11 → 12)
+   - NEVER decrease (even if players go off-screen)
+   - Cap at 12 (futsal regulation)
+
+2. **Ghost Creation (Presence Layer)**:
+   - Create ghosts when `real_count < level`
+   - Track players by `original_track_id` (NOT `fragment_id`)
+   - Fragment splits do NOT trigger ghost creation (identity ≠ presence)
+   - Ghost position: HOLD last known position (no interpolation)
+
+3. **Ghost Chaining (CRITICAL - Zero Tolerance)**:
+   - When ghost expires (60 frames), check if player reappeared
+   - If NOT reappeared: Create new ghost IMMEDIATELY (chain)
+   - Chains continue INDEFINITELY until player reappears OR clip ends
+   - Gap > 60 frames means "keep chaining", NOT "give up"
+   - **ZERO TOLERANCE**: Even 1 frame with count < level is a HARD FAILURE
+
+4. **Validation Enforcement**:
+  - FAIL if ANY frame has `tracked_count + ghost_count < level`
+   - FAIL if ghost expires without reappearance AND no chain created
+   - FAIL if presence gap exists (even 1 frame)
+  - If ANY frame has `tracked_count + ghost_count > 12`: record as identity-collision signal for Pass 3
+    (non-blocking in Pass 2C, blocking after Pass 3 identity resolution)
+   - No tolerance, no exceptions (except clip boundaries)
+
+**Rationale**:
+- Futsal has no substitutions (players enter, never leave)
+- Off-screen players return (brief edges, not permanent exits)
+- Maintaining count invariant enables downstream identity reasoning
+- Presence gaps indicate broken ghost chaining, not "acceptable loss"
+
+**Examples**:
+- Partial clip: Starts with 8 players → level = 8, maintains 8 throughout
+- Players entering: Frame 0-100 level = 10, frame 101+ level = 11 (new player), maintains 11
+- Long occlusion: Player missing 200 frames → 3-4 chained ghosts, zero gaps
 
 ### R5 — Ball State Exists at Every Frame
 - **HARD rule**: Ball state exists at every frame
@@ -160,6 +222,63 @@ These identifiers MUST exist and NEVER be confused.
   - **`out_of_play`**: Gap > 30 frames, ball not on court (no position)
 - **Validator checks**: Presence of ball state, NOT presence of ball position
 - **Out-of-play frames**: Ball may have no position, but MUST have state = `out_of_play`
+
+### 3.5 Fragment vs Ghost Contract (Identity vs Presence Layers)
+
+**CRITICAL DISTINCTION**: Fragments and ghosts serve different purposes and MUST NOT be conflated.
+
+#### Fragment Contract (Identity Layer)
+**Purpose**: Represent identity continuity across detection gaps.
+
+**Rules**:
+- Fragments span detection gaps caused by:
+  - Occlusion (player temporarily hidden)
+  - Low confidence (detector missed player)
+  - Brief off-screen (player exits frame edge)
+- Per Pass 2A: "No fragmentation caused by visibility loss" (line 323)
+- Fragments maintain identity through gaps (track_id preserved)
+- A fragment can have ZERO detections in some frames (gap), but OWNS those frames for identity purposes
+
+**Example**: Fragment F000001 spans frames 10-50. Pass 1 detections exist at frames 10-15, 25-30, 40-50. Frames 16-24 and 31-39 have NO detections but fragment OWNS them (identity layer). Ghosts fill presence gaps at frames 16-24, 31-39 (presence layer).
+
+**CRITICAL**: Fragments may span frames with no detections, but do NOT imply player presence; presence is satisfied exclusively by real detections or ghosts.
+
+#### Ghost Contract (Presence Layer)
+**Purpose**: Maintain R4 presence completeness (tracked + ghosts >= level at EVERY frame).
+
+**Rules**:
+- Ghosts created when `real_count < level` (NOT when fragments end)
+- Ghosts track players by `original_track_id` (NOT by `fragment_id`)
+- Pass 2C does NOT resolve identity across different `track_id` values
+- **Ghost Chaining (CRITICAL)**:
+  - When a ghost expires, check if player reappeared
+  - If player NOT reappeared: create new ghost immediately (chain)
+  - Chains continue indefinitely until player reappears OR clip ends
+  - Gap > 60 frames does NOT mean "give up" - it means "keep chaining"
+- Ghost position: HOLD last known position (no interpolation)
+- Ghost metadata: Preserves team, jersey from source fragment
+
+**Layering Guardrail (MANDATORY):**
+- Pass 2C MUST NOT terminate ghosts based on spatial similarity to a different track
+- Pass 2C MUST NOT merge track IDs
+- Pass 2C MUST NOT suppress or kill ghosts due to global player count
+- Cross-track reconciliation belongs ONLY to Pass 3
+
+**Ghost Chaining Example**:
+- Frame 88: Player T12 last detected
+- Frames 89-148: Ghost G000003 active (60 frames)
+- Frame 149: Ghost expires, check for reappearance
+- Player NOT reappeared → Create Ghost G000004 (chain)
+- Frames 149-208: Ghost G000004 active (60 frames)
+- Frame 209: Ghost expires, check for reappearance
+- Player STILL not reappeared → Create Ghost G000005 (chain)
+- ... chains continue until player reappears at frame 300 or clip ends
+
+**Why Separate**:
+- Fragment gaps (identity) ≠ presence gaps (player count)
+- Fragment splits when identity changes, NOT when visibility lost
+- Ghosts maintain count invariant, NOT identity tracking
+- Allows fragment to own time range while ghost fills detection gap
 
 ---
 
@@ -198,13 +317,18 @@ Viz      → Visualization (confirmation layer)
 - YOLO jersey classification (probabilities only, conf ≥ 0.3)
 - HSV histogram extraction (8x8x8 = 512 bins)
 - YOLO ball detection
+- Physical plausibility filter: cap player detections to 12 per frame (keep best-12, log warning)
 - **NO teams, NO identity, NO merges/splits beyond pathological filters**
 
 **Validation (BLOCKING):**
 - FAIL IF: bbox out of frame
 - FAIL IF: bbox > 25% frame area (huge bbox defense)
-- FAIL IF: jersey probabilities invalid
+- FAIL IF: mandatory fields missing or structurally invalid
 - FAIL IF: duplicate track_id in same frame
+
+**Validation (DIAGNOSTIC / NON-BLOCKING):**
+- WARN IF: detector/classifier quality inconsistencies (jersey ROI quality, HSV consistency, low confidence)
+- WARN IF: tracker churn diagnostics (short-lived tracks, noisy continuity)
 
 ### Pass 2A: Mechanical Fragmentation (HARD CONTRACT)
 
@@ -330,12 +454,13 @@ Pass 2A must fail if **any** of the following are true:
 
 **Responsibilities:**
 - Compute metadata ONLY (no identity assignment)
+- Binary classification ONLY: `real` or `occlusion_candidate`
 - Fragment scores:
   - Appearance stability
   - Jersey observability
   - Motion smoothness
   - Occlusion ratio
-- Assign quality: HIGH, MEDIUM, LOW (GHOST assigned in Pass 2C)
+- Quality tiers (HIGH/MEDIUM/LOW) are metadata only and non-binding
 
 ### Pass 2C: Ghost Generation
 **Input**: `pass2_fragments.json`, `pass1_raw.json`
@@ -350,13 +475,21 @@ Pass 2A must fail if **any** of the following are true:
 - **Track players by `original_track_id`** (NOT `fragment_id`)
 - Create ghosts when `tracked_count < level`
 - **Ghost position**: HOLD last known position (no interpolation)
-- **Ghost duration**: Until reappearance or MAX_GAP (60 frames)
+- **Ghost duration**: 60 frames per ghost, then chain if player not reappeared
+- **Ghost chaining**: When ghost expires, create new ghost if player still missing
+- **Ghost termination**: ONLY when player reappears (new detection) OR clip ends
+- **Identity scope**: same-track continuity only (`original_track_id`); no cross-track matching
 - Mark ghosts: `is_ghost = True`, `quality = "ghost"`
 - **Exclude ghosts from K-means clustering** (Pass 3C)
 
 **Validation (BLOCKING):**
 - FAIL IF: Ghost count unreasonable (> 6 ghosts)
-- FAIL IF: Tracked + ghosts > 12
+- FAIL IF: Tracked + ghosts < level (R4 zero tolerance)
+- FAIL IF: Ghost expires without reappearance and no chain created
+- FAIL IF: Per-track lifespan continuity breaks (gap or overlap for same `original_track_id`)
+
+**Validation (NON-BLOCKING DIAGNOSTIC):**
+- WARN IF: Tracked + ghosts > 12 (identity collision; deferred to Pass 3)
 
 ### Pass 3A: Identity Candidate Generation
 **Input**: `pass2_ghosts.json`
@@ -497,6 +630,7 @@ All debugging must be automated via `debug_metrics.json`.
 | Pass 2 | Fragment overlap                                 | Halt pipeline       |
 | Pass 2 | Frame coverage < 100%                            | Halt pipeline       |
 | Pass 2 | Ghost count unreasonable                         | Halt pipeline       |
+| Pass 2 | Tracked + ghosts > 12                            | Log warning (defer to Pass 3) |
 | Pass 3 | `team = "unknown"` after Pass 3C                 | Halt pipeline       |
 | Pass 3 | Jersey temporal conflict                         | Halt pipeline       |
 | Pass 3 | Unresolved constraint                            | Halt pipeline       |
@@ -644,6 +778,15 @@ def _dedupe_overlapping_annotations(self, annotations):
 
 ## 10. VALIDATION RULES (EXECUTABLE CODE)
 
+### Validation Responsibility by Pass
+
+- **Pass 1**: perceptual sanity only; never enforce physical or identity invariants.
+- **Pass 2A–2C**: identity-local continuity only; may overcount players.
+- **Pass 2 warnings**: evidence of ambiguity, not failure.
+- **Pass 3**: first stage allowed to enforce physical reality (`<= level`, unique humans).
+- **Any attempt to enforce `<= level` before Pass 3 is a validation layering bug.**
+- **Do not fix ghost logic further to hide overcount; fix validator-contract mismatches and defer identity reconciliation to Pass 3.**
+
 All rules must be implemented as executable checks in `src/validation/`.
 
 ### Global Rules (R1-R5)
@@ -663,7 +806,8 @@ All rules must be implemented as executable checks in `src/validation/`.
 
 **R4_PlayerContinuity**:
 - Build timeline: frame → player_ids
-- FAIL IF: Any frame has >12 concurrent players
+- FAIL IF: Any frame has presence deficit vs level (`tracked + ghosts < level`)
+- NOTE: `tracked + ghosts > 12` at Pass 2 is an identity-collision diagnostic (deferred to Pass 3)
 
 **R5_BallNeverDisappears**:
 - FAIL IF: Any frame missing ball position (real or interpolated)
@@ -680,13 +824,17 @@ All rules must be implemented as executable checks in `src/validation/`.
 - 100% frame coverage (no gaps)
 - No fragment overlap
 - Ghost count ≤ 6
-- Tracked + ghosts ≤ 12
+- Presence deficit forbidden: `tracked + ghosts < level`
+- Physical max exceedance (`>12`) is recorded as warning and deferred to Pass 3 identity resolution
 
 **Pass 3 Rules**:
 - Team balance (5-7 players per team)
 - Jersey assignment complete
 - No team switches
 - Constraint satisfaction complete
+- Physical cap enforcement (`<= 12` identities per frame)
+- Ghost retirement after real match
+- Global R4 exact-level enforcement after reconciliation
 
 **Ball Rules**:
 - Gap interpolation ≤ 30 frames
