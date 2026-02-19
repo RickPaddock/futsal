@@ -191,7 +191,7 @@ def validate_r2_no_unknown_teams(
             )
 
     # R2: Team size constraint (max 6 per team - HARD)
-    # Build frame-by-frame team counts
+    # Build frame-by-frame team counts using real detection presence for non-ghost fragments.
     frame_team_counts: Dict[int, Dict[str, Set[str]]] = {}
 
     for fragment in fragments:
@@ -205,8 +205,16 @@ def validate_r2_no_unknown_teams(
         identity = identity_map[fragment_id]
         team = identity.team.value if isinstance(identity.team, TeamID) else identity.team
 
-        # Count this player in each frame
-        for frame_idx in range(fragment.start_frame, fragment.end_frame + 1):
+        # Count this player in active presence frames only.
+        active_frames: Set[int] = set()
+        for detection_id in getattr(fragment, "detection_ids", []) or []:
+            try:
+                frame_idx = int(str(detection_id).split("_", maxsplit=1)[0])
+            except (ValueError, IndexError):
+                continue
+            active_frames.add(frame_idx)
+
+        for frame_idx in sorted(active_frames):
             if frame_idx not in frame_team_counts:
                 frame_team_counts[frame_idx] = {"team_a": set(), "team_b": set()}
 
@@ -286,6 +294,9 @@ def validate_r3_jersey_temporal_exclusivity(
         identity = identity_map[fragment_id]
         jersey = identity.jersey_number
         player_id = identity.player_id
+
+        if jersey is None:
+            continue
 
         if jersey not in jersey_fragments:
             jersey_fragments[jersey] = []

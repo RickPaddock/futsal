@@ -362,7 +362,7 @@ class CommittedIdentity(BaseModel):
     - fragment_id: Fragment receiving final committed identity.
     - player_id: Final immutable player id.
     - team: Final immutable team assignment.
-    - jersey_number: Final immutable jersey number.
+    - jersey_number: Final immutable jersey number (nullable when unresolved).
     - assignment_method: Method used to produce assignment.
     - assignment_confidence: Confidence score for assignment.
     - assignment_reasons: Explainability trail for the assignment.
@@ -371,7 +371,7 @@ class CommittedIdentity(BaseModel):
     fragment_id: FragmentID
     player_id: PlayerID  # Format: P{jersey:02d}_{team} (immutable)
     team: TeamID  # LOCKED (MUST be team_a or team_b, never "unknown")
-    jersey_number: int  # LOCKED
+    jersey_number: Optional[int] = None  # LOCKED (nullable when unresolved)
 
     # Decision audit trail
     assignment_method: AssignmentMethod

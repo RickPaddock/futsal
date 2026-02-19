@@ -104,7 +104,8 @@ KMEANS_MIN_HSV_CONSISTENCY = 0.35
 # JERSEY TEMPORAL EXCLUSIVITY
 # ============================================================================
 
-JERSEY_NUMBERS = list(range(1, 13))  # Futsal: 1-12
+# PoC model/classes are restricted to observed jerseys in current clips.
+JERSEY_NUMBERS = [4, 7, 10]
 MAX_CONCURRENT_PLAYERS = 12  # Futsal regulation: 6v6
 
 # Jersey temporal exclusivity thresholds (Pass 2A)

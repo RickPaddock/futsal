@@ -417,26 +417,26 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 ## Priority 6: Pipeline Skills - Pass 3 (Days 8)
 
 ### Pass 3A: Identity Candidates
-- [ ] **[src/skills/pass3a_candidate_generator.py](../src/skills/pass3a_candidate_generator.py)** - Generate possibilities
-  - [ ] For each fragment, generate:
-    - [ ] Possible teams with evidence scores (from HSV histograms)
-    - [ ] Possible jerseys with probabilities (from jersey detections)
-    - [ ] Adjacent fragments (track continuity links)
-  - [ ] **NO LOCKING** (just candidates, no decisions)
-  - [ ] Save `pass3_candidates.json`
+- [x] **[src/skills/pass3a_candidate_generator.py](../src/skills/pass3a_candidate_generator.py)** - Generate possibilities ✅
+  - [x] For each fragment, generate:
+    - [x] Possible teams with evidence scores (from HSV observability metadata)
+    - [x] Possible jerseys with probabilities (aggregated from jersey detections/probabilities)
+    - [x] Adjacent fragments (same-track continuity links in player evidence)
+  - [x] **NO LOCKING** (just candidates, no decisions)
+  - [x] Save `pass3_candidates.json`
 - [ ] **Pass 3A debug video** (`--video-output 3a`) - Identity candidates
   - [ ] Show: Fragment bboxes with candidate teams/jerseys
   - [ ] Overlays: Evidence scores, probability distributions, adjacency links
   - [ ] Purpose: Verify candidate generation logic (are candidates reasonable?)
 
 ### Pass 3B: Constraint Graph
-- [ ] **[src/skills/pass3b_constraint_builder.py](../src/skills/pass3b_constraint_builder.py)** - Build constraint graph
-  - [ ] **MUST_SAME constraints**: Track adjacency (same track_id) + ghost continuity
-  - [ ] **CANNOT_SAME constraints**: Jersey temporal exclusivity violations
-  - [ ] **SOFT_SAME constraints**: Track continuity preferences (velocity, appearance)
-  - [ ] Graph structure: fragment_id → constraint_ids
-  - [ ] **Note**: Team assignment happens in Pass 3C AFTER identity resolution
-  - [ ] Save `pass3_constraints.json`
+- [x] **[src/skills/pass3b_constraint_builder.py](../src/skills/pass3b_constraint_builder.py)** - Build constraint graph ✅
+  - [x] **MUST_SAME constraints**: Track adjacency (same track_id) + ghost continuity
+  - [x] **CANNOT_SAME constraints**: Jersey temporal exclusivity violations
+  - [x] **SOFT_SAME constraints**: Track continuity preferences (track-gap weighted)
+  - [x] Graph structure: fragment_id → constraint_ids
+  - [x] **Note**: Team assignment happens in Pass 3C AFTER identity resolution
+  - [x] Save `pass3_constraints.json`
 - [ ] **Pass 3B debug video** (`--video-output 3b`) - Constraint graph
   - [ ] Show: Fragment bboxes with constraint edges overlaid
   - [ ] Overlays: MUST_SAME (green), CANNOT_SAME (red), SOFT_SAME (yellow)
@@ -681,142 +681,37 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 
 ---
 
-## ONGOING: R4 Compliance & Contract Enforcement (CRITICAL FIX) 🚧
+## Validation Boundary Realignment (2026-02-19) ✅ COMPLETE
 
-**Date Started**: 2026-02-19
-**Status**: In Progress
-**Plan Reference**: [robust-sniffing-graham.md](../.claude/plans/robust-sniffing-graham.md)
+### Outcome
+- Pass 2 is now architecturally stable and contract-aligned on clip9.
+- Pass 2C is disappearance-driven, same-track only, and count-agnostic.
+- Global overcount in Pass 2 is warning-only and explicitly deferred to Pass 3.
 
-### Problem Identified
-System violating R4 ("Players Never Disappear") due to:
-1. **Contract Ambiguity**: CLAUDE.md confused fragments (identity) with ghosts (presence)
-2. **Ghost Expiration Bug**: Ghosts expire after 60 frames without chaining
-   - Example: Ghost G000003 expires at frame 150, no chain created for frames 151-160
-   - Root cause: [pass2c_ghost_generator.py:515](../src/skills/pass2c_ghost_generator.py#L515) caps gap at 60 frames
-3. **Lenient Validation**: 20% tolerance masks R4 violations
-   - Allows frames 151-160 to have 11 players instead of 12
+### Implemented Decisions
+- Pass 1 (physics/observation layer):
+  - Keep best-12 player detections per frame when saturated.
+  - Emit explicit warning for saturated frames.
+  - No identity or ghost reasoning in Pass 1.
+- Pass 2C (continuity layer):
+  - Never suppress/kill ghosts due to global count.
+  - No cross-track identity guessing.
+  - Same-track reappearance/clip-end only for ghost termination.
+- Pass 2 validation:
+  - Presence continuity failures remain blocking.
+  - `>12` presence is diagnostic warning (`PASS2C_PHYSICAL_MAX_EXCEEDED_DEFERRED`).
 
-### Solution Overview
-- **CLAUDE.md contract tightening** (4 changes)
-  - Add section 0.5: Mandatory Pre-Change Gate (process enforcement)
-  - Add section 3.5: Fragment vs Ghost Contract (explicit separation)
-  - Tighten R4: Zero tolerance, explicit chaining rules
-  - Update Pass 2C: Ghost chaining semantics
+### Verification Snapshot
+- Clip: `GoPro_Futsal_part1_CLEANED_clip9.mp4`
+- Command: `python -m src.main --input videos/input/GoPro_Futsal_part1_CLEANED_clip9.mp4 --pass 2`
+- Result: Pass 2 completed successfully (`passed: true`) with deferred overcount warnings only.
 
-- **Validation strictness** (3 changes)
-  - Replace 20% tolerance with zero tolerance (R4 invariant)
-  - Add PRESENCE_UNIQUENESS rule (presence-based counting, NOT fragment ranges)
-  - Add GHOST_CHAINING_CONTINUITY rule (zero gap between chains)
-
-- **Ghost expiration fix** (2 changes)
-  - Remove 60-frame cap in `_find_missing_players` (enable indefinite chaining)
-  - Fix `player_states` update to track real detections only (preserve gap calculation)
-
-### Implementation Progress
-
-#### CLAUDE.md Contract Changes
-- [x] **[CLAUDE.md](../CLAUDE.md) Section 0.5** - Mandatory Pre-Change Gate ✅
-  - [x] 5-question pre-change checklist (source vs symptom, entities, invariants, failure mode, prevention)
-  - [x] Process enforcement gate to prevent category errors
-
-- [x] **[CLAUDE.md](../CLAUDE.md) Section 3.5** - Fragment vs Ghost Contract ✅
-  - [x] Fragment Contract (Identity Layer): Fragments span gaps but do NOT imply presence
-  - [x] Ghost Contract (Presence Layer): Maintain R4 invariant, enable chaining
-  - [x] **CRITICAL**: "Fragments may span frames with no detections, but do NOT imply player presence; presence is satisfied exclusively by real detections or ghosts."
-
-- [x] **[CLAUDE.md](../CLAUDE.md) R4 Definition** - Zero Tolerance ✅
-  - [x] HARD INVARIANT: `tracked_count + ghost_count = level` at EVERY frame
-  - [x] Ghost chaining: Chains continue INDEFINITELY until player reappears OR clip ends
-  - [x] Validation: FAIL if ANY frame has count ≠ level (zero tolerance)
-
-- [x] **[CLAUDE.md](../CLAUDE.md) Pass 2C Responsibilities** - Ghost Chaining Semantics ✅
-  - [x] Ghost duration: 60 frames per ghost, then chain if player not reappeared
-  - [x] Ghost chaining: When ghost expires, create new ghost if player still missing
-  - [x] Ghost termination: ONLY when player reappears (new detection) OR clip ends
-
-- [x] **[CLAUDE.md](../CLAUDE.md) Pass 2 Validation** - R4 Zero Tolerance ✅
-  - [x] FAIL IF: Tracked + ghosts ≠ level (R4 zero tolerance)
-  - [x] FAIL IF: Ghost expires without reappearance and no chain created
-
-#### Validation Rule Changes
-- [ ] **[src/validation/pass2_rules.py](../src/validation/pass2_rules.py) Lines 566-609** - Zero Tolerance
-  - [ ] Replace 20% tolerance with exact equality check: `violation_frames = {f: c for f, c in frame_counts.items() if c != expected_level}`
-  - [ ] Rule: `PASS2C_R4_INVARIANT_VIOLATED` (error severity)
-  - [ ] Message: "R4 violated: {N} frames have count ≠ {level}. Per CLAUDE.md R4: 'At every frame: tracked_count + ghost_count = level' (ZERO TOLERANCE)."
-
-- [ ] **[src/validation/pass2_rules.py](../src/validation/pass2_rules.py) After Line 612** - Presence Uniqueness
-  - [ ] Add `validate_pass2c_presence_uniqueness(all_fragments, pass1_detections)`
-  - [ ] **CRITICAL**: Presence counting based on ACTUAL PRESENCE (real detections + ghosts), NOT fragment time ranges
-  - [ ] Build `frame_detections` map from Pass 1 to check actual detections
-  - [ ] Only count presence if: (1) fragment is ghost, OR (2) fragment has detection at frame
-  - [ ] FAIL if multiple reals or multiple ghosts for same track_id at same frame
-
-- [ ] **[src/validation/pass2_rules.py](../src/validation/pass2_rules.py) After Presence Uniqueness** - Ghost Chaining
-  - [ ] Add `validate_pass2c_ghost_chaining(all_fragments, pass1_detections)`
-  - [ ] Check for gaps between consecutive ghosts on same track
-  - [ ] FAIL if gap > 0 frames between ghost expiry and next ghost start
-  - [ ] Rule: `PASS2C_GHOST_CHAIN_BROKEN` (error severity)
-
-- [ ] **[src/validation/pass2_rules.py](../src/validation/pass2_rules.py) validate_pass2 Function** - Call New Rules
-  - [ ] Add calls to `validate_pass2c_presence_uniqueness()`
-  - [ ] Add calls to `validate_pass2c_ghost_chaining()`
-
-#### Ghost Expiration Fix
-- [ ] **[src/skills/pass2c_ghost_generator.py](../src/skills/pass2c_ghost_generator.py) Line 515** - Remove Cap
-  - [ ] **Current**: `if gap > 0 and gap <= const.MAX_FRAGMENT_GAP:` (60-frame cap)
-  - [ ] **Replace**: `if gap > 0:` (no cap - always consider missing)
-  - [ ] **Rationale**: 60-frame cap prevents ghost chaining when gap > 60
-
-- [ ] **[src/skills/pass2c_ghost_generator.py](../src/skills/pass2c_ghost_generator.py) Lines 249-263** - Real Detections Only
-  - [ ] **Current**: `if last_bbox is not None:` (updates for ghosts too)
-  - [ ] **Replace**: `if last_bbox is not None and not frag.is_ghost:` (real detections only)
-  - [ ] **Rationale**: `last_frame` should track last REAL detection, not ghost frames
-
-### Verification Plan
-- [ ] **Unit Tests** - `tests/unit/test_ghost_chaining.py`
-  - [ ] Test ghost expiration and chaining
-  - [ ] Test multiple chained ghosts (200-frame gap)
-  - [ ] Test ghost termination on reappearance
-  - [ ] Test `_find_missing_players` with gap > 60 frames
-
-- [ ] **Validation Tests** - `tests/unit/test_pass2_validation_strict.py`
-  - [ ] Test R4 zero tolerance (1 frame violation = FAIL)
-  - [ ] Test presence uniqueness rules
-  - [ ] Test ghost chaining continuity
-
-- [ ] **Regression Test** - `videos/input/GoPro_Futsal_part1_CLEANED_clip9.mp4`
-  - [ ] Verify Ghost G000003 chains to Ghost G000004 at frames 149-150
-  - [ ] Verify zero presence gaps (every frame = 12 players)
-  - [ ] Verify validation catches frames 151-160 violation (before fix)
-  - [ ] Verify validation passes (after fix)
-
-### Expected Impact
-- **Frames 151-160 bug FIXED**: Ghost chains automatically (no gaps)
-- **All presence gaps caught**: Zero tolerance validation
-- **Explicit contracts**: No future confusion about fragment vs ghost purposes
-- **Mandatory gate**: Process prevents category errors from recurring
-
-### Pre-Change Gate Answers (Per Section 0.5)
-
-**1. Source vs symptom?**
-- **Source fix**: Ghost expiration bug + contract ambiguity
-- **Not symptom**: Not patching downstream (e.g., not fixing visualization to hide gaps)
-
-**2. Entities involved?**
-- **Ghosts** (presence layer): Enable chaining, no 60-frame cap
-- **Fragments** (identity layer): Clarify that fragments do NOT imply presence
-- **Validation**: Zero tolerance for R4
-
-**3. Invariants affected?**
-- **R4 (Players Never Disappear)**: Enforcement STRENGTHENED (20% tolerance → zero tolerance)
-
-**4. Failure mode?**
-- **Loud**: Validation errors at Pass 2C if ghost chaining broken or R4 violated
-
-**5. Prevention mechanism?**
-- **New validation rules**: PRESENCE_UNIQUENESS, GHOST_CHAINING_CONTINUITY, R4_INVARIANT_VIOLATED
-- **Tightened contract**: Section 3.5 explicit fragment vs ghost separation
-- **Process gate**: Section 0.5 mandatory pre-change checklist
+### Next Focus
+- Pass 3 identity reconciliation is the owner of strict physical enforcement:
+  - collapse duplicate humans,
+  - retire matched ghosts,
+  - enforce `<=12` identities per frame,
+  - fail clip on unresolved ambiguity.
 
 ---
 

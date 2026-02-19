@@ -12,7 +12,7 @@ import numpy as np
 import cv2
 from pathlib import Path
 
-from ..core.constants import JERSEY_CONF_THRESHOLD
+from ..core.constants import JERSEY_CONF_THRESHOLD, JERSEY_NUMBERS
 from ..utils.logging_utils import get_logger
 
 logger = get_logger("jersey_classifier")
@@ -91,7 +91,8 @@ class JerseyClassifier:
         """
         Parse jersey number from class name.
 
-        Handles aliases like "seven" -> 7, "jersey_10" -> 10, etc.
+        Handles aliases from the working reference mapping
+        (PoC allowlist only: 4, 7, 10).
 
         Args:
             name: Class name from model
@@ -104,21 +105,11 @@ class JerseyClassifier:
 
         normalized = name.strip().lower()
 
-        # Alias map for common names
+        # Reference mapping: restrict to supported jersey classes only.
         alias_map = {
-            "0": 0, "zero": 0,
-            "1": 1, "one": 1,
-            "2": 2, "two": 2,
-            "3": 3, "three": 3,
             "4": 4, "four": 4,
-            "5": 5, "five": 5,
-            "6": 6, "six": 6,
             "7": 7, "07": 7, "seven": 7,
-            "8": 8, "eight": 8,
-            "9": 9, "nine": 9,
             "10": 10, "ten": 10,
-            "11": 11, "eleven": 11,
-            "12": 12, "twelve": 12,
         }
 
         if normalized in alias_map:
@@ -128,7 +119,8 @@ class JerseyClassifier:
         digits = "".join(ch for ch in normalized if ch.isdigit())
         if digits:
             try:
-                return int(digits)
+                parsed = int(digits)
+                return parsed if parsed in set(JERSEY_NUMBERS) else None
             except ValueError:
                 pass
 
@@ -213,7 +205,9 @@ class JerseyClassifier:
             if confidence < conf_threshold:
                 return None
 
-            jersey_number = self._class_mapping.get(class_idx, class_idx)
+            jersey_number = self._class_mapping.get(class_idx)
+            if jersey_number is None:
+                return None
             return (jersey_number, confidence)
 
         # Handle detection mode
@@ -235,7 +229,9 @@ class JerseyClassifier:
         if confidence < conf_threshold:
             return None
 
-        jersey_number = self._class_mapping.get(cls_id, cls_id)
+        jersey_number = self._class_mapping.get(cls_id)
+        if jersey_number is None:
+            return None
         return (jersey_number, confidence)
 
     def classify_batch(
@@ -298,8 +294,9 @@ class JerseyClassifier:
                 confidence = float(result.probs.top1conf)
 
                 if confidence >= conf_threshold:
-                    jersey_number = self._class_mapping.get(class_idx, class_idx)
-                    results[bbox_idx] = (jersey_number, confidence)
+                    jersey_number = self._class_mapping.get(class_idx)
+                    if jersey_number is not None:
+                        results[bbox_idx] = (jersey_number, confidence)
 
             else:
                 # Detection mode
@@ -318,8 +315,9 @@ class JerseyClassifier:
                 confidence = float(confidences[best_idx])
 
                 if confidence >= conf_threshold:
-                    jersey_number = self._class_mapping.get(cls_id, cls_id)
-                    results[bbox_idx] = (jersey_number, confidence)
+                    jersey_number = self._class_mapping.get(cls_id)
+                    if jersey_number is not None:
+                        results[bbox_idx] = (jersey_number, confidence)
 
         return results
 

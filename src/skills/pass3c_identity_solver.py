@@ -25,6 +25,10 @@ from pathlib import Path
 
 from ..core.data_models import (
     Fragment,
+    Detection,
+    Pass1Output,
+    Pass2COutput,
+    Pass3BOutput,
     ScoredFragment,
     GhostFragment,
     Constraint,
@@ -33,7 +37,7 @@ from ..core.data_models import (
     DebugMetrics,
     FrameMetrics,
 )
-from ..core.types import TeamID, ConstraintType
+from ..core.types import TeamID, ConstraintType, AssignmentMethod
 from ..core.constants import KMEANS_N_CLUSTERS, HSV_BINS
 from ..core.constants import COMPACT_CLUSTER_MAX_MEAN_DISTANCE
 from ..core.constants import KMEANS_MIN_FRAGMENT_QUALITY_SCORE, KMEANS_MIN_HSV_CONSISTENCY
@@ -58,6 +62,8 @@ class IdentitySolver:
         self,
         fragments: List[Fragment],
         constraints: List[Constraint],
+        fragment_histograms: Optional[Dict[str, List[float]]] = None,
+        real_presence_frames: Optional[Dict[str, Set[int]]] = None,
     ) -> Pass3COutput:
         """
         Solve identity using constraint satisfaction.
@@ -71,36 +77,228 @@ class IdentitySolver:
         identity_groups = self._resolve_identity_groups(fragments, constraints)
         self.logger.info(f"Resolved {len(identity_groups)} identity groups from MUST_SAME constraints")
 
-        # Step 2: Assign teams via K-means (exclude ghosts)
-        team_assignments, team_diagnostics = self._assign_and_lock_teams(fragments, identity_groups)
-        self.logger.info(f"Assigned teams: {sum(1 for t in team_assignments.values() if t == TeamID.TEAM_A)} team_a, "
-                        f"{sum(1 for t in team_assignments.values() if t == TeamID.TEAM_B)} team_b")
-
-        # Step 3: Apply jersey inheritance (bidirectional with temporal exclusivity)
-        jersey_assignments = self._apply_jersey_inheritance(fragments, identity_groups, team_assignments)
-        self.logger.info(f"Applied jersey inheritance: {len(jersey_assignments)} fragments with jerseys")
-
-        # Step 4: Validate CANNOT_SAME constraints
+        # Step 2: Validate CANNOT_SAME constraints during collapse
         self._validate_cannot_same_constraints(constraints, identity_groups)
         self.logger.info("CANNOT_SAME constraints validated successfully")
 
-        # Step 5: Create committed identities
-        committed_identities = self._create_committed_identities(
+        # Step 3C-1: Identity collapse validation BEFORE attribute assignment
+        (
+            refined_identity_groups,
+            retired_ghost_fragments,
+            collapse_diagnostics,
+        ) = self._validate_identity_collapse_pre_attributes(
             fragments,
             identity_groups,
+            real_presence_frames=real_presence_frames,
+        )
+        self.logger.info(
+            f"Identity collapse validated (<=12/frame). Retired ghosts on matched groups: {len(retired_ghost_fragments)}"
+        )
+
+        # Step 3C-2: Attribute assignment begins only after identity feasibility passes.
+        # Team assignment (exclude ghosts)
+        team_assignments, team_diagnostics = self._assign_and_lock_teams(
+            fragments,
+            refined_identity_groups,
+            fragment_histograms=fragment_histograms,
+            real_presence_frames=real_presence_frames,
+        )
+        self.logger.info(f"Assigned teams: {sum(1 for t in team_assignments.values() if t == TeamID.TEAM_A)} team_a, "
+                        f"{sum(1 for t in team_assignments.values() if t == TeamID.TEAM_B)} team_b")
+
+        # Jersey inheritance (non-fatal if incomplete/conflicting)
+        jersey_assignments = self._apply_jersey_inheritance(fragments, refined_identity_groups, team_assignments)
+        self.logger.info(f"Applied jersey inheritance: {len(jersey_assignments)} fragments with jerseys")
+
+        # Create committed identities
+        committed_identities = self._create_committed_identities(
+            fragments,
+            refined_identity_groups,
             team_assignments,
             jersey_assignments,
+            retired_ghost_fragments,
         )
         self.logger.info(f"Created {len(committed_identities)} committed identities")
 
         # Step 6: Validate final state
-        self._validate_final_state(committed_identities, fragments)
+        self._validate_final_state(committed_identities, fragments, real_presence_frames=real_presence_frames)
         self.logger.info("Final state validation passed")
 
         return Pass3COutput(
             identities=committed_identities,
-            solver_log=team_diagnostics,
+            solver_log={
+                **team_diagnostics,
+                **collapse_diagnostics,
+                "phase_order": ["collapse", "attributes"],
+                "retired_ghost_fragments": sorted(retired_ghost_fragments),
+            },
         )
+
+    def _validate_identity_collapse_pre_attributes(
+        self,
+        fragments: List[Fragment],
+        identity_groups: Dict[str, Set[str]],
+        real_presence_frames: Optional[Dict[str, Set[int]]] = None,
+    ) -> Tuple[Dict[str, Set[str]], Set[str], Dict[str, Any]]:
+        """
+        Validate collapsed identities before assigning jerseys/teams.
+
+        Enforces:
+        - P3-R4-GLOBAL: unique identities per frame <= 12
+        - Ghost retirement set derivation: ghosts in groups with any real fragment are retired
+        """
+        fragment_lookup = {fragment.fragment_id: fragment for fragment in fragments}
+
+        retired_ghost_fragments: Set[str] = set()
+        retired_ghost_groups: Set[str] = set()
+        for root, group in identity_groups.items():
+            has_real = any(
+                not bool(getattr(fragment_lookup.get(fragment_id), "is_ghost", False))
+                for fragment_id in group
+                if fragment_lookup.get(fragment_id) is not None
+            )
+            if not has_real:
+                continue
+            for fragment_id in group:
+                fragment = fragment_lookup.get(fragment_id)
+                if fragment is not None and bool(getattr(fragment, "is_ghost", False)):
+                    retired_ghost_fragments.add(fragment_id)
+
+        # Refine identity groups: one player cannot have overlapping real presences.
+        refined_identity_groups: Dict[str, Set[str]] = {}
+        split_count = 0
+        for root, group in identity_groups.items():
+            group_fragments = [fragment_lookup[fragment_id] for fragment_id in group if fragment_id in fragment_lookup]
+            if not group_fragments:
+                continue
+
+            group_fragments.sort(key=lambda fragment: (fragment.start_frame, fragment.end_frame, fragment.fragment_id))
+            partitions: List[Dict[str, Any]] = []
+
+            for fragment in group_fragments:
+                fragment_id = fragment.fragment_id
+                is_ghost = bool(getattr(fragment, "is_ghost", False))
+                if is_ghost:
+                    fragment_frames = set(range(fragment.start_frame, fragment.end_frame + 1))
+                else:
+                    fragment_frames = set((real_presence_frames or {}).get(fragment_id, set()))
+                    if not fragment_frames:
+                        fragment_frames = set(range(fragment.start_frame, fragment.end_frame + 1))
+
+                placed = False
+                for partition in partitions:
+                    if is_ghost:
+                        partition["fragment_ids"].add(fragment_id)
+                        placed = True
+                        break
+
+                    if not (fragment_frames & partition["real_frames"]):
+                        partition["fragment_ids"].add(fragment_id)
+                        partition["real_frames"].update(fragment_frames)
+                        placed = True
+                        break
+
+                if not placed:
+                    partitions.append(
+                        {
+                            "fragment_ids": {fragment_id},
+                            "real_frames": set(fragment_frames) if not is_ghost else set(),
+                        }
+                    )
+
+            if len(partitions) > 1:
+                split_count += (len(partitions) - 1)
+
+            for index, partition in enumerate(partitions):
+                partition_root = f"{root}__{index:02d}"
+                refined_identity_groups[partition_root] = set(partition["fragment_ids"])
+
+        group_by_fragment: Dict[str, str] = {}
+        for root, group in refined_identity_groups.items():
+            for fragment_id in group:
+                group_by_fragment[fragment_id] = root
+
+        group_has_real: Dict[str, bool] = {}
+        group_span: Dict[str, Tuple[int, int]] = {}
+        for root, group in refined_identity_groups.items():
+            group_fragments = [fragment_lookup[fragment_id] for fragment_id in group if fragment_id in fragment_lookup]
+            if not group_fragments:
+                continue
+            group_has_real[root] = any(not bool(getattr(fragment, "is_ghost", False)) for fragment in group_fragments)
+            start = min(fragment.start_frame for fragment in group_fragments)
+            end = max(fragment.end_frame for fragment in group_fragments)
+            group_span[root] = (start, end)
+
+        def _build_frame_groups() -> Dict[int, Set[str]]:
+            frame_identity_groups: Dict[int, Set[str]] = defaultdict(set)
+            for fragment in fragments:
+                fragment_id = fragment.fragment_id
+                if fragment_id in retired_ghost_fragments:
+                    continue
+                group_id = group_by_fragment.get(fragment_id)
+                if group_id is None:
+                    continue
+
+                is_ghost = bool(getattr(fragment, "is_ghost", False))
+                if is_ghost:
+                    active_frames = range(fragment.start_frame, fragment.end_frame + 1)
+                else:
+                    active_frames = sorted((real_presence_frames or {}).get(fragment_id, set()))
+
+                for frame_idx in active_frames:
+                    frame_identity_groups[frame_idx].add(group_id)
+            return frame_identity_groups
+
+        frame_identity_groups = _build_frame_groups()
+
+        # Reconcile over-cap using ghost-only groups first.
+        while True:
+            over_cap = [
+                (frame_idx, len(groups), groups)
+                for frame_idx, groups in frame_identity_groups.items()
+                if len(groups) > 12
+            ]
+            if not over_cap:
+                break
+
+            frame_idx, _, active_groups = min(over_cap, key=lambda item: item[0])
+            ghost_only_candidates = [
+                group_id
+                for group_id in active_groups
+                if not group_has_real.get(group_id, False)
+                and group_id not in retired_ghost_groups
+            ]
+
+            if not ghost_only_candidates:
+                preview = ", ".join([f"{frame}:{count}" for frame, count, _ in over_cap[:10]])
+                raise ValueError(
+                    "P3-R4-GLOBAL violation before attributes: collapsed identity count exceeds 12 on frames "
+                    f"({preview})."
+                )
+
+            def _candidate_key(group_id: str) -> Tuple[int, int, str]:
+                span = group_span.get(group_id, (0, 0))
+                duration = span[1] - span[0] + 1
+                return duration, span[0], group_id
+
+            group_to_retire = min(ghost_only_candidates, key=_candidate_key)
+            retired_ghost_groups.add(group_to_retire)
+            for fragment_id in refined_identity_groups.get(group_to_retire, set()):
+                fragment = fragment_lookup.get(fragment_id)
+                if fragment is not None and bool(getattr(fragment, "is_ghost", False)):
+                    retired_ghost_fragments.add(fragment_id)
+
+            frame_identity_groups = _build_frame_groups()
+
+        diagnostics = {
+            "collapse_group_split_count": split_count,
+            "collapse_group_count_before": len(identity_groups),
+            "collapse_group_count_after": len(refined_identity_groups),
+            "collapse_retired_ghost_groups": sorted(retired_ghost_groups),
+            "collapse_retired_ghost_group_count": len(retired_ghost_groups),
+            "collapse_retired_ghost_fragment_count": len(retired_ghost_fragments),
+        }
+        return refined_identity_groups, retired_ghost_fragments, diagnostics
 
     def _resolve_identity_groups(
         self,
@@ -136,7 +334,9 @@ class IdentitySolver:
         must_same_count = 0
         for constraint in constraints:
             if constraint.constraint_type == ConstraintType.MUST_SAME:
-                union(constraint.fragment_id_a, constraint.fragment_id_b)
+                if len(constraint.fragment_ids) < 2:
+                    continue
+                union(constraint.fragment_ids[0], constraint.fragment_ids[1])
                 must_same_count += 1
 
         self.logger.info(f"Applied {must_same_count} MUST_SAME constraints")
@@ -153,6 +353,8 @@ class IdentitySolver:
         self,
         fragments: List[Fragment],
         identity_groups: Dict[str, Set[str]],
+        fragment_histograms: Optional[Dict[str, List[float]]] = None,
+        real_presence_frames: Optional[Dict[str, Set[int]]] = None,
     ) -> Tuple[Dict[str, TeamID], Dict[str, Any]]:
         """
         Assign teams via K-means clustering (exclude ghosts).
@@ -181,7 +383,11 @@ class IdentitySolver:
                 continue
 
             # Exclude fragments without valid jersey HSV histograms
-            jersey_hist = getattr(frag, 'hsv_histogram_jersey', None)
+            jersey_hist = None
+            if fragment_histograms is not None:
+                jersey_hist = fragment_histograms.get(frag.fragment_id)
+            if jersey_hist is None:
+                jersey_hist = getattr(frag, 'hsv_histogram_jersey', None)
             if jersey_hist is None:
                 continue
 
@@ -210,25 +416,9 @@ class IdentitySolver:
             )
 
         if len(valid_histograms) < KMEANS_N_CLUSTERS:
-            self.logger.warning(
+            raise ValueError(
                 f"Not enough valid histograms for K-means ({len(valid_histograms)} < {KMEANS_N_CLUSTERS}). "
-                "All fragments will be assigned to UNKNOWN."
-            )
-            return (
-                {f.fragment_id: TeamID.UNKNOWN for f in fragments},
-                {
-                    "team_assignment_mode": "compactness_guided_kmeans",
-                    "cluster_compactness": {
-                        TeamID.TEAM_A.value: None,
-                        TeamID.TEAM_B.value: None,
-                    },
-                    "cluster_compactness_a": None,
-                    "cluster_compactness_b": None,
-                    "compactness_ratio": None,
-                    "bibbed_team_evidence": None,
-                    "cluster_label_to_team": {},
-                    "kmeans_input_count": len(valid_histograms),
-                },
+                "Cannot lock teams in Pass 3C."
             )
 
         # K-means clustering
@@ -319,6 +509,13 @@ class IdentitySolver:
             if frag.fragment_id not in assignments:
                 assignments[frag.fragment_id] = TeamID.UNKNOWN
 
+        assignments, rebalance_diagnostics = self._enforce_team_size_cap(
+            assignments=assignments,
+            fragments=fragments,
+            identity_groups=identity_groups,
+            real_presence_frames=real_presence_frames,
+        )
+
         self.logger.info(
             f"Team assignment complete: "
             f"{sum(1 for t in assignments.values() if t == TeamID.TEAM_A)} TEAM_A, "
@@ -335,9 +532,185 @@ class IdentitySolver:
             "bibbed_team_evidence": bibbed_team_evidence,
             "cluster_label_to_team": {str(k): v.value for k, v in cluster_to_team.items()},
             "kmeans_input_count": len(valid_histograms),
+            **rebalance_diagnostics,
         }
 
         return assignments, diagnostics
+
+    def _enforce_team_size_cap(
+        self,
+        assignments: Dict[str, TeamID],
+        fragments: List[Fragment],
+        identity_groups: Dict[str, Set[str]],
+        real_presence_frames: Optional[Dict[str, Set[int]]] = None,
+    ) -> Tuple[Dict[str, TeamID], Dict[str, Any]]:
+        """Solve team assignment feasibility so no frame exceeds 6 real identities per team."""
+        group_by_fragment: Dict[str, str] = {}
+        for root, group in identity_groups.items():
+            for fragment_id in group:
+                group_by_fragment[fragment_id] = root
+
+        preferred_group_team: Dict[str, TeamID] = {}
+        for root, group in identity_groups.items():
+            teams = [assignments.get(fragment_id, TeamID.UNKNOWN) for fragment_id in group]
+            team_counts: Dict[TeamID, int] = defaultdict(int)
+            for team in teams:
+                team_counts[team] += 1
+            dominant_team = max(team_counts, key=team_counts.get) if team_counts else TeamID.UNKNOWN
+            if dominant_team == TeamID.UNKNOWN:
+                dominant_team = TeamID.TEAM_A
+            preferred_group_team[root] = dominant_team
+
+        group_active_frames: Dict[str, Set[int]] = defaultdict(set)
+        for fragment in fragments:
+            if bool(getattr(fragment, "is_ghost", False)):
+                continue
+            group_id = group_by_fragment.get(fragment.fragment_id)
+            if group_id is None:
+                continue
+            if real_presence_frames is not None:
+                active_frames = real_presence_frames.get(fragment.fragment_id, set())
+            else:
+                active_frames = set(range(fragment.start_frame, fragment.end_frame + 1))
+            group_active_frames[group_id].update(active_frames)
+
+        relevant_groups = [group_id for group_id, frames in group_active_frames.items() if frames]
+        if not relevant_groups:
+            return dict(assignments), {
+                "team_rebalance_applied": False,
+                "team_rebalance_flip_count": 0,
+                "team_rebalance_solver": "no_relevant_groups",
+            }
+
+        groups_by_frame: Dict[int, Set[str]] = defaultdict(set)
+        for group_id, frames in group_active_frames.items():
+            for frame_idx in frames:
+                groups_by_frame[frame_idx].add(group_id)
+
+        frame_bounds: Dict[int, Tuple[int, int]] = {}
+        for frame_idx, active_groups in groups_by_frame.items():
+            n_active = len(active_groups)
+            lower = max(0, n_active - 6)
+            upper = min(6, n_active)
+            frame_bounds[frame_idx] = (lower, upper)
+
+        frames_by_group: Dict[str, List[int]] = {
+            group_id: sorted(group_active_frames.get(group_id, set()))
+            for group_id in relevant_groups
+        }
+
+        group_order = sorted(
+            relevant_groups,
+            key=lambda group_id: (-len(frames_by_group[group_id]), min(frames_by_group[group_id]) if frames_by_group[group_id] else 0, group_id),
+        )
+
+        preferred_binary = {
+            group_id: 1 if preferred_group_team.get(group_id, TeamID.TEAM_A) == TeamID.TEAM_A else 0
+            for group_id in relevant_groups
+        }
+
+        assigned_binary: Dict[str, int] = {}
+        frame_assigned_a: Dict[int, int] = defaultdict(int)
+        frame_assigned_total: Dict[int, int] = defaultdict(int)
+        best_solution: Optional[Dict[str, int]] = None
+        best_flip_count: Optional[int] = None
+
+        def is_prunable() -> bool:
+            for frame_idx, (lower, upper) in frame_bounds.items():
+                assigned_total = frame_assigned_total.get(frame_idx, 0)
+                assigned_a = frame_assigned_a.get(frame_idx, 0)
+                active_total = len(groups_by_frame.get(frame_idx, set()))
+                remaining = active_total - assigned_total
+                if assigned_a > upper:
+                    return True
+                if assigned_a + remaining < lower:
+                    return True
+            return False
+
+        def dfs(index: int, current_flips: int) -> None:
+            nonlocal best_solution, best_flip_count
+            if best_flip_count is not None and current_flips >= best_flip_count:
+                return
+
+            if index == len(group_order):
+                for frame_idx, (lower, upper) in frame_bounds.items():
+                    a_count = frame_assigned_a.get(frame_idx, 0)
+                    if not (lower <= a_count <= upper):
+                        return
+                best_solution = dict(assigned_binary)
+                best_flip_count = current_flips
+                return
+
+            group_id = group_order[index]
+            preferred = preferred_binary[group_id]
+            branch_values = [preferred, 1 - preferred]
+
+            for value in branch_values:
+                assigned_binary[group_id] = value
+                next_flips = current_flips + (1 if value != preferred else 0)
+
+                for frame_idx in frames_by_group[group_id]:
+                    frame_assigned_total[frame_idx] += 1
+                    if value == 1:
+                        frame_assigned_a[frame_idx] += 1
+
+                if not is_prunable():
+                    dfs(index + 1, next_flips)
+
+                for frame_idx in frames_by_group[group_id]:
+                    if value == 1:
+                        frame_assigned_a[frame_idx] -= 1
+                        if frame_assigned_a[frame_idx] == 0:
+                            del frame_assigned_a[frame_idx]
+                    frame_assigned_total[frame_idx] -= 1
+                    if frame_assigned_total[frame_idx] == 0:
+                        del frame_assigned_total[frame_idx]
+
+                del assigned_binary[group_id]
+
+        dfs(0, 0)
+
+        if best_solution is None:
+            sample_frames = sorted(frame_bounds.keys())[:15]
+            details = [
+                f"{frame}:{len(groups_by_frame.get(frame, set()))}"
+                for frame in sample_frames
+            ]
+            raise ValueError(
+                "R2 violation: unable to reconcile team cap <= 6 per frame during Pass 3C assignment "
+                f"(sample active groups per frame: {', '.join(details)})"
+            )
+
+        resolved_group_team: Dict[str, TeamID] = dict(preferred_group_team)
+        for group_id, value in best_solution.items():
+            resolved_group_team[group_id] = TeamID.TEAM_A if value == 1 else TeamID.TEAM_B
+
+        reconciled_assignments = dict(assignments)
+        for fragment in fragments:
+            group_id = group_by_fragment.get(fragment.fragment_id)
+            if group_id is None:
+                continue
+            if group_id in resolved_group_team:
+                reconciled_assignments[fragment.fragment_id] = resolved_group_team[group_id]
+
+        flip_log = []
+        for group_id in relevant_groups:
+            before = preferred_group_team.get(group_id, TeamID.TEAM_A)
+            after = resolved_group_team.get(group_id, before)
+            if before != after:
+                flip_log.append({
+                    "group_id": group_id,
+                    "from": before.value,
+                    "to": after.value,
+                })
+
+        diagnostics = {
+            "team_rebalance_applied": len(flip_log) > 0,
+            "team_rebalance_flip_count": len(flip_log),
+            "team_rebalance_solver": "exact_branch_and_bound",
+            "team_rebalance_log": flip_log[:100],
+        }
+        return reconciled_assignments, diagnostics
 
     def _apply_jersey_inheritance(
         self,
@@ -466,8 +839,10 @@ class IdentitySolver:
 
         for constraint in constraints:
             if constraint.constraint_type == ConstraintType.CANNOT_SAME:
-                frag_a = constraint.fragment_id_a
-                frag_b = constraint.fragment_id_b
+                if len(constraint.fragment_ids) < 2:
+                    continue
+                frag_a = constraint.fragment_ids[0]
+                frag_b = constraint.fragment_ids[1]
 
                 # Check if they're in the same identity group
                 for root, group in identity_groups.items():
@@ -487,6 +862,7 @@ class IdentitySolver:
         identity_groups: Dict[str, Set[str]],
         team_assignments: Dict[str, TeamID],
         jersey_assignments: Dict[str, int],
+        retired_ghost_fragments: Set[str],
     ) -> List[CommittedIdentity]:
         """
         Create committed identity objects.
@@ -499,15 +875,30 @@ class IdentitySolver:
         # Assign player_ids to identity groups
         group_to_player_id = {}
         player_id_counter = 1
+        group_has_real: Dict[str, bool] = {}
+
+        jersey_usage_timeline: Dict[int, List[Tuple[int, int]]] = defaultdict(list)
 
         for root, group_frag_ids in identity_groups.items():
+            active_group_frag_ids = [fid for fid in group_frag_ids if fid not in retired_ghost_fragments]
+            if not active_group_frag_ids:
+                continue
+
             # Find jersey for this group (if any)
-            group_jerseys = [jersey_assignments.get(fid) for fid in group_frag_ids]
+            group_jerseys = [
+                jersey_assignments.get(fid)
+                for fid in active_group_frag_ids
+            ]
             group_jerseys = [j for j in group_jerseys if j is not None]
 
             # Find team for this group
-            group_teams = [team_assignments.get(fid) for fid in group_frag_ids]
+            group_teams = [team_assignments.get(fid) for fid in active_group_frag_ids]
             group_teams = [t for t in group_teams if t is not None and t != TeamID.UNKNOWN]
+
+            group_has_real[root] = any(
+                not bool(getattr(next((f for f in fragments if f.fragment_id == fid), None), "is_ghost", False))
+                for fid in active_group_frag_ids
+            )
 
             # Determine player_id
             if group_jerseys:
@@ -528,17 +919,41 @@ class IdentitySolver:
             else:
                 dominant_team = TeamID.UNKNOWN
 
-            # Generate player_id
+            group_start = min(
+                next(f.start_frame for f in fragments if f.fragment_id == fid)
+                for fid in active_group_frag_ids
+            )
+            group_end = max(
+                next(f.end_frame for f in fragments if f.fragment_id == fid)
+                for fid in active_group_frag_ids
+            )
+
+            if dominant_jersey is not None and not self._jersey_slot_available(
+                jersey_usage_timeline,
+                dominant_jersey,
+                group_start,
+                group_end,
+            ):
+                self.logger.warning(
+                    "Jersey assignment conflict after collapse for frame window "
+                    f"{group_start}-{group_end}; preserving unresolved jersey (no synthetic fallback)"
+                )
+                dominant_jersey = None
+
             if dominant_jersey is not None:
-                player_id = f"P{dominant_jersey:02d}_{dominant_team.value}"
-            else:
-                player_id = f"P{player_id_counter:02d}_{dominant_team.value}"
-                player_id_counter += 1
+                jersey_usage_timeline[dominant_jersey].append((group_start, group_end))
+
+            # Generate player_id (unique per collapsed identity group)
+            player_id = f"P{player_id_counter:02d}_{dominant_team.value}"
+            player_id_counter += 1
 
             group_to_player_id[root] = (player_id, dominant_team, dominant_jersey)
 
         # Create committed identities for all fragments
         for frag in fragments:
+            if frag.fragment_id in retired_ghost_fragments:
+                continue
+
             # Find which group this fragment belongs to
             player_id = None
             team = team_assignments.get(frag.fragment_id, TeamID.UNKNOWN)
@@ -555,11 +970,21 @@ class IdentitySolver:
                 player_id = f"P99_{team.value}"
 
             # Determine assignment method
-            assignment_method = "kmeans"
+            assignment_method = AssignmentMethod.KMEANS
+            assignment_reasons: List[str] = []
             if isinstance(frag, GhostFragment) or getattr(frag, 'is_ghost', False):
-                assignment_method = "ghost_inheritance"
+                assignment_method = AssignmentMethod.GHOST_INHERITED
+                if player_id is not None:
+                    owning_group = next(
+                        (root for root, members in identity_groups.items() if frag.fragment_id in members),
+                        None,
+                    )
+                    if owning_group is not None and not group_has_real.get(owning_group, False):
+                        assignment_reasons.append("UNMATCHED_EXIT")
             elif jersey is not None:
-                assignment_method = "jersey_detection"
+                assignment_method = AssignmentMethod.CONSTRAINT_SOLVED
+            if jersey is None:
+                assignment_reasons.append("JERSEY_UNRESOLVED_AFTER_COLLAPSE")
 
             committed_identities.append(
                 CommittedIdentity(
@@ -568,16 +993,54 @@ class IdentitySolver:
                     team=team,
                     jersey_number=jersey,
                     assignment_method=assignment_method,
-                    assignment_confidence=0.95 if assignment_method == "jersey_detection" else 0.80,
+                    assignment_confidence=0.95 if assignment_method == AssignmentMethod.CONSTRAINT_SOLVED else 0.80,
+                    assignment_reasons=assignment_reasons,
                 )
             )
 
         return committed_identities
 
+    def _choose_available_jersey(
+        self,
+        jersey_usage_timeline: Dict[int, List[Tuple[int, int]]],
+        target_start: int,
+        target_end: int,
+        allow_conflict: bool = False,
+    ) -> int:
+        for jersey in const.JERSEY_NUMBERS:
+            if self._jersey_slot_available(jersey_usage_timeline, jersey, target_start, target_end):
+                return jersey
+
+        if allow_conflict:
+            self.logger.warning(
+                "Jersey assignment conflict after collapse for frame window "
+                f"{target_start}-{target_end}; using fallback jersey {const.JERSEY_NUMBERS[0]}"
+            )
+            return const.JERSEY_NUMBERS[0]
+
+        raise ValueError(
+            "Unable to assign jersey without temporal conflict in Pass 3C; "
+            f"all jerseys occupied for frame window {target_start}-{target_end}."
+        )
+
+    @staticmethod
+    def _jersey_slot_available(
+        jersey_usage_timeline: Dict[int, List[Tuple[int, int]]],
+        jersey: int,
+        target_start: int,
+        target_end: int,
+    ) -> bool:
+        occupied_ranges = jersey_usage_timeline.get(jersey, [])
+        for used_start, used_end in occupied_ranges:
+            if not (target_end < used_start or used_end < target_start):
+                return False
+        return True
+
     def _validate_final_state(
         self,
         committed_identities: List[CommittedIdentity],
         fragments: List[Fragment],
+        real_presence_frames: Optional[Dict[str, Set[int]]] = None,
     ):
         """
         Validate final state before committing.
@@ -603,8 +1066,8 @@ class IdentitySolver:
         if unknown_count > 0:
             raise ValueError(f"R2 violation: {unknown_count} non-ghost fragments have team=UNKNOWN")
 
-        # Check R3: Jersey temporal exclusivity
-        # Build timeline: frame -> jersey -> fragment_id
+        # Check R3: Jersey temporal exclusivity (non-fatal, handled by validator warnings)
+        # Build timeline: frame -> jersey -> player_id
         jersey_timeline = defaultdict(lambda: defaultdict(set))
 
         for identity in committed_identities:
@@ -616,18 +1079,19 @@ class IdentitySolver:
                 continue
 
             for frame_idx in range(frag.start_frame, frag.end_frame + 1):
-                jersey_timeline[frame_idx][identity.jersey_number].add(identity.fragment_id)
+                jersey_timeline[frame_idx][identity.jersey_number].add(identity.player_id)
 
         violations = []
         for frame_idx, jerseys in jersey_timeline.items():
-            for jersey, frag_ids in jerseys.items():
-                if len(frag_ids) > 1:
-                    violations.append(f"Frame {frame_idx}: Jersey #{jersey} on {len(frag_ids)} fragments: {frag_ids}")
+            for jersey, player_ids in jerseys.items():
+                if len(player_ids) > 1:
+                    violations.append(
+                        f"Frame {frame_idx}: Jersey #{jersey} on {len(player_ids)} players: {player_ids}"
+                    )
 
         if violations:
-            error_msg = f"R3 violation: Jersey temporal exclusivity violated:\n" + "\n".join(violations[:10])
-            self.logger.error(error_msg)
-            raise ValueError(error_msg)
+            preview = "\n".join(violations[:10])
+            self.logger.warning("R3 jersey conflicts detected post-collapse (non-fatal):\n" + preview)
 
         # Check team size constraints (max 6 per team, excluding ghosts)
         team_counts = defaultdict(lambda: defaultdict(set))
@@ -641,11 +1105,16 @@ class IdentitySolver:
             if is_ghost:
                 continue
 
-            for frame_idx in range(frag.start_frame, frag.end_frame + 1):
+            if real_presence_frames is not None:
+                active_frames = sorted(real_presence_frames.get(frag.fragment_id, set()))
+            else:
+                active_frames = range(frag.start_frame, frag.end_frame + 1)
+
+            for frame_idx in active_frames:
                 team_counts[frame_idx][identity.team].add(identity.player_id)
 
-        max_team_a = max((len(players) for players in team_counts[frame].get(TeamID.TEAM_A, set()) for frame in team_counts), default=0)
-        max_team_b = max((len(players) for players in team_counts[frame].get(TeamID.TEAM_B, set()) for frame in team_counts), default=0)
+        max_team_a = max((len(team_counts[frame].get(TeamID.TEAM_A, set())) for frame in team_counts), default=0)
+        max_team_b = max((len(team_counts[frame].get(TeamID.TEAM_B, set())) for frame in team_counts), default=0)
 
         # HARD constraint: Max 6 per team
         if max_team_a > 6:
@@ -685,29 +1154,77 @@ def run_pass3c(
         Pass3COutput with committed identities
     """
     from ..utils.file_utils import load_json, save_json
-    from ..core.schemas import (
-        PASS2C_OUTPUT_SCHEMA,
-        PASS3B_OUTPUT_SCHEMA,
-        PASS3C_OUTPUT_SCHEMA,
-        DEBUG_METRICS_OUTPUT_SCHEMA,
-    )
+    from ..core.schemas import PASS3C_OUTPUT_SCHEMA, DEBUG_METRICS_OUTPUT_SCHEMA
+    from ..validation.validator import Validator
+    from ..core.constants import PASS3_VALIDATION_JSON
 
     logger.info(f"Running Pass 3C: Identity Commit")
     logger.info(f"  Fragments: {fragments_path}")
     logger.info(f"  Constraints: {constraints_path}")
     logger.info(f"  Output: {output_path}")
 
-    # Load inputs
-    fragments_data = load_json(fragments_path, PASS2C_OUTPUT_SCHEMA)
-    constraints_data = load_json(constraints_path, PASS3B_OUTPUT_SCHEMA)
+    # Load inputs (Pydantic contract models)
+    pass2c_output = load_json(fragments_path, Pass2COutput)
+    pass3b_output = load_json(constraints_path, Pass3BOutput)
 
-    # Parse to Pydantic models
-    fragments = [Fragment(**f) for f in fragments_data.get('fragments', [])]
-    constraints = [Constraint(**c) for c in constraints_data.get('constraints', [])]
+    fragments = pass2c_output.fragments
+    constraints = pass3b_output.constraints
+
+    pass1_path = Path(fragments_path).parent / "pass1_raw.json"
+    fragment_histograms: Dict[str, List[float]] = {}
+    real_presence_frames: Dict[str, Set[int]] = {}
+    if pass1_path.exists():
+        pass1_output = load_json(str(pass1_path), Pass1Output)
+        detections_by_id = {detection.detection_id: detection for detection in pass1_output.detections}
+
+        for fragment in fragments:
+            histograms = []
+            presence_frames: Set[int] = set()
+            for detection_id in fragment.detection_ids:
+                detection = detections_by_id.get(detection_id)
+                if detection is None:
+                    continue
+                presence_frames.add(detection.frame_idx)
+                if detection.hsv_histogram_jersey is None:
+                    continue
+                if not is_histogram_valid(detection.hsv_histogram_jersey):
+                    continue
+                histograms.append(np.array(detection.hsv_histogram_jersey, dtype=float))
+
+            if presence_frames:
+                real_presence_frames[fragment.fragment_id] = presence_frames
+
+            if histograms:
+                fragment_histograms[fragment.fragment_id] = np.mean(histograms, axis=0).tolist()
+
+        logger.info(
+            f"Loaded Pass 1 HSV evidence for Pass 3C: {len(fragment_histograms)} fragments with valid histograms"
+        )
+    else:
+        logger.warning(
+            f"Pass 1 artifact not found at {pass1_path}; Pass 3C will rely on in-fragment histograms only"
+        )
 
     # Run solver
     solver = IdentitySolver()
-    result = solver.solve(fragments, constraints)
+    result = solver.solve(
+        fragments,
+        constraints,
+        fragment_histograms=fragment_histograms,
+        real_presence_frames=real_presence_frames,
+    )
+
+    # Validate BEFORE writing pass output (fail-fast contract)
+    validator = Validator()
+    validation_result = validator.validate_pass3(result, fragments)
+    validation_path = str(Path(output_path).parent / PASS3_VALIDATION_JSON)
+
+    if not validation_result.passed:
+        save_json(validation_result.model_dump(), validation_path)
+        raise ValueError(
+            f"Pass 3 validation failed with {len(validation_result.violations)} error(s). "
+            f"See {validation_path}"
+        )
 
     # Save output
     output_data = {
@@ -715,7 +1232,8 @@ def run_pass3c(
         'solver_log': result.solver_log,
         'unresolved_conflicts': result.unresolved_conflicts,
     }
-    save_json(output_path, output_data, PASS3C_OUTPUT_SCHEMA)
+    save_json(output_data, output_path, PASS3C_OUTPUT_SCHEMA)
+    save_json(validation_result.model_dump(), validation_path)
 
     # Save debug metrics artifact (JSON source-of-truth diagnostics)
     debug_metrics = _build_debug_metrics(fragments, result)

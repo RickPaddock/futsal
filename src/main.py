@@ -23,6 +23,9 @@ from .skills.pass1_extractor import run_pass1, render_pass1_debug_video_from_art
 from .skills.pass2a_fragmenter import run_pass2a, render_pass2a_debug_video_from_artifact
 from .skills.pass2b_fragment_scoring import run_pass2b
 from .skills.pass2c_ghost_generator import run_pass2c
+from .skills.pass3a_candidate_generator import run_pass3a
+from .skills.pass3b_constraint_builder import run_pass3b
+from .skills.pass3c_identity_solver import run_pass3c
 from .core.data_models import Pass1Output
 
 logger = get_logger("main")
@@ -339,8 +342,46 @@ Examples:
 
         # TODO: Run Pass 3
         if 3 in passes_to_run:
-            logger.error("Pass 3A and 3B not yet implemented (Pass 3C solver is ready)")
-            return 1
+            logger.info("Starting Pass 3A: Identity Candidate Generation")
+            logger.info("-" * 80)
+
+            pass2c_output_path = output_dir / "pass2_ghosts.json"
+            if not pass2c_output_path.exists():
+                logger.error(f"Pass 2C output not found: {pass2c_output_path}")
+                logger.error("Please run Pass 2 first: python -m src.main --input <video> --pass 2")
+                return 1
+
+            pass3a_output = run_pass3a(input_dir=output_dir, output_dir=output_dir)
+            logger.info("")
+            logger.info("[OK] Pass 3A Complete!")
+            logger.info(f"   Candidates generated: {len(pass3a_output.candidates)}")
+            logger.info(f"   Output: {output_dir / 'pass3_candidates.json'}")
+            logger.info(f"   Validation: {output_dir / 'pass3_validation.json'}")
+            logger.info("")
+
+            logger.info("Starting Pass 3B: Constraint Graph Construction")
+            logger.info("-" * 80)
+            pass3b_output = run_pass3b(input_dir=output_dir, output_dir=output_dir)
+            logger.info("")
+            logger.info("[OK] Pass 3B Complete!")
+            logger.info(f"   Constraints generated: {len(pass3b_output.constraints)}")
+            logger.info(f"   Output: {output_dir / 'pass3_constraints.json'}")
+            logger.info(f"   Validation: {output_dir / 'pass3_validation.json'}")
+            logger.info("")
+
+            logger.info("Starting Pass 3C: Identity Commit")
+            logger.info("-" * 80)
+            pass3c_output = run_pass3c(
+                fragments_path=str(output_dir / "pass2_ghosts.json"),
+                constraints_path=str(output_dir / "pass3_constraints.json"),
+                output_path=str(output_dir / "pass3_identity_commit.json"),
+            )
+            logger.info("")
+            logger.info("[OK] Pass 3C Complete!")
+            logger.info(f"   Committed identities: {len(pass3c_output.identities)}")
+            logger.info(f"   Output: {output_dir / 'pass3_identity_commit.json'}")
+            logger.info(f"   Debug metrics: {output_dir / 'debug_metrics.json'}")
+            logger.info("")
 
         logger.info("=" * 80)
         logger.info("[OK] Pipeline Complete!")

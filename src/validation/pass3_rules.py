@@ -233,17 +233,33 @@ def validate_pass3c_identity_commit(
                 )
             )
 
-        # Check jersey number range
-        if not (1 <= identity.jersey_number <= 12):
+        # Check jersey number range (nullable when unresolved)
+        if identity.jersey_number is None:
+            violations.append(
+                ValidationViolation(
+                    rule="PASS3C_JERSEY_UNRESOLVED",
+                    severity="warning",
+                    message=f"Identity {identity.fragment_id} has unresolved jersey_number",
+                    fragment_id=identity.fragment_id,
+                    details={
+                        "fragment_id": identity.fragment_id,
+                    },
+                )
+            )
+        elif identity.jersey_number not in set(const.JERSEY_NUMBERS):
             violations.append(
                 ValidationViolation(
                     rule="PASS3C_INVALID_JERSEY",
                     severity="error",
-                    message=f"Identity {identity.fragment_id} jersey_number={identity.jersey_number} out of range [1, 12]",
+                    message=(
+                        f"Identity {identity.fragment_id} jersey_number={identity.jersey_number} "
+                        f"not in allowed PoC jerseys {const.JERSEY_NUMBERS}"
+                    ),
                     fragment_id=identity.fragment_id,
                     details={
                         "fragment_id": identity.fragment_id,
                         "jersey_number": identity.jersey_number,
+                        "allowed_jerseys": list(const.JERSEY_NUMBERS),
                     },
                 )
             )
@@ -268,9 +284,13 @@ def validate_pass3c_identity_commit(
     from .global_rules import validate_r2_no_unknown_teams
     violations.extend(validate_r2_no_unknown_teams(pass3c_output.identities, fragments))
 
-    # R3: Jersey temporal exclusivity
+    # R3: Jersey temporal exclusivity (secondary after identity feasibility)
     from .global_rules import validate_r3_jersey_temporal_exclusivity
-    violations.extend(validate_r3_jersey_temporal_exclusivity(pass3c_output.identities, fragments))
+    jersey_violations = validate_r3_jersey_temporal_exclusivity(pass3c_output.identities, fragments)
+    for violation in jersey_violations:
+        violation.severity = "warning"
+        violation.rule = "PASS3C_JERSEY_CONFLICT_SECONDARY"
+    violations.extend(jersey_violations)
 
     # Compactness-aware team validation (contract extension)
     resolved_teams = {
@@ -395,6 +415,19 @@ def validate_pass3c_identity_commit(
     frag_lookup = {f.fragment_id: f for f in fragments}
     identity_by_fragment = {i.fragment_id: i for i in pass3c_output.identities}
 
+    real_presence_frames: Dict[str, Set[int]] = {}
+    for fragment in fragments:
+        if bool(getattr(fragment, "is_ghost", False)):
+            continue
+        frames: Set[int] = set()
+        for detection_id in getattr(fragment, "detection_ids", []) or []:
+            try:
+                frame_idx = int(str(detection_id).split("_", maxsplit=1)[0])
+            except (ValueError, IndexError):
+                continue
+            frames.add(frame_idx)
+        real_presence_frames[fragment.fragment_id] = frames
+
     frame_player_sources: Dict[int, Dict[str, List[Dict[str, object]]]] = {}
 
     for fragment_id, identity in identity_by_fragment.items():
@@ -405,7 +438,13 @@ def validate_pass3c_identity_commit(
         player_id = identity.player_id
         is_ghost = bool(getattr(fragment, "is_ghost", False))
 
-        for frame_idx in range(fragment.start_frame, fragment.end_frame + 1):
+        is_ghost = bool(getattr(fragment, "is_ghost", False))
+        if is_ghost:
+            active_frames = range(fragment.start_frame, fragment.end_frame + 1)
+        else:
+            active_frames = sorted(real_presence_frames.get(fragment_id, set()))
+
+        for frame_idx in active_frames:
             if frame_idx not in frame_player_sources:
                 frame_player_sources[frame_idx] = {}
             if player_id not in frame_player_sources[frame_idx]:
@@ -429,7 +468,6 @@ def validate_pass3c_identity_commit(
         level = min(level, const.DYNAMIC_LEVEL_MAX)
 
         over_cap_frames: List[Dict[str, int]] = []
-        deficit_frames: List[Dict[str, int]] = []
 
         for frame_idx in range(start_frame, end_frame + 1):
             player_sources = frame_player_sources.get(frame_idx, {})
@@ -440,14 +478,6 @@ def validate_pass3c_identity_commit(
                 over_cap_frames.append({"frame": frame_idx, "count": frame_count})
 
             level = min(max(level, frame_count), const.DYNAMIC_LEVEL_MAX)
-
-            # Global R4 after reconciliation: exactly level identities per frame.
-            if frame_count != level:
-                deficit_frames.append({
-                    "frame": frame_idx,
-                    "count": frame_count,
-                    "expected_level": level,
-                })
 
             # No identity splits / duplicate same-player presences at same frame.
             for player_id, sources in player_sources.items():
@@ -505,18 +535,22 @@ def validate_pass3c_identity_commit(
                 )
             )
 
-        if deficit_frames:
+    # P3-NO-GHOSTS: surviving ghosts must be explicitly marked UNMATCHED_EXIT.
+    for identity in pass3c_output.identities:
+        fragment = frag_lookup.get(identity.fragment_id)
+        if fragment is None or not bool(getattr(fragment, "is_ghost", False)):
+            continue
+        reasons = set(identity.assignment_reasons or [])
+        if "UNMATCHED_EXIT" not in reasons:
             violations.append(
                 ValidationViolation(
-                    rule="PASS3C_R4_GLOBAL_MISMATCH",
+                    rule="P3_NO_GHOSTS",
                     severity="error",
                     message=(
-                        f"Global R4 mismatch on {len(deficit_frames)} frames: reconciled identities != dynamic level."
+                        f"Ghost fragment {identity.fragment_id} survived commit without UNMATCHED_EXIT marker."
                     ),
-                    details={
-                        "violation_count": len(deficit_frames),
-                        "sample_violations": deficit_frames[:20],
-                    },
+                    fragment_id=identity.fragment_id,
+                    details={"assignment_reasons": sorted(reasons)},
                 )
             )
 

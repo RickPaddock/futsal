@@ -224,6 +224,83 @@ PASS2C_OUTPUT_SCHEMA = {
 
 
 # ============================================================================
+# PASS 3A / 3B SCHEMAS
+# ============================================================================
+
+IDENTITY_CANDIDATE_SCHEMA = {
+    "type": "object",
+    "required": ["fragment_id", "team_evidence", "jersey_evidence", "player_evidence"],
+    "properties": {
+        "fragment_id": {"type": "string"},
+        "candidate_team": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "string", "enum": ["team_a", "team_b", "unknown"]},
+            ]
+        },
+        "candidate_jersey": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "integer", "minimum": 1, "maximum": 12},
+            ]
+        },
+        "candidate_player_id": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "string"},
+            ]
+        },
+        "team_evidence": {"type": "object", "additionalProperties": {"type": "number"}},
+        "jersey_evidence": {"type": "object", "additionalProperties": {"type": "number"}},
+        "player_evidence": {"type": "object", "additionalProperties": {"type": "number"}},
+    },
+}
+
+
+PASS3A_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["candidates"],
+    "properties": {
+        "candidates": {"type": "array", "items": IDENTITY_CANDIDATE_SCHEMA},
+    },
+}
+
+
+CONSTRAINT_SCHEMA = {
+    "type": "object",
+    "required": ["constraint_id", "constraint_type", "fragment_ids", "weight", "reason"],
+    "properties": {
+        "constraint_id": {"type": "string"},
+        "constraint_type": {"type": "string", "enum": ["must_same", "cannot_same", "soft_same"]},
+        "fragment_ids": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 2,
+        },
+        "value": {},
+        "weight": {"type": "number"},
+        "reason": {"type": "string"},
+    },
+}
+
+
+PASS3B_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["constraints", "constraint_graph"],
+    "properties": {
+        "constraints": {"type": "array", "items": CONSTRAINT_SCHEMA},
+        "constraint_graph": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+        },
+    },
+}
+
+
+# ============================================================================
 # PASS 3C SCHEMAS
 # ============================================================================
 
@@ -237,7 +314,12 @@ COMMITTED_IDENTITY_SCHEMA = {
         "fragment_id": {"type": "string"},
         "player_id": {"type": "string", "pattern": "^P\\d{2}_(team_a|team_b)$"},  # Format: P07_team_a
         "team": {"type": "string", "enum": ["team_a", "team_b"]},  # R2: No "unknown"
-        "jersey_number": {"type": "integer", "minimum": 1, "maximum": 12},
+        "jersey_number": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "integer", "minimum": 1, "maximum": 12}
+            ]
+        },
         "assignment_method": {
             "type": "string",
             "enum": ["kmeans", "inherited", "constraint_solved", "ghost_inherited"]
@@ -381,6 +463,8 @@ SCHEMA_REGISTRY = {
     "pass1_raw": PASS1_OUTPUT_SCHEMA,
     "pass2_fragments": PASS2A_OUTPUT_SCHEMA,
     "pass2_ghosts": PASS2C_OUTPUT_SCHEMA,
+    "pass3_candidates": PASS3A_OUTPUT_SCHEMA,
+    "pass3_constraints": PASS3B_OUTPUT_SCHEMA,
     "pass3_identity_commit": PASS3C_OUTPUT_SCHEMA,
     "ball_interpolation": BALL_INTERPOLATION_OUTPUT_SCHEMA,
     "debug_metrics": DEBUG_METRICS_OUTPUT_SCHEMA,
