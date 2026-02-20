@@ -20,6 +20,7 @@ from ..core.data_models import (
     ValidationViolation,
 )
 from ..core.types import FragmentQuality
+from ..core import constants as const
 
 
 def validate_pass2a_fragments(pass2a_output: Pass2AOutput) -> List[ValidationViolation]:
@@ -328,6 +329,65 @@ def validate_pass2a_frame_coverage(
                         "extra_frames_sample": extra_frames[:20],
                         "duplicated_frames_count": len(duplicated_frames),
                         "duplicated_frames_sample": duplicated_frames[:20],
+                    },
+                )
+            )
+
+    return violations
+
+
+def validate_pass2a_jersey_ambiguity(
+    pass2a_output: Pass2AOutput,
+    pass1_output: Pass1Output,
+) -> List[ValidationViolation]:
+    """
+    Diagnostic (non-fatal) check: detect fragments that may span two physical players.
+
+    If a fragment shows ≥2 disjoint dominant jerseys (each meeting JERSEY_MIN_OBSERVATIONS
+    and JERSEY_MIN_CONFIDENCE), it is identity-ambiguous — the tracker may have bridged
+    two real players without triggering a split.
+
+    This does NOT cause a pipeline failure. It is a warning signal for audit purposes.
+    Per CLAUDE.md Pass 2A Responsibility Boundary: Pass 2A may produce identity-ambiguous
+    fragments; Pass 3 is responsible for global identity feasibility.
+
+    Rule ID: PASS2A_JERSEY_AMBIGUOUS (severity=warning, non-blocking)
+    """
+    violations = []
+    det_by_id = {det.detection_id: det for det in pass1_output.detections}
+    min_conf = const.JERSEY_MIN_CONFIDENCE
+    min_obs = const.JERSEY_MIN_OBSERVATIONS
+
+    for frag in pass2a_output.fragments:
+        if frag.is_ghost:
+            continue
+
+        # Collect high-confidence jersey observations
+        jersey_obs: Dict[int, int] = {}  # jersey_number -> count
+        for det_id in frag.detection_ids:
+            det = det_by_id.get(det_id)
+            if det and det.jersey_number is not None:
+                if det.jersey_confidence >= min_conf:
+                    jersey_obs[det.jersey_number] = jersey_obs.get(det.jersey_number, 0) + 1
+
+        # Find dominant jerseys: each appearing >= JERSEY_MIN_OBSERVATIONS times
+        dominant = [j for j, cnt in jersey_obs.items() if cnt >= min_obs]
+
+        if len(dominant) >= 2:
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2A_JERSEY_AMBIGUOUS",
+                    severity="warning",
+                    message=(
+                        f"Fragment {frag.fragment_id} (track {frag.original_track_id}) "
+                        f"shows {len(dominant)} dominant jerseys — may span two physical players"
+                    ),
+                    details={
+                        "fragment_id": frag.fragment_id,
+                        "track_id": frag.original_track_id,
+                        "dominant_jerseys": sorted(dominant),
+                        "jersey_observation_counts": jersey_obs,
+                        "fragment_length_frames": frag.end_frame - frag.start_frame + 1,
                     },
                 )
             )

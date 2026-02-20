@@ -25,13 +25,14 @@ from .skills.pass2b_fragment_scoring import run_pass2b
 from .skills.pass2c_ghost_generator import run_pass2c
 from .skills.pass3a_candidate_generator import run_pass3a
 from .skills.pass3b_constraint_builder import run_pass3b
+from .skills.pass3_debug_visualizer import render_pass3_debug_video_from_artifact
 from .skills.pass3c_identity_solver import run_pass3c
 from .core.data_models import Pass1Output
 
 logger = get_logger("main")
 
 ALLOWED_VIDEO_OUTPUT_PASSES = {"1", "2", "3", "ball", "viz"}
-IMPLEMENTED_VIDEO_OUTPUT_PASSES = {"1", "2"}
+IMPLEMENTED_VIDEO_OUTPUT_PASSES = {"1", "2", "3"}
 
 
 def _parse_video_output_option(value: str) -> Set[str]:
@@ -118,7 +119,7 @@ Examples:
         help=(
             "Comma-separated pass keys for debug video output. "
             "Examples: 1,2,3. "
-            "Implemented: 1 (raw detections), 2 (fragments + quality + ghosts)"
+            "Implemented: 1 (raw detections), 2 (fragments + quality + ghosts), 3 (committed identity)"
         )
     )
 
@@ -381,6 +382,51 @@ Examples:
             logger.info(f"   Committed identities: {len(pass3c_output.identities)}")
             logger.info(f"   Output: {output_dir / 'pass3_identity_commit.json'}")
             logger.info(f"   Debug metrics: {output_dir / 'debug_metrics.json'}")
+            if "3" in args.video_output:
+                pass3_debug_path = output_dir / "pass3_debug.mp4"
+                logger.info("   Rendering Pass 3 debug video (committed identity overlays)...")
+                render_pass3_debug_video_from_artifact(
+                    video_path=str(video_path),
+                    pass1_output_path=str(output_dir / "pass1_raw.json"),
+                    pass2c_output_path=str(output_dir / "pass2_ghosts.json"),
+                    pass3_output_path=str(output_dir / "pass3_identity_commit.json"),
+                    debug_video_path=str(pass3_debug_path),
+                    start_frame=args.start_frame,
+                    end_frame=args.end_frame,
+                )
+                logger.info(f"   Debug video: {pass3_debug_path}")
+            logger.info("")
+
+        if "3" in args.video_output and 3 not in passes_to_run:
+            pass1_output_path = output_dir / "pass1_raw.json"
+            pass2c_output_path = output_dir / "pass2_ghosts.json"
+            pass3_output_path = output_dir / "pass3_identity_commit.json"
+
+            if not pass1_output_path.exists():
+                logger.error(f"Cannot render Pass 3 debug video: missing {pass1_output_path}")
+                logger.error("Run Pass 1 first or run without --pass to generate artifacts")
+                return 1
+            if not pass2c_output_path.exists():
+                logger.error(f"Cannot render Pass 3 debug video: missing {pass2c_output_path}")
+                logger.error("Run Pass 2 first or run without --pass to generate artifacts")
+                return 1
+            if not pass3_output_path.exists():
+                logger.error(f"Cannot render Pass 3 debug video: missing {pass3_output_path}")
+                logger.error("Run Pass 3 first or run without --pass to generate artifacts")
+                return 1
+
+            pass3_debug_path = output_dir / "pass3_debug.mp4"
+            logger.info("Generating Pass 3 debug video from existing artifacts (committed identity)")
+            render_pass3_debug_video_from_artifact(
+                video_path=str(video_path),
+                pass1_output_path=str(pass1_output_path),
+                pass2c_output_path=str(pass2c_output_path),
+                pass3_output_path=str(pass3_output_path),
+                debug_video_path=str(pass3_debug_path),
+                start_frame=args.start_frame,
+                end_frame=args.end_frame,
+            )
+            logger.info(f"Pass 3 debug video written: {pass3_debug_path}")
             logger.info("")
 
         logger.info("=" * 80)

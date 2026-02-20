@@ -108,11 +108,21 @@ KMEANS_MIN_HSV_CONSISTENCY = 0.35
 JERSEY_NUMBERS = [4, 7, 10]
 MAX_CONCURRENT_PLAYERS = 12  # Futsal regulation: 6v6
 
-# Jersey temporal exclusivity thresholds (Pass 2A)
+# Jersey temporal exclusivity thresholds (Pass 2A - Trigger 3 ownership voting)
 # Per IMPLEMENTATION_PLAN.md: Use voting/consensus, not first appearance
-JERSEY_MIN_OBSERVATIONS = 3  # Minimum jersey observations to consider it "owned" by a fragment
-JERSEY_MIN_CONFIDENCE = 0.5  # Minimum confidence for jersey observations to count
-JERSEY_MAJORITY_THRESHOLD = 0.5  # Fragment must have ≥50% observations with same jersey to "own" it
+# Tightened (2026-02-20): raised from 3/0.5/0.5 to filter cross-player crop contamination
+JERSEY_MIN_OBSERVATIONS = 5   # Minimum jersey observations to consider it "owned" by a fragment
+JERSEY_MIN_CONFIDENCE = 0.6   # Minimum confidence for jersey observations to count
+JERSEY_MAJORITY_THRESHOLD = 0.7  # Fragment must have ≥70% observations with same jersey to "own" it
+
+# Jersey change split thresholds (Pass 2A - Trigger 2)
+# Both sides must exceed JERSEY_CHANGE_MIN_CONF; new jersey confirmed by N consecutive sampled obs
+JERSEY_CHANGE_MIN_CONF = 0.65          # Min confidence on BOTH sampled obs to trigger jersey-change split
+JERSEY_CHANGE_CONFIRM_OBSERVATIONS = 2  # Consecutive confirming sampled obs needed before split fires
+
+# Jersey temporal conflict minimum overlap (Pass 2A - Trigger 3)
+# Only split if fragments overlap by at least this many frames (brief boundary noise is skipped)
+JERSEY_TEMPORAL_MIN_OVERLAP_FRAMES = 5  # Min frame overlap to trigger a temporal conflict split
 
 # Optional jersey-to-player display labels for visualization overlays.
 # Used only by visualization layer (does NOT affect identity inference or validation).

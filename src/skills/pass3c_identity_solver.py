@@ -38,6 +38,7 @@ from ..core.data_models import (
     FrameMetrics,
 )
 from ..core.types import TeamID, ConstraintType, AssignmentMethod
+from ..core import constants as const
 from ..core.constants import KMEANS_N_CLUSTERS, HSV_BINS
 from ..core.constants import COMPACT_CLUSTER_MAX_MEAN_DISTANCE
 from ..core.constants import KMEANS_MIN_FRAGMENT_QUALITY_SCORE, KMEANS_MIN_HSV_CONSISTENCY
@@ -64,6 +65,8 @@ class IdentitySolver:
         constraints: List[Constraint],
         fragment_histograms: Optional[Dict[str, List[float]]] = None,
         real_presence_frames: Optional[Dict[str, Set[int]]] = None,
+        fragment_jersey_evidence: Optional[Dict[str, int]] = None,
+        fragment_jersey_scores: Optional[Dict[str, Dict[int, float]]] = None,
     ) -> Pass3COutput:
         """
         Solve identity using constraint satisfaction.
@@ -102,12 +105,19 @@ class IdentitySolver:
             refined_identity_groups,
             fragment_histograms=fragment_histograms,
             real_presence_frames=real_presence_frames,
+            fragment_jersey_scores=fragment_jersey_scores,
         )
         self.logger.info(f"Assigned teams: {sum(1 for t in team_assignments.values() if t == TeamID.TEAM_A)} team_a, "
                         f"{sum(1 for t in team_assignments.values() if t == TeamID.TEAM_B)} team_b")
 
         # Jersey inheritance (non-fatal if incomplete/conflicting)
-        jersey_assignments = self._apply_jersey_inheritance(fragments, refined_identity_groups, team_assignments)
+        jersey_assignments = self._apply_jersey_inheritance(
+            fragments,
+            refined_identity_groups,
+            team_assignments,
+            fragment_jersey_evidence=fragment_jersey_evidence,
+            fragment_jersey_scores=fragment_jersey_scores,
+        )
         self.logger.info(f"Applied jersey inheritance: {len(jersey_assignments)} fragments with jerseys")
 
         # Create committed identities
@@ -117,6 +127,7 @@ class IdentitySolver:
             team_assignments,
             jersey_assignments,
             retired_ghost_fragments,
+            fragment_jersey_scores=fragment_jersey_scores,
         )
         self.logger.info(f"Created {len(committed_identities)} committed identities")
 
@@ -355,6 +366,7 @@ class IdentitySolver:
         identity_groups: Dict[str, Set[str]],
         fragment_histograms: Optional[Dict[str, List[float]]] = None,
         real_presence_frames: Optional[Dict[str, Set[int]]] = None,
+        fragment_jersey_scores: Optional[Dict[str, Dict[int, float]]] = None,
     ) -> Tuple[Dict[str, TeamID], Dict[str, Any]]:
         """
         Assign teams via K-means clustering (exclude ghosts).
@@ -437,6 +449,13 @@ class IdentitySolver:
             centroid = kmeans.cluster_centers_[cluster_idx]
             distances = np.linalg.norm(cluster_points - centroid, axis=1)
             cluster_compactness[cluster_idx] = float(np.mean(distances))
+
+        # Secondary evidence: cluster with stronger jersey certainty is likely bibbed.
+        cluster_jersey_support: Dict[int, float] = {cluster_idx: 0.0 for cluster_idx in range(KMEANS_N_CLUSTERS)}
+        if fragment_jersey_scores:
+            for frag, label in zip(valid_frags, labels):
+                per_fragment_scores = fragment_jersey_scores.get(frag.fragment_id, {})
+                cluster_jersey_support[label] += float(sum(per_fragment_scores.values()))
 
         # Compactness-guided deterministic team mapping (not raw label index).
         # Lower compactness = tighter cluster = stronger bibbed team evidence.
@@ -531,6 +550,7 @@ class IdentitySolver:
             "compactness_ratio": compactness_ratio,
             "bibbed_team_evidence": bibbed_team_evidence,
             "cluster_label_to_team": {str(k): v.value for k, v in cluster_to_team.items()},
+            "cluster_jersey_support": {str(k): float(v) for k, v in cluster_jersey_support.items()},
             "kmeans_input_count": len(valid_histograms),
             **rebalance_diagnostics,
         }
@@ -717,6 +737,8 @@ class IdentitySolver:
         fragments: List[Fragment],
         identity_groups: Dict[str, Set[str]],
         team_assignments: Dict[str, TeamID],
+        fragment_jersey_evidence: Optional[Dict[str, int]] = None,
+        fragment_jersey_scores: Optional[Dict[str, Dict[int, float]]] = None,
     ) -> Dict[str, int]:
         """
         Apply jersey inheritance (bidirectional with temporal exclusivity check).
@@ -733,8 +755,21 @@ class IdentitySolver:
         # Build fragment lookup
         frag_lookup = {f.fragment_id: f for f in fragments}
 
-        # Extract initial jersey assignments from detections
+        # Extract initial jersey assignments from Pass 1 evidence when available,
+        # falling back to any jersey value already present on fragment objects.
         initial_jerseys = {}
+        if fragment_jersey_scores:
+            for fragment_id, score_map in fragment_jersey_scores.items():
+                if not score_map:
+                    continue
+                best_jersey = max(score_map, key=score_map.get)
+                initial_jerseys[fragment_id] = int(best_jersey)
+
+        if fragment_jersey_evidence:
+            for fragment_id, jersey_number in fragment_jersey_evidence.items():
+                if jersey_number is not None:
+                    initial_jerseys[fragment_id] = jersey_number
+
         for frag in fragments:
             if hasattr(frag, 'jersey_number') and frag.jersey_number is not None:
                 initial_jerseys[frag.fragment_id] = frag.jersey_number
@@ -863,6 +898,7 @@ class IdentitySolver:
         team_assignments: Dict[str, TeamID],
         jersey_assignments: Dict[str, int],
         retired_ghost_fragments: Set[str],
+        fragment_jersey_scores: Optional[Dict[str, Dict[int, float]]] = None,
     ) -> List[CommittedIdentity]:
         """
         Create committed identity objects.
@@ -879,17 +915,12 @@ class IdentitySolver:
 
         jersey_usage_timeline: Dict[int, List[Tuple[int, int]]] = defaultdict(list)
 
+        group_candidates: List[Dict[str, Any]] = []
+
         for root, group_frag_ids in identity_groups.items():
             active_group_frag_ids = [fid for fid in group_frag_ids if fid not in retired_ghost_fragments]
             if not active_group_frag_ids:
                 continue
-
-            # Find jersey for this group (if any)
-            group_jerseys = [
-                jersey_assignments.get(fid)
-                for fid in active_group_frag_ids
-            ]
-            group_jerseys = [j for j in group_jerseys if j is not None]
 
             # Find team for this group
             group_teams = [team_assignments.get(fid) for fid in active_group_frag_ids]
@@ -900,15 +931,25 @@ class IdentitySolver:
                 for fid in active_group_frag_ids
             )
 
-            # Determine player_id
-            if group_jerseys:
-                # Use most common jersey in group
-                jersey_counts = defaultdict(int)
-                for jersey in group_jerseys:
-                    jersey_counts[jersey] += 1
-                dominant_jersey = max(jersey_counts, key=jersey_counts.get)
+            group_jersey_scores: Dict[int, float] = defaultdict(float)
+            if fragment_jersey_scores:
+                for fid in active_group_frag_ids:
+                    per_fragment_scores = fragment_jersey_scores.get(fid, {})
+                    for jersey, score in per_fragment_scores.items():
+                        group_jersey_scores[int(jersey)] += float(score)
+
+            # Include inherited evidence at lower weight so short high-confidence windows can still win.
+            for fid in active_group_frag_ids:
+                jersey = jersey_assignments.get(fid)
+                if jersey is not None:
+                    group_jersey_scores[int(jersey)] += 0.25
+
+            if group_jersey_scores:
+                dominant_jersey = max(group_jersey_scores, key=group_jersey_scores.get)
+                dominant_jersey_score = float(group_jersey_scores[dominant_jersey])
             else:
                 dominant_jersey = None
+                dominant_jersey_score = 0.0
 
             if group_teams:
                 # Use most common team in group
@@ -928,22 +969,46 @@ class IdentitySolver:
                 for fid in active_group_frag_ids
             )
 
-            if dominant_jersey is not None and not self._jersey_slot_available(
-                jersey_usage_timeline,
-                dominant_jersey,
-                group_start,
-                group_end,
-            ):
+            group_candidates.append(
+                {
+                    "root": root,
+                    "active_frag_ids": active_group_frag_ids,
+                    "team": dominant_team,
+                    "start": group_start,
+                    "end": group_end,
+                    "jersey": dominant_jersey,
+                    "jersey_score": dominant_jersey_score,
+                }
+            )
+
+        # Resolve jersey conflicts by strongest evidence first.
+        resolved_group_jersey: Dict[str, Optional[int]] = {}
+        for candidate in sorted(
+            group_candidates,
+            key=lambda item: (item["jersey"] is not None, item["jersey_score"], -(item["end"] - item["start"])),
+            reverse=True,
+        ):
+            root = candidate["root"]
+            jersey = candidate["jersey"]
+            if jersey is None:
+                resolved_group_jersey[root] = None
+                continue
+
+            if self._jersey_slot_available(jersey_usage_timeline, jersey, candidate["start"], candidate["end"]):
+                jersey_usage_timeline[jersey].append((candidate["start"], candidate["end"]))
+                resolved_group_jersey[root] = int(jersey)
+            else:
                 self.logger.warning(
                     "Jersey assignment conflict after collapse for frame window "
-                    f"{group_start}-{group_end}; preserving unresolved jersey (no synthetic fallback)"
+                    f"{candidate['start']}-{candidate['end']}; preserving unresolved jersey (no synthetic fallback)"
                 )
-                dominant_jersey = None
+                resolved_group_jersey[root] = None
 
-            if dominant_jersey is not None:
-                jersey_usage_timeline[dominant_jersey].append((group_start, group_end))
-
-            # Generate player_id (unique per collapsed identity group)
+        # Generate player_ids (unique per collapsed identity group)
+        for candidate in group_candidates:
+            root = candidate["root"]
+            dominant_team = candidate["team"]
+            dominant_jersey = resolved_group_jersey.get(root)
             player_id = f"P{player_id_counter:02d}_{dominant_team.value}"
             player_id_counter += 1
 
@@ -1173,6 +1238,8 @@ def run_pass3c(
     pass1_path = Path(fragments_path).parent / "pass1_raw.json"
     fragment_histograms: Dict[str, List[float]] = {}
     real_presence_frames: Dict[str, Set[int]] = {}
+    fragment_jersey_evidence: Dict[str, int] = {}
+    fragment_jersey_scores: Dict[str, Dict[int, float]] = {}
     if pass1_path.exists():
         pass1_output = load_json(str(pass1_path), Pass1Output)
         detections_by_id = {detection.detection_id: detection for detection in pass1_output.detections}
@@ -1180,11 +1247,29 @@ def run_pass3c(
         for fragment in fragments:
             histograms = []
             presence_frames: Set[int] = set()
+            jersey_conf_samples: Dict[int, List[float]] = defaultdict(list)
             for detection_id in fragment.detection_ids:
                 detection = detections_by_id.get(detection_id)
                 if detection is None:
                     continue
                 presence_frames.add(detection.frame_idx)
+
+                if (
+                    detection.jersey_number is not None
+                    and detection.jersey_number in const.JERSEY_NUMBERS
+                    and detection.jersey_confidence >= const.JERSEY_CONF_THRESHOLD
+                ):
+                    jersey_conf_samples[int(detection.jersey_number)].append(float(detection.jersey_confidence))
+
+                if detection.jersey_probs:
+                    for jersey_key, score in detection.jersey_probs.items():
+                        try:
+                            jersey_number = int(jersey_key)
+                        except (TypeError, ValueError):
+                            continue
+                        if jersey_number in const.JERSEY_NUMBERS and score is not None and float(score) > 0:
+                            jersey_conf_samples[int(jersey_number)].append(float(score))
+
                 if detection.hsv_histogram_jersey is None:
                     continue
                 if not is_histogram_valid(detection.hsv_histogram_jersey):
@@ -1196,6 +1281,28 @@ def run_pass3c(
 
             if histograms:
                 fragment_histograms[fragment.fragment_id] = np.mean(histograms, axis=0).tolist()
+
+            if jersey_conf_samples:
+                per_jersey_scores: Dict[int, float] = {}
+                for jersey_number, samples in jersey_conf_samples.items():
+                    if not samples:
+                        continue
+                    top_samples = sorted((float(sample) for sample in samples), reverse=True)[:5]
+                    mean_top = float(sum(top_samples) / len(top_samples))
+                    support_bonus = float(min(len(samples), 5) / 5.0)
+                    per_jersey_scores[int(jersey_number)] = (0.9 * mean_top) + (0.1 * support_bonus)
+
+                if per_jersey_scores:
+                    fragment_jersey_scores[fragment.fragment_id] = per_jersey_scores
+                    best_jersey = max(per_jersey_scores, key=per_jersey_scores.get)
+                else:
+                    best_jersey = None
+
+            else:
+                best_jersey = None
+
+            if best_jersey is not None:
+                fragment_jersey_evidence[fragment.fragment_id] = int(best_jersey)
 
         logger.info(
             f"Loaded Pass 1 HSV evidence for Pass 3C: {len(fragment_histograms)} fragments with valid histograms"
@@ -1212,6 +1319,8 @@ def run_pass3c(
         constraints,
         fragment_histograms=fragment_histograms,
         real_presence_frames=real_presence_frames,
+        fragment_jersey_evidence=fragment_jersey_evidence,
+        fragment_jersey_scores=fragment_jersey_scores,
     )
 
     # Validate BEFORE writing pass output (fail-fast contract)

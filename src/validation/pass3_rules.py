@@ -238,7 +238,7 @@ def validate_pass3c_identity_commit(
             violations.append(
                 ValidationViolation(
                     rule="PASS3C_JERSEY_UNRESOLVED",
-                    severity="warning",
+                    severity="error",
                     message=f"Identity {identity.fragment_id} has unresolved jersey_number",
                     fragment_id=identity.fragment_id,
                     details={
@@ -287,9 +287,6 @@ def validate_pass3c_identity_commit(
     # R3: Jersey temporal exclusivity (secondary after identity feasibility)
     from .global_rules import validate_r3_jersey_temporal_exclusivity
     jersey_violations = validate_r3_jersey_temporal_exclusivity(pass3c_output.identities, fragments)
-    for violation in jersey_violations:
-        violation.severity = "warning"
-        violation.rule = "PASS3C_JERSEY_CONFLICT_SECONDARY"
     violations.extend(jersey_violations)
 
     # Compactness-aware team validation (contract extension)
@@ -332,6 +329,19 @@ def validate_pass3c_identity_commit(
                 rule="PASS3C_MISSING_COMPACTNESS_RATIO",
                 severity="error",
                 message="Pass 3C solver_log missing required 'compactness_ratio' diagnostics",
+            )
+        )
+
+    bibbed_team_evidence = solver_log.get("bibbed_team_evidence")
+    if bibbed_team_evidence in {"ambiguous_diffuse", None}:
+        violations.append(
+            ValidationViolation(
+                rule="PASS3C_BIBBED_TEAM_AMBIGUOUS",
+                severity="error",
+                message=(
+                    "Pass 3C team polarity is ambiguous; solver must provide non-ambiguous bibbed team evidence"
+                ),
+                details={"bibbed_team_evidence": bibbed_team_evidence},
             )
         )
 

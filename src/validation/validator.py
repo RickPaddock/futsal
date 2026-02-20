@@ -76,11 +76,17 @@ class Validator:
         Returns:
             ValidationResult with violations (if any)
         """
-        from .pass2_rules import validate_pass2a_fragments, validate_pass2a_frame_coverage
+        from .pass2_rules import (
+            validate_pass2a_fragments,
+            validate_pass2a_frame_coverage,
+            validate_pass2a_jersey_ambiguity,
+        )
 
         violations = []
         violations.extend(validate_pass2a_fragments(pass2a_output))
         violations.extend(validate_pass2a_frame_coverage(pass2a_output, pass1_output))
+        # Non-blocking diagnostic: detect fragments that may span two physical players
+        violations.extend(validate_pass2a_jersey_ambiguity(pass2a_output, pass1_output))
 
         return self._build_result("pass2a", violations)
 

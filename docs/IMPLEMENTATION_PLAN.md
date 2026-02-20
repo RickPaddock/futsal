@@ -4,6 +4,8 @@
 **Start Date**: 2026-02-17
 **Target Completion**: ~10 days
 
+**Current Runtime Status (clip9)**: ⚠️ Pass 3 now FAIL-FAST by design (CLAUDE-compliant strict validation restored). Current blocking state: unresolved jerseys after collapse.
+
 ---
 
 ## Overview
@@ -221,10 +223,11 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 - [x] **Debug metrics additions** ✅
   - [x] Add `cluster_compactness_a`, `cluster_compactness_b`, `compactness_ratio` to `debug_metrics.json`
   - [x] Add `team_assignment_mode` (`compactness_guided_kmeans`) to solver log
-- [ ] **Pass 3C debug video** (`--video-output 3c` or `--video-output 3`) - Identity commit (LOCK POINT)
-  - [ ] Show: Fragment bboxes colored by final team (team_a=blue, team_b=red)
-  - [ ] Overlays: player_id, jersey numbers, locked team assignments
-  - [ ] Purpose: Verify final identity commit (are teams correct? jerseys correct? no unknowns?)
+- [x] **Pass 3C debug video** (`--video-output 3c` or `--video-output 3`) - Identity commit (LOCK POINT) ✅
+  - [x] Show: Fragment bboxes colored by final team (bibbed team=ORANGE, other team=BLACK)
+  - [x] Overlays: white text on black background (player_id top label, large `#jersey` bottom label)
+  - [x] Purpose: Verify final identity commit (are teams correct? jerseys correct? no unknowns?)
+  - [x] Team allocation confirmation: Pass 3C uses only 2-cluster K-means for team assignment (no secondary subclustering used for allocation)
 
 ---
 
@@ -252,6 +255,8 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - [x] `classify(frame, bbox)` - Return jersey number + confidence
   - [x] Apply JERSEY_CONF_THRESHOLD (0.3, lower per memory learnings)
   - [x] `get_probabilities()` - Return probability distribution for Pass 3A
+  - [x] **PoC mapping lock**: classifier outputs restricted to jersey allowlist (4/7/10)
+  - [x] **No class-index fallback**: unmapped classes now return unresolved (None), never synthetic jersey values
 
 - [x] **[src/detectors/tracker.py](../src/detectors/tracker.py)** - ByteTrack wrapper ✅
   - [x] Initialize with TRACK_HIGH_THRESH (0.6), TRACK_LOW_THRESH (0.1)
@@ -444,6 +449,12 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
 
 ### Pass 3C: Identity Commit (Already completed in Priority 3)
 ✅ See Priority 3
+
+### Pass 3 Runtime Regression (clip9)
+- [x] Pass 3 runs end-to-end successfully on clip9 (exit code 0) ✅
+- [x] Removed synthetic fallback jersey assignment in Pass 3C ✅
+- [x] Overlap hard failures resolved (`PASS3C_PLAYER_OVERLAP_SAME_FRAME`) ✅
+- [x] Jersey conflicts from fabricated `#1` removed; unresolved jerseys now explicit warnings (`PASS3C_JERSEY_UNRESOLVED`) ✅
 
 ---
 
@@ -712,6 +723,41 @@ Complete rebuild of the multi-pass futsal tracking system following strict contr
   - retire matched ghosts,
   - enforce `<=12` identities per frame,
   - fail clip on unresolved ambiguity.
+
+---
+
+## Latest Update (2026-02-19) ⚠️ End-of-Day Status
+
+### Completed Since Last Plan Revision
+- Pass 3A + Pass 3B implemented and wired in CLI flow (`--pass 3` runs 3A→3B→3C).
+- Pass 3C collapse/attribute boundary corrected (collapse first, attributes second).
+- Team-cap reconciliation and collapse overlap handling stabilized for clip9.
+- Synthetic jersey fallback removed; unresolved jersey remains explicit/null instead of fabricated value.
+- PoC jersey allowlist enforced across constants, classifier mapping, candidate generation, and pass3 validation.
+- Pass 3 debug video (`--video-output 3`) active with contract-readable overlays:
+  - Bibbed team = ORANGE, other team = BLACK
+  - White text on black background
+  - Large bottom jersey label (`#number` / `#?`)
+  - **Top-left live counter**: `Players`, `Ghosts`, `Total`
+- Pass 3 debug view is aligned back to committed-identity truth (no pass2-only ghost overlays in Pass 3 debug).
+
+### CLAUDE Contract Re-alignment (critical)
+- Restored strict fail-fast behavior for Pass 3 validation (no silent degradation):
+  - `PASS3C_JERSEY_UNRESOLVED` is blocking (`error`)
+  - Jersey temporal conflicts are blocking again (not downgraded)
+  - Ambiguous bibbed-team evidence is blocking (`PASS3C_BIBBED_TEAM_AMBIGUOUS`)
+- Kept visualization as confirmation layer only (no inference/fixes in debug renderer).
+
+### Runtime Snapshot (latest)
+- Command: `python -m src.main --input videos/input/GoPro_Futsal_part1_CLEANED_clip9.mp4 --pass 3 --video-output 3`
+- Result: **failed intentionally** with strict validation: `Pass 3 validation failed with 55 error(s)`
+- Main blocker class: unresolved jersey assignments after identity collapse (`PASS3C_JERSEY_UNRESOLVED`).
+
+### Immediate Next Steps
+1. Fix Pass 3C jersey resolution at source (post-collapse), preserving R3 temporal exclusivity.
+2. Re-run Pass 3 on clip9 until validation passes under strict rules (no warning downgrades).
+3. Once Pass 3 is passing again, proceed with Ball interpolation skill + validation wiring.
+4. Add regression coverage for this failure class (unresolved jerseys and team-evidence ambiguity).
 
 ---
 

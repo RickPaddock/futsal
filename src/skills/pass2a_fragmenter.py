@@ -459,17 +459,34 @@ class Pass2AFragmenter:
 
             # ✅ SPLIT: Jersey changes (#7 → #4) on sampled observations
             # NUMBER → DIFFERENT NUMBER (hard identity proof)
-            if prev_jersey is not None and curr_jersey is not None and prev_jersey != curr_jersey:
-                split_points.append((curr_det.frame_idx, "jersey_change"))
-                self.split_log.append({
-                    "track_id": track_id,
-                    "frame_idx": curr_det.frame_idx,
-                    "reason": "jersey_change",
-                    "details": (
-                        f"Jersey changed from #{prev_jersey} to #{curr_jersey} "
-                        f"between sampled observations ({prev_det.frame_idx}->{curr_det.frame_idx})"
-                    ),
-                })
+            # GUARD 1: Both sides must exceed JERSEY_CHANGE_MIN_CONF (prevents noisy low-conf reads)
+            # GUARD 2: New jersey must be confirmed by N consecutive sampled obs (prevents one-frame noise)
+            if (prev_jersey is not None and curr_jersey is not None and prev_jersey != curr_jersey
+                    and prev_det.jersey_confidence >= const.JERSEY_CHANGE_MIN_CONF
+                    and curr_det.jersey_confidence >= const.JERSEY_CHANGE_MIN_CONF):
+                # Potential jersey change - look ahead to confirm with N consecutive sampled obs
+                confirm_count = 0
+                for k in range(i + 1, min(i + 1 + const.JERSEY_CHANGE_CONFIRM_OBSERVATIONS, len(sampled_observations))):
+                    look_det = sampled_observations[k]
+                    if (look_det.jersey_number == curr_jersey
+                            and look_det.jersey_confidence >= const.JERSEY_CHANGE_MIN_CONF):
+                        confirm_count += 1
+                    else:
+                        break  # Stop at first non-confirming observation
+
+                if confirm_count >= const.JERSEY_CHANGE_CONFIRM_OBSERVATIONS:
+                    split_points.append((curr_det.frame_idx, "jersey_change"))
+                    self.split_log.append({
+                        "track_id": track_id,
+                        "frame_idx": curr_det.frame_idx,
+                        "reason": "jersey_change",
+                        "details": (
+                            f"Jersey changed from #{prev_jersey} (conf={prev_det.jersey_confidence:.2f}) "
+                            f"to #{curr_jersey} (conf={curr_det.jersey_confidence:.2f}) "
+                            f"between sampled observations ({prev_det.frame_idx}->{curr_det.frame_idx}), "
+                            f"confirmed by {confirm_count} subsequent observations"
+                        ),
+                    })
 
             # ❌ NO SPLIT: Jersey disappearance (#4 → None)
             # Per CLAUDE.md: This is loss of observability, NOT identity change
@@ -741,9 +758,15 @@ class Pass2AFragmenter:
                     frag_a, start_a, end_a, first_a = appearances[i]
                     frag_b, start_b, end_b, first_b = appearances[j]
 
-                    # Check if time ranges overlap
-                    if not (end_a < start_b or end_b < start_a):
-                        # Conflict! Jersey appears on both fragments at overlapping times
+                    # Check if time ranges overlap with minimum duration threshold
+                    # Brief overlaps (< JERSEY_TEMPORAL_MIN_OVERLAP_FRAMES) are classifier noise
+                    # at fragment boundaries — skip to avoid false splits
+                    overlap_start = max(start_a, start_b)
+                    overlap_end = min(end_a, end_b)
+                    overlap_frames = overlap_end - overlap_start + 1
+
+                    if overlap_frames >= const.JERSEY_TEMPORAL_MIN_OVERLAP_FRAMES:
+                        # Genuine sustained conflict! Jersey appears on both fragments at overlapping times
                         # Split the one where jersey appears LATER
                         if first_b > first_a:
                             # Fragment B "stole" the jersey - split it at first_b

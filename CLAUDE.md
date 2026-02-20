@@ -347,6 +347,21 @@ It **must not**:
 
 Loss of observability ≠ identity change.
 
+## Responsibility Boundary (HARD LIMIT)
+
+Pass 2A exists solely to detect and split tracker identity jumps — where the same track ID has provably switched from one physical player to another.
+
+**It must not:**
+- Split for jersey ambiguity that cannot be linked to a specific tracker jump
+- Split to make global jersey uniqueness easier for Pass 3
+- Split to help Pass 3 with identity assignment
+- Guarantee jersey-resolvable fragments
+
+**Absence of a split does NOT imply identity correctness.**
+
+Global identity feasibility (≤12 players, jersey uniqueness) is enforced ONLY in Pass 3.
+Pass 2A may produce fragments that are identity-ambiguous but presence-correct.
+
 ---
 
 ## Responsibilities (STRICT)
@@ -523,6 +538,9 @@ Pass 2A must fail if **any** of the following are true:
 **Algorithm:**
 1. **Resolve identity** using MUST_SAME constraints (track adjacency, ghost continuity)
 2. **Assign teams** via K-means clustering on resolved identities (exclude ghosts)
+  - Team assignment uses a single K=2 clustering stage only
+  - No secondary/sub-clustering is allowed for team allocation
+  - Any optional subcluster analysis is diagnostic-only and must not change team assignment
 3. **Lock teams immediately** via `_locked_team` field (immutable source of truth)
 4. **Apply jersey inheritance** (bidirectional with temporal exclusivity check)
 5. **Validate CANNOT_SAME constraints** (temporal conflicts)
@@ -578,6 +596,12 @@ Pass 2A must fail if **any** of the following are true:
 - Render ghosts as dashed bboxes
 - Render ball (solid = real, dashed = interpolated, no circle = out of play)
 - **Deduplication**: Only suppress SAME track_id (different tracks can overlap)
+
+**Pass 3 Debug Visualization Convention (readability):**
+- Bibbed team bbox color: ORANGE
+- Other team bbox color: BLACK
+- Text overlays: WHITE on BLACK background
+- Jersey number shown as large `#number` at bottom of bbox
 
 **Visualizer Isolation (CRITICAL - Prevents Truth Contamination):**
 - **Visualizer may ONLY consume** `CommittedIdentity` + `ball_interpolation.json`
