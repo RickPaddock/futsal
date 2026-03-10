@@ -80,7 +80,7 @@ PLAYER_TRACKER_CONFIG = "config/bytetrack_fast.yaml"  # Disable GMC for faster t
 
 MIN_FRAGMENT_LENGTH = 10  # Frames - but keep shorter ones, mark as low_quality
 MAX_FRAGMENT_GAP = 60     # Ghost MAX_GAP from memory (2 seconds at 30 FPS)
-MERGE_CONSECUTIVE_SHORT = True  # Merge consecutive short fragments on same track
+MERGE_CONSECUTIVE_SHORT = False  # Fragments must never merge (CLAUDE.md Section 8)
 
 # ============================================================================
 # HSV CLUSTERING

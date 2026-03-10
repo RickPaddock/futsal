@@ -43,7 +43,9 @@
       "Bash(cmd.exe /c \"C:\\\\Users\\\\rickp\\\\Documents\\\\GitRepos\\\\futsal\\\\.venv\\\\Scripts\\\\pip install openpyxl 2>&1\")",
       "Bash(for clip in clip2 clip7 clip11)",
       "Bash(do)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(f=\"videos/output/GoPro_Futsal_part1_CLEANED_$clip/pass2_validation.json\")",
+      "Bash(pip install openpyxl --target .venv/Lib/site-packages -q)"
     ]
   }
 }

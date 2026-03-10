@@ -1181,7 +1181,7 @@ def render_pass2a_debug_video_from_artifact(
     pass2a_output = load_json(Path(pass2a_output_path), Pass2AOutput)
 
     # Optionally load Pass 2C ghosts
-    from ..core.data_models import Pass2BOutput, ScoredFragment
+    from ..core.data_models import Pass2COutput, ScoredFragment
     all_fragments = list(pass2a_output.fragments)
     ghost_count = 0
 
@@ -1189,7 +1189,7 @@ def render_pass2a_debug_video_from_artifact(
         ghosts_path = Path(pass2c_ghosts_path)
         if ghosts_path.exists():
             logger.info(f"Loading Pass 2C ghosts from {ghosts_path}")
-            pass2c_output = load_json(ghosts_path, Pass2BOutput)
+            pass2c_output = load_json(ghosts_path, Pass2COutput)
             # Extract only ghosts from unified list
             all_fragments = pass2c_output.fragments
             ghost_count = sum(1 for f in all_fragments if f.is_ghost)

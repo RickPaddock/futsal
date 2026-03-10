@@ -32,6 +32,7 @@ from ..core.data_models import (
     ScoredFragment,
     Pass2AOutput,
     Pass2BOutput,
+    Pass2COutput,
 )
 from ..core.types import FragmentID, TrackID, FragmentQuality
 from ..utils.file_utils import load_json, save_json
@@ -63,13 +64,14 @@ class Pass2CGhostGenerator:
     def __init__(self):
         self.ghost_counter = 0
         self.ghost_log: List[Dict] = []
+        self.level_timeline: List[Dict] = []
 
     def run(
         self,
         pass2b_path: Path,
         output_path: Path,
         pass1_path: Optional[Path] = None,
-    ) -> Pass2BOutput:
+    ) -> Pass2COutput:
         """
         Execute Pass 2C ghost generation.
 
@@ -79,7 +81,7 @@ class Pass2CGhostGenerator:
             pass1_path: Optional path to pass1_raw.json (for frame range metadata)
 
         Returns:
-            Pass2BOutput with fragments + ghosts
+            Pass2COutput with fragments + ghosts, ghost_creation_log, and level_timeline
 
         Raises:
             ValidationError if output fails validation
@@ -121,10 +123,12 @@ class Pass2CGhostGenerator:
             f"total {len(all_fragments)} fragments"
         )
 
-        # Create output (reuse Pass2BOutput structure)
-        output = Pass2BOutput(
+        # Create output (Pass2COutput per CLAUDE.md P5 - artifacts are source of truth)
+        output = Pass2COutput(
             fragments=all_fragments,
             split_log=pass2b_output.split_log,  # Preserve from Pass 2A
+            ghost_creation_log=self.ghost_log,
+            level_timeline=self.level_timeline,
         )
 
         # Validate BEFORE writing (CRITICAL - fail-fast)
@@ -207,6 +211,7 @@ class Pass2CGhostGenerator:
         # Initialize level from first N frames
         level = self._initialize_level(frame_inventory, start_frame)
         logger.info(f"Pass 2C: Initial level = {level}")
+        self.level_timeline.append({"frame": start_frame, "level": level, "event": "initial"})
 
         # Track player states across frames
         all_fragments = list(real_fragments)
@@ -266,8 +271,10 @@ class Pass2CGhostGenerator:
             # Presence (real + ghosts) is used for deficit checking, not level estimation.
             real_count = len(active_track_ids)
             if real_count > level:
-                logger.info(f"Pass 2C: Level increased from {level} to {real_count} at frame {frame_idx}")
+                prev_level = level
                 level = min(real_count, const.DYNAMIC_LEVEL_MAX)
+                logger.info(f"Pass 2C: Level increased from {prev_level} to {level} at frame {frame_idx}")
+                self.level_timeline.append({"frame": frame_idx, "level": level, "prev_level": prev_level, "event": "increase"})
 
             # Update player states
             for frag in active_fragments:
@@ -641,7 +648,7 @@ class Pass2CGhostGenerator:
 def run_pass2c(
     input_dir: Path,
     output_dir: Optional[Path] = None,
-) -> Pass2BOutput:
+) -> Pass2COutput:
     """
     Execute Pass 2C: Ghost Generation.
 
@@ -650,7 +657,7 @@ def run_pass2c(
         output_dir: Directory to write output (default: same as input_dir)
 
     Returns:
-        Pass2BOutput (with ghosts)
+        Pass2COutput (with fragments + ghosts, ghost_creation_log, level_timeline)
 
     Raises:
         FileNotFoundError if pass2_fragments.json not found
