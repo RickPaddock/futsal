@@ -33,7 +33,17 @@
       "Bash(venv/Scripts/python.exe:*)",
       "Bash(./venv/Scripts/python.exe:*)",
       "Bash(.venv/Scripts/python.exe -m src.main:*)",
-      "Bash(.venv/Scripts/python.exe:*)"
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(cat /c/Users/rickp/Documents/GitRepos/futsal/scripts/*.bat)",
+      "Read(//c/Users/rickp//**)",
+      "Bash(.venv/Scripts/pip install openpyxl -q)",
+      "Bash(.venv/Scripts/pip install openpyxl)",
+      "Bash(/c/Users/rickp/Documents/GitRepos/futsal/.venv/Scripts/pip.exe install openpyxl)",
+      "Bash(cmd.exe /c \"cd /c/Users/rickp/Documents/GitRepos/futsal && .venv/Scripts/pip install openpyxl 2>&1\")",
+      "Bash(cmd.exe /c \"C:\\\\Users\\\\rickp\\\\Documents\\\\GitRepos\\\\futsal\\\\.venv\\\\Scripts\\\\pip install openpyxl 2>&1\")",
+      "Bash(for clip in clip2 clip7 clip11)",
+      "Bash(do)",
+      "Bash(done)"
     ]
   }
 }

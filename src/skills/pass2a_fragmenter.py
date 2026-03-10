@@ -67,6 +67,12 @@ def _load_pass2_intention_lines(max_lines: int = 4) -> List[str]:
         return ["Pass 2A mechanical fragmentation is active."]
 
 
+def _compute_median_hsv(histograms: List) -> np.ndarray:
+    """Element-wise median of a list of HSV histograms (robust baseline anchor)."""
+    stacked = np.stack([np.array(h, dtype=np.float32) for h in histograms])
+    return np.median(stacked, axis=0)
+
+
 def _fragment_color(fragment_id: str) -> Tuple[int, int, int]:
     """Deterministic BGR color for fragment overlays."""
     digest = hashlib.md5(fragment_id.encode("utf-8")).digest()
@@ -497,54 +503,207 @@ class Pass2AFragmenter:
             # This is normal, NOT a track jump
 
         # ============================================================================
-        # TRIGGER 4: Hard Appearance Discontinuity
-        # ALL conditions must hold:
-        # - Jersey visible on BOTH sides of boundary
-        # - Large HSV distance beyond threshold
-        # - Incompatible motion (teleport / impossible velocity)
+        # TRIGGER 4: Hard Appearance Discontinuity (HSV colour change)
+        # Per CLAUDE.md: detects ID swaps during player crossings where motion is smooth.
+        # Required:
+        # - Colour ROI valid on both sides (jersey_roi_valid, NOT jersey number)
+        # - Large HSV histogram discontinuity
+        #
+        # Two complementary sub-checks run in the same loop:
+        #
+        # 4a — Consecutive check:
+        #   Compare each sample to the last trusted anchor.
+        #   Catches sudden swaps where one consecutive step crosses HSV_DRIFT_THRESHOLD.
+        #   Sustain check suppresses single-frame transients.
+        #
+        # 4b — Baseline drift check:
+        #   Build a stable median baseline from the first HSV_BASELINE_SAMPLES trusted
+        #   samples of the fragment. Compare every sample to this anchor. Require
+        #   HSV_BASELINE_PERSIST_COUNT consecutive above-threshold samples before firing.
+        #   Catches gradual swaps where no single consecutive step crosses threshold but
+        #   the cumulative drift does. Baseline persists for the entire fragment; it resets
+        #   only when a split creates a new fragment.
+        #
+        # Consecutive check fires first; baseline only runs if consecutive doesn't fire.
+        # Both share the same cooldown, fragment-start, and last-trusted-anchor state.
+        # All state resets on any split (consecutive or baseline drift).
+        # ============================================================================
+        hsv_samples = sorted(
+            [
+                (d.frame_idx, d.hsv_histogram_jersey)
+                for d in detections
+                if d.jersey_roi_valid and d.hsv_histogram_jersey
+            ],
+            key=lambda x: x[0],
+        )
+
+        last_hsv_split_frame = -(const.HSV_SPLIT_COOLDOWN_FRAMES + 1)
+        active_cooldown = const.HSV_SPLIT_COOLDOWN_FRAMES  # May be extended to chaos cooldown
+        last_valid_idx = 0  # Index of the last trusted (non-transient) HSV sample
+        fragment_start_frame = hsv_samples[0][0] if hsv_samples else 0
+
+        # Baseline drift state — seeded with the very first sample of this fragment
+        baseline_collect: List = [hsv_samples[0][1]] if hsv_samples else []
+        baseline_hsv: Optional[np.ndarray] = None
+        drift_count: int = 0              # Consecutive above-threshold baseline distances seen
+        drift_first_frame: Optional[int] = None  # Frame of the first drift sample in current streak
+
+        for i in range(1, len(hsv_samples)):
+            curr_frame, curr_hsv = hsv_samples[i]
+            # Compare against the last TRUSTED baseline (not necessarily i-1).
+            # When a sample is suppressed as a transient anomaly, the baseline
+            # stays anchored at the pre-transient sample so the next comparison
+            # doesn't use the anomalous sample as its "prev".
+            prev_frame, prev_hsv = hsv_samples[last_valid_idx]
+
+            # Within-cooldown: sample is trusted new-fragment colour; advance baseline,
+            # reset drift streak, skip both checks.
+            if curr_frame - last_hsv_split_frame < active_cooldown:
+                last_valid_idx = i
+                if len(baseline_collect) < const.HSV_BASELINE_SAMPLES:
+                    baseline_collect.append(curr_hsv)
+                drift_count = 0
+                drift_first_frame = None
+                continue
+
+            # Minimum fragment age: suppress splits on very young fragments whose
+            # jersey ROI hasn't stabilised yet (player entering frame, partial view).
+            if curr_frame - fragment_start_frame < const.HSV_SPLIT_MIN_FRAGMENT_AGE:
+                last_valid_idx = i
+                if len(baseline_collect) < const.HSV_BASELINE_SAMPLES:
+                    baseline_collect.append(curr_hsv)
+                drift_count = 0
+                drift_first_frame = None
+                continue
+
+            # Lock baseline once we have enough stable early samples (computed once per segment).
+            if baseline_hsv is None and len(baseline_collect) >= const.HSV_BASELINE_SAMPLES:
+                baseline_hsv = _compute_median_hsv(baseline_collect)
+
+            # ---- 4a: Consecutive check ----
+            # Compare current sample to the last trusted anchor.
+            hsv_distance = 1.0 - compare_hsv_histograms(prev_hsv, curr_hsv)
+            is_transient = False
+            if hsv_distance > const.HSV_DRIFT_THRESHOLD:
+                # Sustain check: if next nearby sample reverts toward prev, it's a transient.
+                if i + 1 < len(hsv_samples):
+                    next_frame, next_hsv = hsv_samples[i + 1]
+                    if next_frame - curr_frame <= const.HSV_WINDOW_FRAMES:
+                        reversal = 1.0 - compare_hsv_histograms(next_hsv, prev_hsv)
+                        if reversal <= const.HSV_DRIFT_THRESHOLD:
+                            is_transient = True
+
+                if not is_transient:
+                    # Check post-split chaos: if immediately following HSV pair also exceeds
+                    # threshold, extend cooldown to let jersey ROI settle after the swap.
+                    active_cooldown = const.HSV_SPLIT_COOLDOWN_FRAMES
+                    if i + 1 < len(hsv_samples):
+                        post_frame, post_hsv = hsv_samples[i + 1]
+                        if post_frame - curr_frame <= const.HSV_SPLIT_COOLDOWN_FRAMES:
+                            post_dist = 1.0 - compare_hsv_histograms(curr_hsv, post_hsv)
+                            if post_dist > const.HSV_DRIFT_THRESHOLD:
+                                active_cooldown = const.HSV_CHAOS_COOLDOWN_FRAMES
+
+                    last_valid_idx = i
+                    fragment_start_frame = curr_frame
+                    last_hsv_split_frame = curr_frame
+                    baseline_collect = [curr_hsv]  # Reset baseline for new fragment
+                    baseline_hsv = None
+                    drift_count = 0
+                    drift_first_frame = None
+                    split_points.append((curr_frame, "hard_appearance_discontinuity"))
+                    self.split_log.append({
+                        "track_id": track_id,
+                        "frame_idx": curr_frame,
+                        "reason": "hard_appearance_discontinuity",
+                        "details": (
+                            f"HSV consecutive: distance={hsv_distance:.3f} "
+                            f"between frames {prev_frame} and {curr_frame}"
+                        ),
+                    })
+                    continue
+
+            # Transient: colour reverts next sample — treat curr as noise.
+            # Do NOT advance last_valid_idx (keep pre-transient anchor).
+            # Do NOT accumulate into baseline. Reset drift streak.
+            if is_transient:
+                drift_count = 0
+                drift_first_frame = None
+                continue
+
+            # ---- 4b: Baseline drift check ----
+            # Consecutive distance was below threshold (or consecutive was transient and
+            # we skipped above). Now compare against the stable median baseline.
+            baseline_fired = False
+            if baseline_hsv is not None:
+                baseline_dist = 1.0 - compare_hsv_histograms(curr_hsv, baseline_hsv)
+                if baseline_dist > const.HSV_DRIFT_THRESHOLD:
+                    if drift_count == 0:
+                        drift_first_frame = curr_frame
+                    drift_count += 1
+                    if drift_count >= const.HSV_BASELINE_PERSIST_COUNT:
+                        split_frame = drift_first_frame  # Fire at first persistent drift sample
+                        last_valid_idx = i
+                        fragment_start_frame = split_frame
+                        last_hsv_split_frame = curr_frame  # Cooldown from current (2nd) sample
+                        baseline_collect = [curr_hsv]      # Reset baseline for new fragment
+                        baseline_hsv = None
+                        drift_count = 0
+                        drift_first_frame = None
+                        split_points.append((split_frame, "hard_appearance_discontinuity"))
+                        self.split_log.append({
+                            "track_id": track_id,
+                            "frame_idx": split_frame,
+                            "reason": "hard_appearance_discontinuity",
+                            "details": (
+                                f"HSV baseline drift: dist_baseline={baseline_dist:.3f} "
+                                f"from median baseline, persisted "
+                                f"{const.HSV_BASELINE_PERSIST_COUNT} samples "
+                                f"from frame {split_frame}"
+                            ),
+                        })
+                        baseline_fired = True
+                else:
+                    # Within normal range of baseline: reset drift streak
+                    drift_count = 0
+                    drift_first_frame = None
+
+            if baseline_fired:
+                continue
+
+            # ---- No split: stable sample ----
+            # Only advance last_valid_idx when NOT accumulating a drift streak.
+            # If drift_count > 0, current sample is suspicious — keep the prior anchor
+            # so the consecutive check stays referenced to the pre-drift colour.
+            if drift_count == 0:
+                last_valid_idx = i
+                if len(baseline_collect) < const.HSV_BASELINE_SAMPLES:
+                    baseline_collect.append(curr_hsv)
+
+        # ============================================================================
+        # TRIGGER 5: Impossible Motion Spike
+        # Per CLAUDE.md: extreme spatial displacement inconsistent with human movement.
+        # Independent of appearance — a track can teleport without changing colour.
         # ============================================================================
         for i in range(1, len(detections)):
             prev_det = detections[i - 1]
             curr_det = detections[i]
 
-            # Only check consecutive frames (frame_gap == 1)
+            # Only check adjacent frames (gap == 1) — larger gaps are occlusions, not teleports
             frame_gap = curr_det.frame_idx - prev_det.frame_idx
             if frame_gap != 1:
                 continue
 
-            # Condition 1: Jersey visible on BOTH sides
-            prev_has_jersey = prev_det.jersey_number is not None
-            curr_has_jersey = curr_det.jersey_number is not None
-            if not (prev_has_jersey and curr_has_jersey):
-                continue  # Jersey not visible both sides → NO SPLIT
-
-            # Condition 2: Large HSV distance
-            if not (prev_det.hsv_histogram_jersey and curr_det.hsv_histogram_jersey):
-                continue  # No HSV data → NO SPLIT
-
-            correlation = compare_hsv_histograms(
-                prev_det.hsv_histogram_jersey,
-                curr_det.hsv_histogram_jersey,
-            )
-            hsv_distance = 1.0 - correlation
-            if hsv_distance <= const.HSV_DRIFT_THRESHOLD:
-                continue  # HSV similar → NO SPLIT
-
-            # Condition 3: Incompatible motion (teleport)
             motion_distance = centroid_distance(prev_det.centroid, curr_det.centroid)
             if motion_distance <= const.VELOCITY_SPIKE_THRESHOLD:
-                continue  # Motion reasonable → NO SPLIT
+                continue  # Motion within human range → NO SPLIT
 
-            # ALL 3 CONDITIONS MET → SPLIT
-            split_points.append((curr_det.frame_idx, "hard_appearance_discontinuity"))
+            split_points.append((curr_det.frame_idx, "impossible_motion"))
             self.split_log.append({
                 "track_id": track_id,
                 "frame_idx": curr_det.frame_idx,
-                "reason": "hard_appearance_discontinuity",
-                "details": (
-                    f"Hard discontinuity: jersey visible both sides, "
-                    f"HSV distance={hsv_distance:.3f}, motion={motion_distance:.1f}px"
-                ),
+                "reason": "impossible_motion",
+                "details": f"Motion spike: {motion_distance:.1f}px in 1 frame (threshold={const.VELOCITY_SPIKE_THRESHOLD}px)",
             })
 
         # Sort and deduplicate split points
@@ -649,6 +808,7 @@ class Pass2AFragmenter:
             "jersey_change": "JERSEY_CHANGE",
             "jersey_temporal_conflict": "JERSEY_TEMPORAL_CONFLICT",
             "hard_appearance_discontinuity": "HARD_APPEARANCE_DISCONTINUITY",
+            "impossible_motion": "IMPOSSIBLE_MOTION",
             "merged_short_fragments": "MERGE_SHORT_FRAGMENTS",
         }
 

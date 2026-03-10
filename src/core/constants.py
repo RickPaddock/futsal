@@ -207,7 +207,30 @@ VISUALIZATION_VIDEO = "visualization.mp4"
 # ============================================================================
 
 # Appearance drift thresholds
-HSV_DRIFT_THRESHOLD = 0.3  # Bhattacharyya distance
+HSV_DRIFT_THRESHOLD = 0.58  # Min HSV distance to split on colour discontinuity.
+# Natural player movement (angle/lighting) peaks at ~p95=0.32 across clip7/clip2.
+# Genuine jersey colour swaps (e.g. orange vs black) produce 0.58+.
+# Set above noise ceiling to suppress false splits from natural variation.
+# Calibrated at 0.58: catches clip2 track4@500 bilateral swap (dist=0.598).
+# Gap vs noise: 0.58 - 0.32 = 0.26 (comfortable margin).
+HSV_WINDOW_FRAMES = 5      # ±frames to search for nearest HSV sample around a boundary
+HSV_SPLIT_COOLDOWN_FRAMES = 25  # Min frames between consecutive HSV splits on same track.
+# One physical swap produces many consecutive large-distance HSV sample pairs.
+# Cooldown ensures one swap → at most one fragment boundary.
+# Set below 45 (minimum real inter-swap gap on clip11: frames 364→411 = 47 frames).
+HSV_CHAOS_COOLDOWN_FRAMES = 60  # Extended cooldown after a split whose post-split region is chaotic.
+# When the first post-split HSV pair also exceeds the drift threshold, the jersey ROI
+# is unreliable (e.g. tracker just switched players, crop still settling).
+# Extended cooldown prevents false positives during the settling period.
+# Set to 60: covers ~2s of instability and is safely below the 325→330 window (real).
+HSV_SPLIT_MIN_FRAGMENT_AGE = 20  # Min frames a fragment must exist before an HSV split fires.
+# Very young fragments have unstable jersey ROIs (player entering frame, partial view).
+# Suppresses false splits on tracks that start and immediately show jersey noise.
+# Set to 20: safely below track 9's first real split at age=25, above track 15's false at age=17.
+HSV_BASELINE_SAMPLES = 15        # Number of HSV samples used to build the per-fragment median baseline.
+# Median is robust to a few early anomalous samples.  15 samples ≈ 75 frames at sample-every-5.
+HSV_BASELINE_PERSIST_COUNT = 2   # Consecutive above-threshold baseline distances before drift split fires.
+# Requires sustained deviation from the baseline median, not a single-frame spike.
 
 # Velocity spike thresholds
 VELOCITY_SPIKE_THRESHOLD = 50  # Pixels per frame
