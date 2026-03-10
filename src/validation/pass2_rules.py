@@ -7,8 +7,9 @@ Per CLAUDE.md Section 5 (Pass 2: Fragmentation, Scoring, Ghosts):
 - Pass 2C: Ghost fragment validity (presence continuity, chain integrity)
 """
 
-from typing import List, Dict, Set, Tuple, Optional
+from typing import List, Dict, Set, Tuple, Optional, Any
 from collections import Counter
+import math
 from ..core.data_models import (
     Fragment,
     ScoredFragment,
@@ -395,14 +396,30 @@ def validate_pass2a_jersey_ambiguity(
     return violations
 
 
-def validate_pass2b_quality_scoring(pass2b_output: Pass2BOutput) -> List[ValidationViolation]:
+def _is_finite_number(value: Any) -> bool:
+    """Return True when value is a finite int/float (bool excluded)."""
+    if isinstance(value, bool):
+        return False
+    if not isinstance(value, (int, float)):
+        return False
+    return math.isfinite(float(value))
+
+
+def validate_pass2b_quality_scoring(
+    pass2b_output: Pass2BOutput,
+    pass2a_output: Optional[Pass2AOutput] = None,
+) -> List[ValidationViolation]:
     """
     Validate Pass 2B quality scoring.
 
-    Checks:
-    - Binary presence classification valid (real | occlusion_candidate)
-    - Exactly one classification per fragment
-    - Quality tiers/metrics are diagnostics only (non-blocking)
+    Checks (blocking):
+    - Required metadata fields present and non-null
+    - Required numeric fields are finite (no NaN/Inf)
+    - Range checks for jersey/occlusion/appearance metrics
+    - mean_velocity >= 0
+    - quality enum valid
+    - Temporal integrity (start_frame <= end_frame)
+    - Fragment immutability vs Pass 2A (count + fragment_id set/sequence)
 
     Args:
         pass2b_output: Pass 2B output data
@@ -410,110 +427,291 @@ def validate_pass2b_quality_scoring(pass2b_output: Pass2BOutput) -> List[Validat
     Returns:
         List of violations (empty if valid)
     """
-    violations = []
+    violations: List[ValidationViolation] = []
 
-    for fragment in pass2b_output.fragments:
-        # Skip ghosts (they always have quality=GHOST)
-        if fragment.is_ghost:
-            continue
+    if pass2a_output is not None:
+        expected_ids = [frag.fragment_id for frag in pass2a_output.fragments if not frag.is_ghost]
+        actual_ids = [frag.fragment_id for frag in pass2b_output.fragments if not frag.is_ghost]
 
-        # Pass 2B hard contract: binary classification only.
-        presence_class = getattr(fragment, "presence_class", None)
-        if presence_class not in {"real", "occlusion_candidate"}:
+        if len(actual_ids) != len(expected_ids):
             violations.append(
                 ValidationViolation(
-                    rule="PASS2B_INVALID_PRESENCE_CLASS",
+                    rule="PASS2B_FRAGMENT_COUNT_CHANGED",
                     severity="error",
                     message=(
-                        f"Fragment {fragment.fragment_id} has invalid presence_class='{presence_class}'. "
-                        "Expected one of {'real', 'occlusion_candidate'}."
+                        f"Pass 2B changed fragment count: expected {len(expected_ids)} from Pass 2A, "
+                        f"got {len(actual_ids)}"
+                    ),
+                    details={
+                        "expected_count": len(expected_ids),
+                        "actual_count": len(actual_ids),
+                    },
+                )
+            )
+
+        expected_set = set(expected_ids)
+        actual_set = set(actual_ids)
+        if actual_set != expected_set:
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2B_FRAGMENT_ID_CHANGED",
+                    severity="error",
+                    message="Pass 2B changed fragment_id membership relative to Pass 2A",
+                    details={
+                        "missing_ids_sample": sorted(list(expected_set - actual_set))[:20],
+                        "added_ids_sample": sorted(list(actual_set - expected_set))[:20],
+                    },
+                )
+            )
+
+        if actual_ids != expected_ids:
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2B_FRAGMENT_ORDER_CHANGED",
+                    severity="error",
+                    message="Pass 2B changed fragment_id sequence relative to Pass 2A",
+                    details={
+                        "expected_first10": expected_ids[:10],
+                        "actual_first10": actual_ids[:10],
+                    },
+                )
+            )
+
+    required_fields = [
+        "fragment_id",
+        "track_id",
+        "start_frame",
+        "end_frame",
+        "jersey_visible_ratio",
+        "occlusion_ratio",
+        "mean_velocity",
+        "appearance_stability_score",
+        "quality",
+    ]
+
+    numeric_required_fields = {
+        "track_id",
+        "start_frame",
+        "end_frame",
+        "jersey_visible_ratio",
+        "occlusion_ratio",
+        "mean_velocity",
+        "appearance_stability_score",
+    }
+
+    for fragment in pass2b_output.fragments:
+        for field_name in required_fields:
+            if not hasattr(fragment, field_name):
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS2B_REQUIRED_FIELD_MISSING",
+                        severity="error",
+                        message=f"Fragment {fragment.fragment_id} missing required field '{field_name}'",
+                        fragment_id=fragment.fragment_id,
+                        details={"fragment_id": fragment.fragment_id, "field": field_name},
+                    )
+                )
+                continue
+
+            value = getattr(fragment, field_name)
+            if value is None:
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS2B_REQUIRED_FIELD_NULL",
+                        severity="error",
+                        message=f"Fragment {fragment.fragment_id} has null required field '{field_name}'",
+                        fragment_id=fragment.fragment_id,
+                        details={"fragment_id": fragment.fragment_id, "field": field_name},
+                    )
+                )
+                continue
+
+            if field_name in numeric_required_fields and not _is_finite_number(value):
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS2B_REQUIRED_FIELD_NONFINITE",
+                        severity="error",
+                        message=(
+                            f"Fragment {fragment.fragment_id} field '{field_name}' is invalid "
+                            "(None/NaN/Inf/non-numeric)"
+                        ),
+                        fragment_id=fragment.fragment_id,
+                        details={"fragment_id": fragment.fragment_id, "field": field_name, "value": value},
+                    )
+                )
+
+        if not isinstance(fragment.fragment_id, str) or not fragment.fragment_id.strip():
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2B_INVALID_FRAGMENT_ID",
+                    severity="error",
+                    message=f"Fragment has invalid fragment_id='{fragment.fragment_id}'",
+                    fragment_id=fragment.fragment_id if isinstance(fragment.fragment_id, str) else None,
+                    details={"fragment_id": fragment.fragment_id},
+                )
+            )
+
+        if isinstance(fragment.track_id, bool) or not isinstance(fragment.track_id, int):
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2B_INVALID_TRACK_ID",
+                    severity="error",
+                    message=f"Fragment {fragment.fragment_id} has invalid track_id='{fragment.track_id}'",
+                    fragment_id=fragment.fragment_id,
+                    details={"fragment_id": fragment.fragment_id, "track_id": fragment.track_id},
+                )
+            )
+
+        if isinstance(fragment.start_frame, bool) or not isinstance(fragment.start_frame, int):
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2B_INVALID_START_FRAME_TYPE",
+                    severity="error",
+                    message=f"Fragment {fragment.fragment_id} start_frame must be int",
+                    fragment_id=fragment.fragment_id,
+                    details={"start_frame": fragment.start_frame},
+                )
+            )
+
+        if isinstance(fragment.end_frame, bool) or not isinstance(fragment.end_frame, int):
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2B_INVALID_END_FRAME_TYPE",
+                    severity="error",
+                    message=f"Fragment {fragment.fragment_id} end_frame must be int",
+                    fragment_id=fragment.fragment_id,
+                    details={"end_frame": fragment.end_frame},
+                )
+            )
+
+        if fragment.start_frame > fragment.end_frame:
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2B_INVALID_RANGE",
+                    severity="error",
+                    message=(
+                        f"Fragment {fragment.fragment_id} has start_frame={fragment.start_frame} "
+                        f"> end_frame={fragment.end_frame}"
                     ),
                     fragment_id=fragment.fragment_id,
                     details={
                         "fragment_id": fragment.fragment_id,
-                        "presence_class": presence_class,
+                        "start_frame": fragment.start_frame,
+                        "end_frame": fragment.end_frame,
                     },
                 )
             )
 
-        # Quality fields are metadata only in Pass 2B (non-blocking diagnostics).
-        # Keep checks as warnings for observability.
-        if not hasattr(fragment, 'quality') or fragment.quality is None:
-            violations.append(
-                ValidationViolation(
-                    rule="PASS2B_MISSING_QUALITY",
-                    severity="warning",
-                    message=f"Fragment {fragment.fragment_id} missing quality field (Pass 2B not called?)",
-                    fragment_id=fragment.fragment_id,
-                    details={"fragment_id": fragment.fragment_id},
+        if not fragment.is_ghost:
+            presence_class = getattr(fragment, "presence_class", None)
+            if presence_class not in {"real", "occlusion_candidate"}:
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS2B_INVALID_PRESENCE_CLASS",
+                        severity="error",
+                        message=(
+                            f"Fragment {fragment.fragment_id} has invalid presence_class='{presence_class}'. "
+                            "Expected one of {'real', 'occlusion_candidate'}."
+                        ),
+                        fragment_id=fragment.fragment_id,
+                        details={"fragment_id": fragment.fragment_id, "presence_class": presence_class},
+                    )
                 )
-            )
-            continue
 
-        if not hasattr(fragment, 'quality_score') or fragment.quality_score is None:
-            violations.append(
-                ValidationViolation(
-                    rule="PASS2B_MISSING_SCORE",
-                    severity="warning",
-                    message=f"Fragment {fragment.fragment_id} missing quality_score field (Pass 2B not called?)",
-                    fragment_id=fragment.fragment_id,
-                    details={"fragment_id": fragment.fragment_id},
+        quality_value = fragment.quality.value if isinstance(fragment.quality, FragmentQuality) else fragment.quality
+        if isinstance(quality_value, (int, float)) and not isinstance(quality_value, bool):
+            if not _is_finite_number(quality_value) or not (0 <= float(quality_value) <= 1):
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS2B_INVALID_QUALITY",
+                        severity="error",
+                        message=(
+                            f"Fragment {fragment.fragment_id} numeric quality={quality_value} "
+                            "must be finite and in range [0, 1]"
+                        ),
+                        fragment_id=fragment.fragment_id,
+                        details={"fragment_id": fragment.fragment_id, "quality": quality_value},
+                    )
                 )
-            )
-            continue
-
-        # Check quality enum (diagnostic-only)
-        quality_str = fragment.quality.value if isinstance(fragment.quality, FragmentQuality) else fragment.quality
-        if quality_str not in ["high", "medium", "low", "ghost"]:
+        elif quality_value not in {"high", "medium", "low", "ghost"}:
             violations.append(
                 ValidationViolation(
                     rule="PASS2B_INVALID_QUALITY",
-                    severity="warning",
-                    message=f"Fragment {fragment.fragment_id} has invalid quality='{quality_str}'",
+                    severity="error",
+                    message=f"Fragment {fragment.fragment_id} has invalid quality='{quality_value}'",
                     fragment_id=fragment.fragment_id,
-                    details={
-                        "fragment_id": fragment.fragment_id,
-                        "quality": quality_str,
-                    },
+                    details={"fragment_id": fragment.fragment_id, "quality": quality_value},
                 )
             )
 
-        # Check quality score range
-        if not (0 <= fragment.quality_score <= 1):
+        if not hasattr(fragment, "quality_score") or fragment.quality_score is None:
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2B_MISSING_SCORE",
+                    severity="error",
+                    message=f"Fragment {fragment.fragment_id} missing quality_score",
+                    fragment_id=fragment.fragment_id,
+                    details={"fragment_id": fragment.fragment_id},
+                )
+            )
+        elif not _is_finite_number(fragment.quality_score) or not (0 <= float(fragment.quality_score) <= 1):
             violations.append(
                 ValidationViolation(
                     rule="PASS2B_INVALID_SCORE",
-                    severity="warning",
-                    message=f"Fragment {fragment.fragment_id} quality_score={fragment.quality_score} out of range [0, 1]",
+                    severity="error",
+                    message=(
+                        f"Fragment {fragment.fragment_id} quality_score={fragment.quality_score} "
+                        "must be finite and in range [0, 1]"
+                    ),
                     fragment_id=fragment.fragment_id,
-                    details={
-                        "fragment_id": fragment.fragment_id,
-                        "quality_score": fragment.quality_score,
-                    },
+                    details={"fragment_id": fragment.fragment_id, "quality_score": fragment.quality_score},
                 )
             )
 
-        # Check consistency metrics are valid (0-1 range)
-        metrics = {
-            "avg_confidence": fragment.avg_confidence,
-            "min_confidence": fragment.min_confidence,
-            "avg_bbox_stability": fragment.avg_bbox_stability,
-            "jersey_consistency": fragment.jersey_consistency,
-            "hsv_consistency": fragment.hsv_consistency,
+        numeric_ranges = {
+            "jersey_visible_ratio": (fragment.jersey_visible_ratio, 0.0, 1.0),
+            "occlusion_ratio": (fragment.occlusion_ratio, 0.0, 1.0),
+            "appearance_stability_score": (fragment.appearance_stability_score, 0.0, 1.0),
+            "mean_velocity": (fragment.mean_velocity, 0.0, None),
         }
 
-        for metric_name, value in metrics.items():
-            if not (0 <= value <= 1):
+        for metric_name, (value, low, high) in numeric_ranges.items():
+            if not _is_finite_number(value):
                 violations.append(
                     ValidationViolation(
                         rule="PASS2B_INVALID_METRIC",
-                        severity="warning",
-                        message=f"Fragment {fragment.fragment_id} {metric_name}={value} out of range [0, 1]",
+                        severity="error",
+                        message=(
+                            f"Fragment {fragment.fragment_id} {metric_name}={value} is invalid "
+                            "(must be finite, non-null numeric)"
+                        ),
                         fragment_id=fragment.fragment_id,
                         details={
                             "fragment_id": fragment.fragment_id,
                             "metric_name": metric_name,
                             "metric_value": value,
+                        },
+                    )
+                )
+                continue
+
+            numeric_value = float(value)
+            if numeric_value < low or (high is not None and numeric_value > high):
+                range_text = f"[{low}, {high}]" if high is not None else f">= {low}"
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS2B_INVALID_METRIC",
+                        severity="error",
+                        message=(
+                            f"Fragment {fragment.fragment_id} {metric_name}={numeric_value} out of range "
+                            f"{range_text}"
+                        ),
+                        fragment_id=fragment.fragment_id,
+                        details={
+                            "fragment_id": fragment.fragment_id,
+                            "metric_name": metric_name,
+                            "metric_value": numeric_value,
+                            "expected_range": range_text,
                         },
                     )
                 )

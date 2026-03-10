@@ -90,19 +90,24 @@ class Validator:
 
         return self._build_result("pass2a", violations)
 
-    def validate_pass2b(self, pass2b_output: Pass2BOutput) -> ValidationResult:
+    def validate_pass2b(
+        self,
+        pass2b_output: Pass2BOutput,
+        pass2a_output: Optional[Pass2AOutput] = None,
+    ) -> ValidationResult:
         """
         Validate Pass 2B output (quality scoring).
 
         Args:
             pass2b_output: Pass 2B output data
+            pass2a_output: Optional Pass 2A output for immutability checks
 
         Returns:
             ValidationResult with violations (if any)
         """
         from .pass2_rules import validate_pass2b_quality_scoring
 
-        violations = validate_pass2b_quality_scoring(pass2b_output)
+        violations = validate_pass2b_quality_scoring(pass2b_output, pass2a_output)
 
         return self._build_result("pass2b", violations)
 

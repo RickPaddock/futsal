@@ -5,7 +5,7 @@ All entity models per CLAUDE.md contract Sections 2, 5.
 These models define the structure of JSON artifacts at each pass.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, AliasChoices
 from typing import List, Optional, Dict, Any
 from .types import (
     TeamID,
@@ -141,7 +141,7 @@ class Fragment(BaseModel):
 
     Field meanings:
     - fragment_id: Immutable fragment identifier.
-    - original_track_id: Pass 1 track that produced this fragment.
+    - track_id: Pass 1 track that produced this fragment.
     - start_frame: First frame covered by this fragment.
     - end_frame: Last frame covered by this fragment.
     - detection_ids: Ordered references to Pass 1 detection rows.
@@ -151,7 +151,10 @@ class Fragment(BaseModel):
     - parent_fragment_id: Source fragment when created by split operation.
     """
     fragment_id: FragmentID  # Format: F{counter:06d} (globally unique, immutable)
-    original_track_id: TrackID  # ByteTrack ID that created this fragment
+    track_id: TrackID = Field(
+        validation_alias=AliasChoices("track_id", "original_track_id"),
+        serialization_alias="track_id",
+    )  # ByteTrack ID that created this fragment
     start_frame: FrameIndex
     end_frame: FrameIndex
     detection_ids: List[DetectionID]  # References to Pass 1 detections
@@ -164,6 +167,13 @@ class Fragment(BaseModel):
 
     # Ghost metadata (Pass 2C) - available at Fragment level for uniform access
     is_ghost: bool = False
+
+    @property
+    def original_track_id(self) -> TrackID:
+        """Backward-compatible alias for legacy code paths."""
+        return self.track_id
+
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
 
 class Pass2AOutput(BaseModel):
@@ -190,9 +200,10 @@ class ScoredFragment(Fragment):
     - quality_reasons: Audit reasons explaining the quality_score.
     - avg_confidence: Mean detection confidence over fragment lifespan.
     - min_confidence: Minimum detection confidence over fragment lifespan.
-    - avg_bbox_stability: Spatial smoothness metric (higher = steadier box).
-    - jersey_consistency: Stability of jersey observations within fragment.
-    - hsv_consistency: Stability of HSV appearance within fragment.
+    - occlusion_ratio: Proxy metric from bbox smoothness/stability.
+    - jersey_visible_ratio: Fraction of consistent jersey observations.
+    - appearance_stability_score: Stability of HSV appearance within fragment.
+    - mean_velocity: Mean centroid velocity in px/frame.
 
     Ghost-specific fields (Pass 2C):
     - is_ghost: True if this is a ghost fragment (default False).
@@ -207,9 +218,22 @@ class ScoredFragment(Fragment):
     # Quality indicators
     avg_confidence: float = 0.0
     min_confidence: float = 0.0
-    avg_bbox_stability: float = 0.0  # Low jitter = high stability
-    jersey_consistency: float = 0.0  # How often same jersey appears
-    hsv_consistency: float = 0.0  # HSV histogram similarity across frames
+    occlusion_ratio: float = Field(
+        default=0.0,
+        validation_alias=AliasChoices("occlusion_ratio", "avg_bbox_stability"),
+        serialization_alias="occlusion_ratio",
+    )  # Low jitter = low occlusion risk
+    jersey_visible_ratio: float = Field(
+        default=0.0,
+        validation_alias=AliasChoices("jersey_visible_ratio", "jersey_consistency"),
+        serialization_alias="jersey_visible_ratio",
+    )  # How often same jersey appears
+    appearance_stability_score: float = Field(
+        default=0.0,
+        validation_alias=AliasChoices("appearance_stability_score", "hsv_consistency"),
+        serialization_alias="appearance_stability_score",
+    )  # HSV histogram similarity
+    mean_velocity: float = 0.0  # px/frame based on centroid displacement
 
     # Ghost-specific fields (Pass 2C)
     is_ghost: bool = False
@@ -220,6 +244,23 @@ class ScoredFragment(Fragment):
     # Pass 2B binary presence classification (identity-agnostic)
     # Allowed values: "real" | "occlusion_candidate"
     presence_class: str = "real"
+
+    @property
+    def avg_bbox_stability(self) -> float:
+        """Backward-compatible alias for legacy code paths."""
+        return self.occlusion_ratio
+
+    @property
+    def jersey_consistency(self) -> float:
+        """Backward-compatible alias for legacy code paths."""
+        return self.jersey_visible_ratio
+
+    @property
+    def hsv_consistency(self) -> float:
+        """Backward-compatible alias for legacy code paths."""
+        return self.appearance_stability_score
+
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
 
 class Pass2BOutput(BaseModel):

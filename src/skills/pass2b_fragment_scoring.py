@@ -14,9 +14,10 @@ Per CLAUDE.md Principle P1 (Pass Immutability):
 
 Quality Metrics:
 - Detection confidence stability (avg, min)
-- Bbox stability (low jitter = high stability)
-- Jersey consistency (how often same jersey appears)
-- HSV consistency (histogram similarity across frames)
+- Occlusion proxy (bbox stability)
+- Jersey visible ratio (consistency of jersey observations)
+- Appearance stability score (HSV histogram similarity)
+- Mean velocity (centroid displacement per frame)
 """
 
 from typing import List, Dict, Tuple, Optional
@@ -131,18 +132,19 @@ class Pass2BFragmentScorer:
         # Compute quality metrics
         avg_confidence = self._compute_avg_confidence(fragment_detections)
         min_confidence = self._compute_min_confidence(fragment_detections)
-        avg_bbox_stability = self._compute_bbox_stability(fragment_detections)
-        jersey_consistency = self._compute_jersey_consistency(fragment_detections)
-        hsv_consistency = self._compute_hsv_consistency(fragment_detections)
+        occlusion_ratio = self._compute_bbox_stability(fragment_detections)
+        jersey_visible_ratio = self._compute_jersey_consistency(fragment_detections)
+        appearance_stability_score = self._compute_hsv_consistency(fragment_detections)
+        mean_velocity = self._compute_mean_velocity(fragment_detections)
 
         # Compute overall quality score (0-1)
         quality_score, quality_reasons = self._compute_quality_score(
             fragment=fragment,
             avg_confidence=avg_confidence,
             min_confidence=min_confidence,
-            avg_bbox_stability=avg_bbox_stability,
-            jersey_consistency=jersey_consistency,
-            hsv_consistency=hsv_consistency,
+            avg_bbox_stability=occlusion_ratio,
+            jersey_consistency=jersey_visible_ratio,
+            hsv_consistency=appearance_stability_score,
         )
 
         # Assign quality label
@@ -164,7 +166,7 @@ class Pass2BFragmentScorer:
         return ScoredFragment(
             # Copy Fragment fields
             fragment_id=fragment.fragment_id,
-            original_track_id=fragment.original_track_id,
+            track_id=fragment.track_id,
             start_frame=fragment.start_frame,
             end_frame=fragment.end_frame,
             detection_ids=fragment.detection_ids,
@@ -178,9 +180,10 @@ class Pass2BFragmentScorer:
             quality_reasons=quality_reasons,
             avg_confidence=avg_confidence,
             min_confidence=min_confidence,
-            avg_bbox_stability=avg_bbox_stability,
-            jersey_consistency=jersey_consistency,
-            hsv_consistency=hsv_consistency,
+            occlusion_ratio=occlusion_ratio,
+            jersey_visible_ratio=jersey_visible_ratio,
+            appearance_stability_score=appearance_stability_score,
+            mean_velocity=mean_velocity,
             presence_class=presence_class,
         )
 
@@ -232,6 +235,27 @@ class Pass2BFragmentScorer:
         # Average the three stability metrics
         stability = (width_stability + height_stability + centroid_stability) / 3.0
         return float(np.clip(stability, 0.0, 1.0))
+
+    def _compute_mean_velocity(self, detections: List[Detection]) -> float:
+        """
+        Compute mean centroid velocity in pixels/frame.
+
+        Uses frame-normalized displacement between consecutive detections.
+        """
+        if len(detections) < 2:
+            return 0.0
+
+        ordered = sorted(detections, key=lambda d: d.frame_idx)
+        velocities: List[float] = []
+
+        for i in range(len(ordered) - 1):
+            current = ordered[i]
+            nxt = ordered[i + 1]
+            frame_delta = max(1, nxt.frame_idx - current.frame_idx)
+            displacement = centroid_distance(current.centroid, nxt.centroid)
+            velocities.append(displacement / frame_delta)
+
+        return float(np.mean(velocities)) if velocities else 0.0
 
     def _compute_jersey_consistency(self, detections: List[Detection]) -> float:
         """
@@ -358,7 +382,7 @@ class Pass2BFragmentScorer:
         return ScoredFragment(
             # Copy Fragment fields
             fragment_id=fragment.fragment_id,
-            original_track_id=fragment.original_track_id,
+            track_id=fragment.track_id,
             start_frame=fragment.start_frame,
             end_frame=fragment.end_frame,
             detection_ids=fragment.detection_ids,
@@ -373,9 +397,10 @@ class Pass2BFragmentScorer:
             presence_class="occlusion_candidate",
             avg_confidence=0.0,
             min_confidence=0.0,
-            avg_bbox_stability=0.0,
-            jersey_consistency=0.0,
-            hsv_consistency=0.0,
+            occlusion_ratio=0.0,
+            jersey_visible_ratio=0.0,
+            appearance_stability_score=0.0,
+            mean_velocity=0.0,
         )
 
 
@@ -414,7 +439,7 @@ def run_pass2b(
     # Validate output BEFORE writing
     logger.info("Validating Pass 2B output...")
     validator = Validator()
-    validation_result = validator.validate_pass2b(pass2b_output)
+    validation_result = validator.validate_pass2b(pass2b_output, pass2a_output)
 
     # Write validation report
     validation_path = output_dir / const.PASS2_VALIDATION_JSON
