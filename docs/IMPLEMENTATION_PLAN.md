@@ -1,52 +1,6 @@
 # Futsal Tracking System - Implementation Plan & Progress Tracker
 
-**Status**: 🚧 In Progress
-**Start Date**: 2026-02-17
 
-
-#### Pass 2A Validation Contract Delta (from CLAUDE.md Section 2A) ⚠️ REQUIRED
-[x] test 2a against ground truth and fix where nessesary ✅ T2 43/43 splits detected (±60f), T1 481/482 (1 miss = Pass 1 ByteTracker timing)
-
-### Pass 2B: Fragment Quality Scoring
-[ ] test 2b against ground truth and fix where nessesary. It should be validated for:
-[ ] metadata correctness
-[ ] quality scoring stability
-[ ] runtime cost
-[ ] fragment statistics
-
-What to Measure in Pass 2B
-
-Run on clips 2, 7, 11 and produce:
-Fragment statistics
-total fragments
-avg fragment length
-median fragment length
-min / max
-Quality scoring distribution
-quality score histogram
-jersey_visible_ratio distribution
-occlusion_ratio distribution
-appearance_stability_score distribution
-Sanity checks
-
-Confirm:
-[ ] 100% fragments have metadata
-[ ] no NaN scores
-[ ] scores within expected ranges
-[ ] Important Architectural Check Before Moving On
-
-Verify this invariant - Pass 2B MUST NOT:
-[ ] split fragments
-[ ] merge fragments
-[ ] delete fragments
-[ ] change fragment_id
-It should only attach metadata.
-
-
-### Pass 2C: Ghost Generation
-[ ] test 2c against ground truth and fix where nessesary
-
----
 
 ### Pass 3A: Identity Candidates
 - [x] **[src/skills/pass3a_candidate_generator.py](../src/skills/pass3a_candidate_generator.py)** - Generate possibilities ✅

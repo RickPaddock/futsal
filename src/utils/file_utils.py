@@ -65,10 +65,17 @@ def save_json(
     """
     # Validate against schema if provided
     if schema is not None:
-        try:
-            validate(instance=data, schema=schema)
-        except JSONSchemaValidationError as e:
-            raise JSONSchemaValidationError(f"JSON validation failed: {e.message}")
+        if not HAS_JSONSCHEMA:
+            import logging
+            logging.getLogger(__name__).warning(
+                "JSON Schema validation skipped: jsonschema not installed. "
+                "Install with: pip install jsonschema"
+            )
+        else:
+            try:
+                validate(instance=data, schema=schema)
+            except JSONSchemaValidationError as e:
+                raise JSONSchemaValidationError(f"JSON validation failed: {e.message}")
 
     # Convert Path to string
     output_path = str(output_path)

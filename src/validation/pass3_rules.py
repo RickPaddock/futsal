@@ -234,11 +234,12 @@ def validate_pass3c_identity_commit(
             )
 
         # Check jersey number range (nullable when unresolved)
+        # Per CLAUDE.md Pass 3C Step 5: "Unknown allowed if insufficient evidence."
         if identity.jersey_number is None:
             violations.append(
                 ValidationViolation(
                     rule="PASS3C_JERSEY_UNRESOLVED",
-                    severity="error",
+                    severity="warning",
                     message=f"Identity {identity.fragment_id} has unresolved jersey_number",
                     fragment_id=identity.fragment_id,
                     details={

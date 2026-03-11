@@ -90,21 +90,8 @@ def _resolve_team_palette(pass3_output: Pass3COutput) -> Dict[TeamID, Tuple[int,
         if identity.team in team_jersey_counts:
             team_jersey_counts[identity.team] += 1
 
-    if team_jersey_counts[TeamID.TEAM_A] != team_jersey_counts[TeamID.TEAM_B]:
-        bibbed_team = TeamID.TEAM_A if team_jersey_counts[TeamID.TEAM_A] > team_jersey_counts[TeamID.TEAM_B] else TeamID.TEAM_B
-        other_team = TeamID.TEAM_B if bibbed_team == TeamID.TEAM_A else TeamID.TEAM_A
-        return {bibbed_team: orange, other_team: black}
-
-    solver_log = pass3_output.solver_log or {}
-    bibbed = solver_log.get("bibbed_team_evidence")
-
-    if bibbed == TeamID.TEAM_A.value:
-        return {TeamID.TEAM_A: orange, TeamID.TEAM_B: black}
-    if bibbed == TeamID.TEAM_B.value:
-        return {TeamID.TEAM_A: black, TeamID.TEAM_B: orange}
-
-    # Fallback when evidence is ambiguous: deterministic mapping.
-    return {TeamID.TEAM_A: orange, TeamID.TEAM_B: black}
+    # Fixed mapping: team_a = black, team_b = orange.
+    return {TeamID.TEAM_A: black, TeamID.TEAM_B: orange}
 
 
 def _identity_label(identity: CommittedIdentity) -> str:
