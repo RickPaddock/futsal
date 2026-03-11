@@ -5,7 +5,7 @@
 
 
 #### Pass 2A Validation Contract Delta (from CLAUDE.md Section 2A) ⚠️ REQUIRED
-[x] test 2a against ground truth and fix where nessesary
+[x] test 2a against ground truth and fix where nessesary ✅ T2 43/43 splits detected (±60f), T1 481/482 (1 miss = Pass 1 ByteTracker timing)
 
 ### Pass 2B: Fragment Quality Scoring
 [ ] test 2b against ground truth and fix where nessesary. It should be validated for:

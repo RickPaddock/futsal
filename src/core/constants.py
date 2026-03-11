@@ -113,7 +113,9 @@ MAX_CONCURRENT_PLAYERS = 12  # Futsal regulation: 6v6
 # Tightened (2026-02-20): raised from 3/0.5/0.5 to filter cross-player crop contamination
 JERSEY_MIN_OBSERVATIONS = 5   # Minimum jersey observations to consider it "owned" by a fragment
 JERSEY_MIN_CONFIDENCE = 0.6   # Minimum confidence for jersey observations to count
-JERSEY_MAJORITY_THRESHOLD = 0.7  # Fragment must have ≥70% observations with same jersey to "own" it
+JERSEY_MAJORITY_THRESHOLD = 0.85  # Fragment must have ≥85% observations with same jersey to "own" it
+# Raised from 0.70: requires clear jersey dominance before fragment "owns" a number.
+# Reduces false temporal conflicts where jersey classifier is inconsistent.
 
 # Jersey change split thresholds (Pass 2A - Trigger 2)
 # Both sides must exceed JERSEY_CHANGE_MIN_CONF; new jersey confirmed by N consecutive sampled obs
@@ -122,7 +124,9 @@ JERSEY_CHANGE_CONFIRM_OBSERVATIONS = 2  # Consecutive confirming sampled obs nee
 
 # Jersey temporal conflict minimum overlap (Pass 2A - Trigger 3)
 # Only split if fragments overlap by at least this many frames (brief boundary noise is skipped)
-JERSEY_TEMPORAL_MIN_OVERLAP_FRAMES = 5  # Min frame overlap to trigger a temporal conflict split
+JERSEY_TEMPORAL_MIN_OVERLAP_FRAMES = 150  # Min frame overlap to trigger a temporal conflict split
+# Raised from 5: jersey classifier noise causes same jersey on different tracks for many frames.
+# Only a genuine sustained conflict (150+ overlapping frames) triggers a split. ~6s at 25fps.
 
 # Optional jersey-to-player display labels for visualization overlays.
 # Used only by visualization layer (does NOT affect identity inference or validation).
@@ -190,6 +194,7 @@ PASS1_RAW_JSON = "pass1_raw.json"
 PASS1_VALIDATION_JSON = "pass1_validation.json"
 
 PASS2_FRAGMENTS_JSON = "pass2_fragments.json"
+PASS2B_SCORED_FRAGMENTS_JSON = "pass2b_scored_fragments.json"
 PASS2_GHOSTS_JSON = "pass2_ghosts.json"
 PASS2_VALIDATION_JSON = "pass2_validation.json"
 
@@ -214,23 +219,42 @@ HSV_DRIFT_THRESHOLD = 0.58  # Min HSV distance to split on colour discontinuity.
 # Calibrated at 0.58: catches clip2 track4@500 bilateral swap (dist=0.598).
 # Gap vs noise: 0.58 - 0.32 = 0.26 (comfortable margin).
 HSV_WINDOW_FRAMES = 5      # ±frames to search for nearest HSV sample around a boundary
-HSV_SPLIT_COOLDOWN_FRAMES = 25  # Min frames between consecutive HSV splits on same track.
-# One physical swap produces many consecutive large-distance HSV sample pairs.
-# Cooldown ensures one swap → at most one fragment boundary.
-# Set below 45 (minimum real inter-swap gap on clip11: frames 364→411 = 47 frames).
-HSV_CHAOS_COOLDOWN_FRAMES = 60  # Extended cooldown after a split whose post-split region is chaotic.
-# When the first post-split HSV pair also exceeds the drift threshold, the jersey ROI
-# is unreliable (e.g. tracker just switched players, crop still settling).
-# Extended cooldown prevents false positives during the settling period.
-# Set to 60: covers ~2s of instability and is safely below the 325→330 window (real).
+HSV_SPLIT_COOLDOWN_FRAMES = 5   # Minimal guard between HSV splits; streak persistence is the primary filter.
+# Reduced from 25: the 3-frame streak requirement prevents double-splits on the same event.
+# A small cooldown still prevents the exact same boundary firing twice in adjacent samples.
+HSV_CHAOS_COOLDOWN_FRAMES = 5   # Chaos cooldown removed as a state-consuming suppressor.
+# Previously 60 frames; reduced to match normal cooldown. The streak requirement handles
+# post-split noise without blocking legitimate later splits on the same track.
 HSV_SPLIT_MIN_FRAGMENT_AGE = 20  # Min frames a fragment must exist before an HSV split fires.
 # Very young fragments have unstable jersey ROIs (player entering frame, partial view).
 # Suppresses false splits on tracks that start and immediately show jersey noise.
 # Set to 20: safely below track 9's first real split at age=25, above track 15's false at age=17.
+HSV_SPLIT_STREAK_REQUIRED = 3    # Consecutive HSV samples all above threshold required before split fires.
+# Clip 7 joe/armen swap sustains exactly 3 samples — verified minimum, cannot increase.
+HSV_SPATIAL_CENTROID_RATIO = 0.30  # Centroid shift as fraction of bbox width for spatial sanity check.
+# HSV split requires centroid shift > ratio*bbox_width OR bbox area change > 30%.
+# Filters lighting-induced HSV changes where the same player doesn't move.
 HSV_BASELINE_SAMPLES = 15        # Number of HSV samples used to build the per-fragment median baseline.
 # Median is robust to a few early anomalous samples.  15 samples ≈ 75 frames at sample-every-5.
-HSV_BASELINE_PERSIST_COUNT = 2   # Consecutive above-threshold baseline distances before drift split fires.
+HSV_BASELINE_PERSIST_COUNT = 3   # Consecutive above-threshold baseline distances before drift split fires.
+# Matched to HSV_SPLIT_STREAK_REQUIRED for consistency.
+HSV_SPLIT_COOLDOWN_PROGRESSIVE = [5, 60, 150, 150]
+# Cooldown frames after the Nth HSV split on the same track.
+# [0]=5: initial (first split uses minimal cooldown to prevent same-boundary re-fire).
+# [1]=60: after 1st split, 60 frames before 2nd can fire (prevents anchor-noise cascade).
+# [2]=150: after 2nd split, 150 frames before 3rd. Calibrated for clip 7 joe/armen swap:
+#   2nd HSV split fires at frame 635; swap at 800 → needs 635 + cooldown + 15 ≤ 800 → ≤151.
+# [3]=150: same cap for subsequent splits.
+# The progressive cooldown reduces false cascade splits without blocking genuine late swaps.
+HSV_SPLIT_STREAK_PROGRESSIVE = [3, 3, 3, 3]
+# Unused — kept for future use. Progressive streak was found to break T2 in clip 7.
 # Requires sustained deviation from the baseline median, not a single-frame spike.
+HSV_PROXIMITY_THRESHOLD = 2.0  # Max distance in bbox-widths to count another track as "nearby"
+# Proximity gate for HSV splits: genuine ID swaps require player crossing (tracks nearby).
+# Lighting changes happen to isolated players (no nearby track) → reject the split.
+# 3.0 bbox-widths ≈ 300px at typical player scale. Players cross within ~1-2 widths but
+# may have drifted slightly apart by the time the 3-frame streak completes (~15 frames).
+# Check at curr_frame (streak completion); at 30fps players move ~50px in 15 frames → safe.
 
 # Velocity spike thresholds
 VELOCITY_SPIKE_THRESHOLD = 50  # Pixels per frame

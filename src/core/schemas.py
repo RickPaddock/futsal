@@ -462,6 +462,7 @@ VALIDATION_RESULT_SCHEMA = {
 SCHEMA_REGISTRY = {
     "pass1_raw": PASS1_OUTPUT_SCHEMA,
     "pass2_fragments": PASS2A_OUTPUT_SCHEMA,
+    "pass2b_scored_fragments": PASS2A_OUTPUT_SCHEMA,
     "pass2_ghosts": PASS2C_OUTPUT_SCHEMA,
     "pass3_candidates": PASS3A_OUTPUT_SCHEMA,
     "pass3_constraints": PASS3B_OUTPUT_SCHEMA,

@@ -2,7 +2,7 @@
 Pass 2C: Ghost Generation
 
 Per CLAUDE.md Section 5 (Pass 2C):
-- Input: pass2_fragments.json (from Pass 2B with quality scores)
+- Input: pass2b_scored_fragments.json (from Pass 2B quality scoring)
 - Output: pass2_ghosts.json (fragments + ghosts)
 - Maintains player count continuity (R4: Players Never Disappear)
 
@@ -76,7 +76,7 @@ class Pass2CGhostGenerator:
         Execute Pass 2C ghost generation.
 
         Args:
-            pass2b_path: Path to pass2_fragments.json (with quality scores from Pass 2B)
+            pass2b_path: Path to pass2b_scored_fragments.json (scored fragments from Pass 2B)
             output_path: Path to write pass2_ghosts.json
             pass1_path: Optional path to pass1_raw.json (for frame range metadata)
 
@@ -653,25 +653,25 @@ def run_pass2c(
     Execute Pass 2C: Ghost Generation.
 
     Args:
-        input_dir: Directory containing pass2_fragments.json
+        input_dir: Directory containing pass2b_scored_fragments.json
         output_dir: Directory to write output (default: same as input_dir)
 
     Returns:
         Pass2COutput (with fragments + ghosts, ghost_creation_log, level_timeline)
 
     Raises:
-        FileNotFoundError if pass2_fragments.json not found
+        FileNotFoundError if pass2b_scored_fragments.json not found
         ValidationError if output fails validation
     """
     if output_dir is None:
         output_dir = input_dir
 
-    pass2b_path = input_dir / const.PASS2_FRAGMENTS_JSON  # Pass 2B writes to same file
+    pass2b_path = input_dir / const.PASS2B_SCORED_FRAGMENTS_JSON
     pass1_path = input_dir / const.PASS1_RAW_JSON
     output_path = output_dir / const.PASS2_GHOSTS_JSON
 
     if not pass2b_path.exists():
-        raise FileNotFoundError(f"Pass 2B output not found: {pass2b_path}")
+        raise FileNotFoundError(f"Pass 2B scored output not found: {pass2b_path}")
 
     # Pass 1 is optional (for frame range metadata)
     if not pass1_path.exists():

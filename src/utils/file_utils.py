@@ -251,6 +251,7 @@ def list_artifacts(output_dir: str) -> Dict[str, bool]:
             'pass1_raw': True,
             'pass1_validation': True,
             'pass2_fragments': False,
+            'pass2b_scored_fragments': False,
             ...
         }
     """
@@ -258,6 +259,7 @@ def list_artifacts(output_dir: str) -> Dict[str, bool]:
         "pass1_raw",
         "pass1_validation",
         "pass2_fragments",
+        "pass2b_scored_fragments",
         "pass2_ghosts",
         "pass2_validation",
         "pass3_candidates",

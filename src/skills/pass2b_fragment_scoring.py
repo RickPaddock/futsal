@@ -3,7 +3,7 @@ Pass 2B: Fragment Quality Scoring
 
 Per CLAUDE.md Section 5 (Pass 2B):
 - Input: pass2_fragments.json, pass1_raw.json
-- Output: pass2_fragments.json (with quality scores)
+- Output: pass2b_scored_fragments.json (new artifact; pass2_fragments.json unchanged)
 - Computes metadata ONLY (no identity assignment)
 - Assigns quality: HIGH, MEDIUM, LOW (GHOST assigned in Pass 2C)
 
@@ -418,7 +418,7 @@ def run_pass2b(
         output_dir: Output directory for Pass 2B artifacts
 
     Returns:
-        Path to pass2_fragments.json (with quality scores)
+        Path to pass2b_scored_fragments.json (new artifact; pass2_fragments.json unchanged)
     """
     logger.info("=" * 80)
     logger.info("PASS 2B: FRAGMENT QUALITY SCORING")
@@ -454,10 +454,10 @@ def run_pass2b(
 
     logger.info("Pass 2B validation PASSED ✓")
 
-    # Write Pass 2B output (overwrite pass2_fragments.json with scored fragments)
-    output_path = output_dir / const.PASS2_FRAGMENTS_JSON
+    # Write Pass 2B output to new artifact (P1: pass2_fragments.json remains untouched)
+    output_path = output_dir / const.PASS2B_SCORED_FRAGMENTS_JSON
     save_json(pass2b_output.model_dump(), str(output_path))
-    logger.info(f"Pass 2B output: {output_path}")
+    logger.info(f"Pass 2B output (scored): {output_path}")
 
     logger.info("=" * 80)
     logger.info(f"PASS 2B COMPLETE: {len(pass2b_output.fragments)} scored fragments")

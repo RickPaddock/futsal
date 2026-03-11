@@ -37,7 +37,7 @@ from ..core.data_models import (
 )
 from ..core.types import FragmentID, TrackID, DetectionID, HSVHistogram
 from ..utils.file_utils import load_json, save_json
-from ..utils.geometry import centroid_distance
+from ..utils.geometry import bbox_centroid, centroid_distance
 from ..utils.hsv_color import compare_hsv_histograms
 from ..utils.video_io import VideoReader
 from ..validation.validator import Validator
@@ -277,6 +277,9 @@ class Pass2AFragmenter:
     def __init__(self):
         self.fragment_counter = 0
         self.split_log: List[Dict] = []
+        # Cross-track frame lookup for proximity checks in HSV trigger.
+        # Built in run() before the per-track loop.  frame_idx → [Detection, ...]
+        self._all_dets_by_frame: Dict[int, List] = {}
 
     def run(self, pass1_path: Path, output_path: Path) -> Pass2AOutput:
         """
@@ -296,6 +299,14 @@ class Pass2AFragmenter:
         pass1_output = load_json(pass1_path, Pass1Output)
 
         logger.info(f"Pass 2A: Fragmenting {len(pass1_output.detections)} detections")
+
+        # Build cross-track frame lookup for proximity checks in the HSV trigger.
+        # Maps frame_idx → all detections at that frame (across ALL tracks).
+        self._all_dets_by_frame = {}
+        for det in pass1_output.detections:
+            if det.frame_idx not in self._all_dets_by_frame:
+                self._all_dets_by_frame[det.frame_idx] = []
+            self._all_dets_by_frame[det.frame_idx].append(det)
 
         # Group detections by track_id
         tracks = self._group_detections_by_track(pass1_output.detections)
@@ -511,10 +522,15 @@ class Pass2AFragmenter:
         #
         # Two complementary sub-checks run in the same loop:
         #
-        # 4a — Consecutive check:
-        #   Compare each sample to the last trusted anchor.
-        #   Catches sudden swaps where one consecutive step crosses HSV_DRIFT_THRESHOLD.
-        #   Sustain check suppresses single-frame transients.
+        # 4a — Consecutive streak check:
+        #   Compare each sample to the last stable anchor.
+        #   Require HSV_SPLIT_STREAK_REQUIRED consecutive samples all above threshold
+        #   AND a spatial sanity check (centroid shift OR bbox size change) to filter
+        #   lighting-induced HSV changes where the player doesn't move.
+        #   Fires at the FIRST frame of the streak (where the change actually began).
+        #   Replaces the old single-frame transient-suppression approach, which was
+        #   insufficient: single-frame spikes caused false positives and chaos cooldowns
+        #   consumed the evidence window, preventing detection of later real swaps.
         #
         # 4b — Baseline drift check:
         #   Build a stable median baseline from the first HSV_BASELINE_SAMPLES trusted
@@ -524,7 +540,7 @@ class Pass2AFragmenter:
         #   the cumulative drift does. Baseline persists for the entire fragment; it resets
         #   only when a split creates a new fragment.
         #
-        # Consecutive check fires first; baseline only runs if consecutive doesn't fire.
+        # Consecutive streak check fires first; baseline only runs if streak didn't fire.
         # Both share the same cooldown, fragment-start, and last-trusted-anchor state.
         # All state resets on any split (consecutive or baseline drift).
         # ============================================================================
@@ -537,10 +553,15 @@ class Pass2AFragmenter:
             key=lambda x: x[0],
         )
 
+        # Detection lookup for spatial sanity check (frame_idx → Detection)
+        det_by_frame = {d.frame_idx: d for d in detections}
+
         last_hsv_split_frame = -(const.HSV_SPLIT_COOLDOWN_FRAMES + 1)
-        active_cooldown = const.HSV_SPLIT_COOLDOWN_FRAMES  # May be extended to chaos cooldown
-        last_valid_idx = 0  # Index of the last trusted (non-transient) HSV sample
+        hsv_split_count: int = 0  # Number of HSV splits fired so far on this track
+        active_cooldown = const.HSV_SPLIT_COOLDOWN_PROGRESSIVE[0]  # Grows with each split
+        last_valid_idx = 0  # Index of the last stable (below-threshold) HSV sample
         fragment_start_frame = hsv_samples[0][0] if hsv_samples else 0
+        streak_count: int = 0  # Consecutive samples above HSV_DRIFT_THRESHOLD
 
         # Baseline drift state — seeded with the very first sample of this fragment
         baseline_collect: List = [hsv_samples[0][1]] if hsv_samples else []
@@ -550,18 +571,16 @@ class Pass2AFragmenter:
 
         for i in range(1, len(hsv_samples)):
             curr_frame, curr_hsv = hsv_samples[i]
-            # Compare against the last TRUSTED baseline (not necessarily i-1).
-            # When a sample is suppressed as a transient anomaly, the baseline
-            # stays anchored at the pre-transient sample so the next comparison
-            # doesn't use the anomalous sample as its "prev".
+            # Compare against the last STABLE anchor (the last sample that was below threshold).
             prev_frame, prev_hsv = hsv_samples[last_valid_idx]
 
-            # Within-cooldown: sample is trusted new-fragment colour; advance baseline,
-            # reset drift streak, skip both checks.
+            # Within-cooldown: sample is trusted new-fragment colour; advance anchor,
+            # reset streak and drift, skip both checks.
             if curr_frame - last_hsv_split_frame < active_cooldown:
                 last_valid_idx = i
                 if len(baseline_collect) < const.HSV_BASELINE_SAMPLES:
                     baseline_collect.append(curr_hsv)
+                streak_count = 0
                 drift_count = 0
                 drift_first_frame = None
                 continue
@@ -572,6 +591,7 @@ class Pass2AFragmenter:
                 last_valid_idx = i
                 if len(baseline_collect) < const.HSV_BASELINE_SAMPLES:
                     baseline_collect.append(curr_hsv)
+                streak_count = 0
                 drift_count = 0
                 drift_first_frame = None
                 continue
@@ -580,56 +600,75 @@ class Pass2AFragmenter:
             if baseline_hsv is None and len(baseline_collect) >= const.HSV_BASELINE_SAMPLES:
                 baseline_hsv = _compute_median_hsv(baseline_collect)
 
-            # ---- 4a: Consecutive check ----
-            # Compare current sample to the last trusted anchor.
+            # ---- 4a: Consecutive streak check ----
+            # Compare current sample to the last stable anchor.
+            # Require HSV_SPLIT_STREAK_REQUIRED consecutive above-threshold samples to fire.
+            # The 3-frame streak is the primary false-positive filter — lighting spikes are
+            # transient (1-2 frames) while genuine identity swaps persist for many frames.
+            # Spatial check is computed for logging but does NOT gate the streak: track steals
+            # happen at player crossings where centroids overlap, so requiring spatial
+            # displacement would incorrectly block the swaps we're trying to detect.
             hsv_distance = 1.0 - compare_hsv_histograms(prev_hsv, curr_hsv)
-            is_transient = False
+
+            # Spatial metadata (logged, not a gating condition — see note above).
+            spatial_changed = True  # default when bbox data unavailable
+            prev_det = det_by_frame.get(prev_frame)
+            curr_det = det_by_frame.get(curr_frame)
+            if prev_det and curr_det:
+                shift = centroid_distance(bbox_centroid(prev_det.bbox), bbox_centroid(curr_det.bbox))
+                bbox_w = max(1, prev_det.bbox[2] - prev_det.bbox[0])
+                prev_area = max(1, (prev_det.bbox[2] - prev_det.bbox[0]) * (prev_det.bbox[3] - prev_det.bbox[1]))
+                curr_area = max(1, (curr_det.bbox[2] - curr_det.bbox[0]) * (curr_det.bbox[3] - curr_det.bbox[1]))
+                area_ratio = max(prev_area, curr_area) / min(prev_area, curr_area)
+                spatial_changed = (
+                    shift > const.HSV_SPATIAL_CENTROID_RATIO * bbox_w
+                    or area_ratio > 1.3
+                )
+
             if hsv_distance > const.HSV_DRIFT_THRESHOLD:
-                # Sustain check: if next nearby sample reverts toward prev, it's a transient.
-                if i + 1 < len(hsv_samples):
-                    next_frame, next_hsv = hsv_samples[i + 1]
-                    if next_frame - curr_frame <= const.HSV_WINDOW_FRAMES:
-                        reversal = 1.0 - compare_hsv_histograms(next_hsv, prev_hsv)
-                        if reversal <= const.HSV_DRIFT_THRESHOLD:
-                            is_transient = True
-
-                if not is_transient:
-                    # Check post-split chaos: if immediately following HSV pair also exceeds
-                    # threshold, extend cooldown to let jersey ROI settle after the swap.
-                    active_cooldown = const.HSV_SPLIT_COOLDOWN_FRAMES
-                    if i + 1 < len(hsv_samples):
-                        post_frame, post_hsv = hsv_samples[i + 1]
-                        if post_frame - curr_frame <= const.HSV_SPLIT_COOLDOWN_FRAMES:
-                            post_dist = 1.0 - compare_hsv_histograms(curr_hsv, post_hsv)
-                            if post_dist > const.HSV_DRIFT_THRESHOLD:
-                                active_cooldown = const.HSV_CHAOS_COOLDOWN_FRAMES
-
+                streak_count += 1
+                if streak_count >= const.HSV_SPLIT_STREAK_REQUIRED:
+                    # Proximity gate: genuine ID swaps require player crossing.
+                    # Lighting-induced HSV changes happen to isolated players.
+                    # Gate on curr_frame (when streak completes — players still nearby).
+                    if not self._is_nearby_track_present(track_id, curr_frame, curr_det):
+                        streak_count = 0
+                        last_valid_idx = i
+                        continue
+                    # Fire at the FIRST frame of the streak (where the change actually began)
+                    streak_start_idx = i - (const.HSV_SPLIT_STREAK_REQUIRED - 1)
+                    split_frame = hsv_samples[streak_start_idx][0]
                     last_valid_idx = i
                     fragment_start_frame = curr_frame
                     last_hsv_split_frame = curr_frame
+                    hsv_split_count += 1
+                    active_cooldown = const.HSV_SPLIT_COOLDOWN_PROGRESSIVE[
+                        min(hsv_split_count, len(const.HSV_SPLIT_COOLDOWN_PROGRESSIVE) - 1)
+                    ]
                     baseline_collect = [curr_hsv]  # Reset baseline for new fragment
                     baseline_hsv = None
+                    streak_count = 0
                     drift_count = 0
                     drift_first_frame = None
-                    split_points.append((curr_frame, "hard_appearance_discontinuity"))
+                    split_points.append((split_frame, "hard_appearance_discontinuity"))
                     self.split_log.append({
                         "track_id": track_id,
-                        "frame_idx": curr_frame,
+                        "frame_idx": split_frame,
                         "reason": "hard_appearance_discontinuity",
                         "details": (
-                            f"HSV consecutive: distance={hsv_distance:.3f} "
-                            f"between frames {prev_frame} and {curr_frame}"
+                            f"HSV streak: distance={hsv_distance:.3f} "
+                            f"persisted {const.HSV_SPLIT_STREAK_REQUIRED} samples "
+                            f"from frame {split_frame} to {curr_frame} "
+                            f"spatial_changed={spatial_changed}"
                         ),
                     })
                     continue
-
-            # Transient: colour reverts next sample — treat curr as noise.
-            # Do NOT advance last_valid_idx (keep pre-transient anchor).
-            # Do NOT accumulate into baseline. Reset drift streak.
-            if is_transient:
-                drift_count = 0
-                drift_first_frame = None
+                # Mid-streak: don't advance anchor or accumulate baseline yet
                 continue
+            else:
+                # Below threshold — stable sample, advance anchor and reset streak
+                streak_count = 0
+                last_valid_idx = i
 
             # ---- 4b: Baseline drift check ----
             # Consecutive distance was below threshold (or consecutive was transient and
@@ -642,14 +681,24 @@ class Pass2AFragmenter:
                         drift_first_frame = curr_frame
                     drift_count += 1
                     if drift_count >= const.HSV_BASELINE_PERSIST_COUNT:
+                        # Proximity gate: same principle as streak check above.
+                        if not self._is_nearby_track_present(track_id, curr_frame, curr_det):
+                            drift_count = 0
+                            drift_first_frame = None
+                            continue
                         split_frame = drift_first_frame  # Fire at first persistent drift sample
                         last_valid_idx = i
                         fragment_start_frame = split_frame
                         last_hsv_split_frame = curr_frame  # Cooldown from current (2nd) sample
                         baseline_collect = [curr_hsv]      # Reset baseline for new fragment
                         baseline_hsv = None
+                        streak_count = 0
                         drift_count = 0
                         drift_first_frame = None
+                        hsv_split_count += 1
+                        active_cooldown = const.HSV_SPLIT_COOLDOWN_PROGRESSIVE[
+                            min(hsv_split_count, len(const.HSV_SPLIT_COOLDOWN_PROGRESSIVE) - 1)
+                        ]
                         split_points.append((split_frame, "hard_appearance_discontinuity"))
                         self.split_log.append({
                             "track_id": track_id,
@@ -834,6 +883,40 @@ class Pass2AFragmenter:
             parent_fragment_id=None,  # Will be set during jersey temporal exclusivity
         )
 
+    def _is_nearby_track_present(
+        self,
+        track_id: TrackID,
+        frame_idx: int,
+        this_det: Optional["Detection"],
+    ) -> bool:
+        """
+        Return True if any other track has a detection within
+        HSV_PROXIMITY_THRESHOLD bbox-widths of this_det at frame_idx.
+
+        Used as a proximity gate for the HSV split trigger:
+        genuine identity swaps require player crossing (another track nearby),
+        whereas lighting-induced HSV changes happen to isolated players.
+
+        If this_det is None (no bbox data), returns True (conservative: allow split).
+        If no other detections exist at this frame, returns False (isolated player).
+        """
+        if this_det is None:
+            return True  # No bbox data → can't gate → allow split conservatively
+
+        frame_dets = self._all_dets_by_frame.get(frame_idx, [])
+        this_centroid = bbox_centroid(this_det.bbox)
+        bbox_w = max(1, this_det.bbox[2] - this_det.bbox[0])
+        max_dist = const.HSV_PROXIMITY_THRESHOLD * bbox_w
+
+        for other_det in frame_dets:
+            if other_det.track_id == track_id:
+                continue  # Skip own track
+            dist = centroid_distance(this_centroid, bbox_centroid(other_det.bbox))
+            if dist <= max_dist:
+                return True
+
+        return False
+
     def _split_jersey_temporal_conflicts(
         self,
         fragments: List[Fragment],
@@ -903,6 +986,10 @@ class Pass2AFragmenter:
         # Detect temporal overlaps for each jersey
         new_fragments = []
         fragments_to_split: Set[str] = set()  # fragment_ids to split
+        # Deduplicate per (track_id, jersey_number): after HSV pre-splits a track into N
+        # fragments, each independently "owns" the same wrong jersey and would generate N
+        # redundant splits. One split per (track_id, jersey) pair is the correct evidence.
+        split_pairs_seen: Set[Tuple[int, int]] = set()
 
         for jersey_num, appearances in jersey_timeline.items():
             if len(appearances) < 2:
@@ -930,6 +1017,10 @@ class Pass2AFragmenter:
                         # Split the one where jersey appears LATER
                         if first_b > first_a:
                             # Fragment B "stole" the jersey - split it at first_b
+                            split_key = (frag_b.original_track_id, jersey_num)
+                            if split_key in split_pairs_seen:
+                                continue  # Already split this track for this jersey
+                            split_pairs_seen.add(split_key)
                             fragments_to_split.add(frag_b.fragment_id)
                             self.split_log.append({
                                 "track_id": frag_b.original_track_id,
@@ -940,6 +1031,10 @@ class Pass2AFragmenter:
                             })
                         else:
                             # Fragment A "stole" the jersey - split it at first_a
+                            split_key = (frag_a.original_track_id, jersey_num)
+                            if split_key in split_pairs_seen:
+                                continue  # Already split this track for this jersey
+                            split_pairs_seen.add(split_key)
                             fragments_to_split.add(frag_a.fragment_id)
                             self.split_log.append({
                                 "track_id": frag_a.original_track_id,

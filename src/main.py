@@ -274,7 +274,7 @@ Examples:
             for reason, count in sorted(split_reasons.items(), key=lambda x: -x[1]):
                 logger.info(f"     {reason}: {count}")
 
-            logger.info(f"   Output: {output_dir / 'pass2_fragments.json'}")
+            logger.info(f"   Output (raw): {output_dir / 'pass2_fragments.json'}")
             logger.info(f"   Validation: {output_dir / 'pass2_validation.json'}")
 
             # Run Pass 2B quality scoring
@@ -285,6 +285,7 @@ Examples:
                 output_dir=output_dir,
             )
             logger.info(f"[OK] Pass 2B Complete!")
+            logger.info(f"   Output (scored): {output_dir / 'pass2b_scored_fragments.json'}")
 
             # Run Pass 2C ghost generation
             logger.info("")

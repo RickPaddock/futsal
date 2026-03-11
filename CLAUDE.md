@@ -723,26 +723,350 @@ or clip ends
 
 Pass 3 — Identity Resolution
 
-Steps:
+Purpose:
 
-3A candidate generation
-3B constraint graph
-3C identity commit
+Resolve player identity continuity across fragments while preserving the invariants:
 
+R1 raw observation integrity
+R2 team assignment completeness
+R3 jersey exclusivity
+R4 player presence continuity
+
+Identity resolution happens exactly once in Pass 3C.
+
+Earlier passes must never assign identity.
+
+Pass 3 operates on fragments produced by Pass2A/B and ghosts from Pass2C.
+
+Pass 3A — Candidate Generation
+
+Purpose:
+
+Generate identity continuity candidates between fragments based on physical and temporal plausibility.
+
+Pass 3A produces evidence edges, not decisions.
+
+Inputs
+pass2_fragments_scored.json
+pass2_ghost_fragments.json
+
+Fragments include:
+
+fragment_id
+track_id
+start_frame
+end_frame
+bbox_series
+centroid_series
+jersey_number evidence
+HSV color evidence
+quality score
+is_ghost
+
+Ghost fragments may exist but must not generate identity edges.
+
+Outputs
+pass3_identity_candidates.json
+
+Each candidate edge contains:
+
+fragment_a
+fragment_b
+temporal_gap
+spatial_distance
+jersey_match_score
+color_match_score
+velocity_consistency_score
+overall_candidate_score
+
+Edges represent possible same-player continuity.
+
+Candidate Eligibility Rules
+
+Two fragments are eligible for candidate generation only if:
+
+fragment_a.end_frame < fragment_b.start_frame
+
+and
+
+gap_frames <= MAX_IDENTITY_GAP
+
+Typical value:
+
+MAX_IDENTITY_GAP = 300 frames
+Spatial Feasibility Check
+
+Maximum plausible displacement:
+
+distance(fragment_a.last_centroid, fragment_b.first_centroid)
+≤ MAX_PLAYER_SPEED * gap_time
+
+If exceeded:
+
+candidate rejected
+Evidence Scoring
+
+Candidate score combines:
+
+Jersey Evidence
+same jersey number → strong positive
+conflicting jersey numbers → hard reject
+unknown → neutral
+Color Evidence
+
+HSV similarity between fragments.
+
+Produces:
+
+color_match_score ∈ [0,1]
+Motion Evidence
+
+Estimate exit velocity from fragment A.
+
+Check whether B's entry location is consistent.
+
+Produces:
+
+velocity_consistency_score
+Temporal Gap Penalty
+
+Long gaps reduce confidence.
+
+Final Score
+
+Weighted combination:
+
+overall_candidate_score =
+    w1 * jersey_score +
+    w2 * color_score +
+    w3 * motion_score +
+    w4 * temporal_penalty
+
+Candidates below threshold are discarded.
+
+Pass 3B — Constraint Graph Construction
+
+Purpose:
+
+Convert candidate evidence into a global constraint graph.
+
+Nodes:
+
+fragment_id
+
+Edges:
+
+MUST_SAME
+CANNOT_SAME
+SOFT_SAME
+Inputs
+pass2 fragments
+pass3_identity_candidates
+Outputs
+pass3_constraint_graph.json
+MUST_SAME Constraints
+
+Fragments must belong to the same identity when:
+
+same track_id
+and temporal continuity exists
+
+or
+
+candidate_score >= MUST_SAME_THRESHOLD
+
+These edges are hard constraints.
+
+CANNOT_SAME Constraints
+
+Fragments cannot belong to the same identity if:
+
+temporal overlap exists
+
+or
+
+jersey conflict detected
+
+or
+
+spatial impossibility
+
+These edges are hard exclusions.
+
+SOFT_SAME Constraints
+
+Weak evidence linking fragments.
+
+Created when:
+
+candidate_score >= SOFT_THRESHOLD
+
+but below MUST threshold.
+
+These edges influence optimization but do not enforce identity.
+
+Graph Invariants
+
+The constraint graph must satisfy:
+
+no fragment may have MUST_SAME edges to two fragments
+that have CANNOT_SAME between them
+
+If detected:
+
+FAIL FAST
 Pass 3C — Identity Commit
 
-Identity resolved once.
+Purpose:
 
-Algorithm:
+Resolve the constraint graph into final player identities.
 
-1 build identity groups via MUST_SAME
-2 assign teams via K-means
-3 lock teams
-4 propagate jerseys
-5 validate exclusivity
-6 optimize soft constraints
+Identity resolution occurs exactly once here.
 
-Identity immutable after this point.
+Inputs
+pass3_constraint_graph.json
+pass2_fragments
+Outputs
+pass3_identities.json
+
+Each identity contains:
+
+identity_id
+team_id
+jersey_number
+fragments[]
+Identity Resolution Algorithm
+Step 1 — Build Identity Groups
+
+Construct connected components using:
+
+MUST_SAME edges
+
+Each component becomes a candidate player identity.
+
+Step 2 — Validate Hard Constraints
+
+Ensure within each component:
+
+no temporal overlaps
+no jersey conflicts
+
+If violation exists:
+
+FAIL FAST
+Step 3 — Team Assignment
+
+Extract color embeddings for each identity.
+
+Run clustering:
+
+K-means (k=2)
+
+Result:
+
+team assignment for each identity
+Step 4 — Lock Team Labels
+
+Once assigned:
+
+team_id immutable
+
+Fragments inherit the identity's team.
+
+Step 5 — Jersey Resolution
+
+For each identity:
+
+jersey = most confident jersey observation
+
+Unknown allowed if insufficient evidence.
+
+Step 6 — Enforce Jersey Exclusivity
+
+For each frame:
+
+no two identities may share the same jersey number on same team
+
+If violation occurs:
+
+resolve via soft constraints
+
+If unresolved:
+
+FAIL FAST
+Step 7 — Soft Constraint Optimization
+
+Apply remaining:
+
+SOFT_SAME edges
+
+to maximize global consistency.
+
+Optimization goal:
+
+maximize total candidate scores
+
+subject to:
+
+hard constraints
+Step 8 — Identity Finalization
+
+Assign stable identifiers:
+
+identity_id = sequential player ID
+
+Fragments inherit identity.
+
+After this step:
+
+identity assignments immutable
+Pass 3 Invariants
+
+After Pass 3C completes:
+
+each fragment belongs to exactly one identity
+no identities overlap in time with themselves
+team assignment exists for every identity
+jersey exclusivity holds
+Debug Metrics
+
+Pass 3 must record:
+
+identity_count
+fragments_per_identity
+candidate_edges
+must_edges
+cannot_edges
+soft_edges
+identity_merges
+identity_conflicts
+Failure Conditions
+
+Pass 3 must stop immediately if:
+
+constraint contradictions detected
+identity overlap detected
+team assignment fails
+jersey exclusivity fails
+
+Required behavior:
+
+write validation_report.json
+exit non-zero
+do not write pass3 artifacts
+Critical Design Rules
+
+Pass 3 must never:
+
+modify fragment boundaries
+merge fragments
+create new fragments
+
+Pass 3 only:
+
+assigns identities
+assigns teams
+resolves jerseys
 
 6. Automated Debugging
 
