@@ -354,6 +354,30 @@ class Pass3AOutput(BaseModel):
     candidates: List[IdentityCandidate]
 
 
+class IdentityCandidateEdge(BaseModel):
+    """
+    Pairwise candidate edge emitted by Pass 3A.
+
+    Each edge represents a possible identity continuation from fragment_a to
+    fragment_b under temporal and spatial feasibility constraints.
+    """
+    fragment_a: FragmentID
+    fragment_b: FragmentID
+    temporal_gap: int
+    spatial_distance: float
+    velocity_consistency_score: float
+    appearance_similarity: float
+    jersey_similarity: float
+    overall_candidate_score: float
+
+
+class Pass3AEdgesOutput(BaseModel):
+    """
+    Output artifact for contract-compliant Pass 3A pairwise candidates.
+    """
+    candidates: List[IdentityCandidateEdge]
+
+
 # ============================================================================
 # PASS 3B MODELS (CONSTRAINT GRAPH)
 # ============================================================================

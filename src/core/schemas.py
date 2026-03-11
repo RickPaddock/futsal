@@ -266,6 +266,40 @@ PASS3A_OUTPUT_SCHEMA = {
 }
 
 
+IDENTITY_CANDIDATE_EDGE_SCHEMA = {
+    "type": "object",
+    "required": [
+        "fragment_a",
+        "fragment_b",
+        "temporal_gap",
+        "spatial_distance",
+        "velocity_consistency_score",
+        "appearance_similarity",
+        "jersey_similarity",
+        "overall_candidate_score",
+    ],
+    "properties": {
+        "fragment_a": {"type": "string", "pattern": "^F\\d{6}$"},
+        "fragment_b": {"type": "string", "pattern": "^F\\d{6}$"},
+        "temporal_gap": {"type": "integer", "minimum": 1},
+        "spatial_distance": {"type": "number", "minimum": 0},
+        "velocity_consistency_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "appearance_similarity": {"type": "number", "minimum": 0, "maximum": 1},
+        "jersey_similarity": {"type": "number", "minimum": 0, "maximum": 1},
+        "overall_candidate_score": {"type": "number", "minimum": 0, "maximum": 1},
+    },
+}
+
+
+PASS3A_EDGE_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["candidates"],
+    "properties": {
+        "candidates": {"type": "array", "items": IDENTITY_CANDIDATE_EDGE_SCHEMA},
+    },
+}
+
+
 CONSTRAINT_SCHEMA = {
     "type": "object",
     "required": ["constraint_id", "constraint_type", "fragment_ids", "weight", "reason"],
@@ -464,6 +498,7 @@ SCHEMA_REGISTRY = {
     "pass2_fragments": PASS2A_OUTPUT_SCHEMA,
     "pass2b_scored_fragments": PASS2A_OUTPUT_SCHEMA,
     "pass2_ghosts": PASS2C_OUTPUT_SCHEMA,
+    "pass3a_candidates": PASS3A_EDGE_OUTPUT_SCHEMA,
     "pass3_candidates": PASS3A_OUTPUT_SCHEMA,
     "pass3_constraints": PASS3B_OUTPUT_SCHEMA,
     "pass3_identity_commit": PASS3C_OUTPUT_SCHEMA,

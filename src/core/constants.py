@@ -104,6 +104,10 @@ KMEANS_MIN_HSV_CONSISTENCY = 0.35
 # PASS 3A JERSEY EVIDENCE THRESHOLDS
 # ============================================================================
 
+# Pass 3A candidate-edge eligibility constraints.
+MAX_IDENTITY_GAP = 300  # Maximum temporal gap (frames) for identity continuation edges
+MAX_PLAYER_SPEED = 50.0  # Max plausible player speed (px/frame) for spatial feasibility gate
+
 # Minimum support required to emit jersey evidence for a fragment.
 # Fragments below either threshold produce no jersey candidate — classifier noise suppressed.
 MIN_JERSEY_DETECTIONS = 10   # Minimum raw detection count
@@ -207,6 +211,7 @@ PASS2B_SCORED_FRAGMENTS_JSON = "pass2b_scored_fragments.json"
 PASS2_GHOSTS_JSON = "pass2_ghosts.json"
 PASS2_VALIDATION_JSON = "pass2_validation.json"
 
+PASS3A_CANDIDATES_JSON = "pass3a_candidates.json"
 PASS3_CANDIDATES_JSON = "pass3_candidates.json"
 PASS3_CONSTRAINTS_JSON = "pass3_constraints.json"
 PASS3_IDENTITY_COMMIT_JSON = "pass3_identity_commit.json"
