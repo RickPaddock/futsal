@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
+from ..core import constants as const
 from ..core.data_models import Detection, Pass1Output, Pass2COutput, Pass3COutput, CommittedIdentity
 from ..core.types import TeamID
 from ..utils.file_utils import load_json
@@ -142,21 +143,26 @@ def _draw_pass3_overlay_frame(
         # Top label: player identity (white text on black background for readability).
         _draw_text_with_bg(overlay, str(label), (x1, max(18, y1 - 8)), 0.48, (255, 255, 255), 2)
 
-        # Bottom label: large jersey number.
-        jersey_text = f"#{jersey_number}" if jersey_number is not None else "#?"
-        _draw_text_with_bg(
-            overlay,
-            jersey_text,
-            (x1, min(overlay.shape[0] - 8, y2 + 28)),
-            0.82,
-            (255, 255, 255),
-            2,
-        )
+        # Bottom label: jersey number and player name (if known).
+        if jersey_number is not None:
+            name = const.PLAYER_NAME_BY_JERSEY.get(jersey_number)
+            jersey_text = f"#{jersey_number} - {name}" if name else f"#{jersey_number}"
+        else:
+            jersey_text = None
+        if jersey_text is not None:
+            _draw_text_with_bg(
+                overlay,
+                jersey_text,
+                (x1, min(overlay.shape[0] - 8, y2 + 28)),
+                0.82,
+                (255, 255, 255),
+                2,
+            )
 
     title = "PASS 3 DEBUG: COMMITTED IDENTITY"
     lines = [
         "bibbed team=ORANGE, other team=BLACK | dashed boxes=ghosts",
-        "top label=player_id, bottom label=jersey number",
+        "top label=player_id, bottom label=#number - name (if known)",
         f"frame={frame_idx} team_a={team_a_count} team_b={team_b_count} ghosts={committed_ghost_count}",
     ]
 

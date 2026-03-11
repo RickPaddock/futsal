@@ -338,9 +338,12 @@ class IdentityCandidate(BaseModel):
     candidate_jersey: Optional[int] = None
     candidate_player_id: Optional[PlayerID] = None
 
-    # Evidence scores (source -> score)
+    # Evidence scores
+    # team_evidence: source -> score (float)
+    # jersey_evidence: jersey_key (e.g. "04") -> {"count": int, "ratio": float}
+    # player_evidence: source -> score (float)
     team_evidence: Dict[str, float] = Field(default_factory=dict)
-    jersey_evidence: Dict[str, float] = Field(default_factory=dict)
+    jersey_evidence: Dict[str, Any] = Field(default_factory=dict)
     player_evidence: Dict[str, float] = Field(default_factory=dict)
 
 

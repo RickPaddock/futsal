@@ -119,34 +119,55 @@ class Pass3ACandidateGenerator:
             "hsv_observability": hsv_observability,
         }
 
-    def _build_jersey_evidence(self, detections: List[Detection]) -> Dict[str, float]:
-        jersey_scores: Dict[int, float] = defaultdict(float)
+    def _build_jersey_evidence(self, detections: List[Detection]) -> Dict[str, object]:
+        """
+        Build jersey evidence as {jersey_key: {"count": int, "ratio": float}}.
+
+        Uses raw detection counts (not normalized by max) so evidence strength is
+        preserved for conflict resolution in Pass 3C.
+
+        Filters:
+          - MIN_JERSEY_DETECTIONS: suppress fragments with too few hits
+          - MIN_JERSEY_RATIO: suppress accidental crops of background players
+        """
+        if not detections:
+            return {}
+
+        jersey_counts: Dict[int, int] = defaultdict(int)
+        total_detections = len(detections)
 
         for detection in detections:
-            if detection.jersey_probs:
-                for jersey, score in detection.jersey_probs.items():
+            if (
+                detection.jersey_number is not None
+                and detection.jersey_number in ALLOWED_JERSEY_NUMBERS
+                and detection.jersey_confidence >= const.JERSEY_CONF_THRESHOLD
+            ):
+                jersey_counts[detection.jersey_number] += 1
+            elif detection.jersey_probs:
+                # Fallback: use top-scoring jersey from probability distribution
+                best_jersey: Optional[int] = None
+                best_score = 0.0
+                for jersey_key, score in detection.jersey_probs.items():
                     try:
-                        jersey_number = int(jersey)
+                        jersey_number = int(jersey_key)
                     except (TypeError, ValueError):
                         continue
-                    if jersey_number in ALLOWED_JERSEY_NUMBERS and score >= 0:
-                        jersey_scores[jersey_number] += float(score)
+                    if jersey_number in ALLOWED_JERSEY_NUMBERS and float(score) > best_score:
+                        best_jersey = jersey_number
+                        best_score = float(score)
+                if best_jersey is not None:
+                    jersey_counts[best_jersey] += 1
 
-            if detection.jersey_number is not None and detection.jersey_number in ALLOWED_JERSEY_NUMBERS:
-                confidence = float(max(0.0, detection.jersey_confidence))
-                jersey_scores[detection.jersey_number] += max(confidence, 1e-6)
+        result: Dict[str, object] = {}
+        for jersey_number, count in sorted(jersey_counts.items()):
+            ratio = count / total_detections
+            if count >= const.MIN_JERSEY_DETECTIONS and ratio >= const.MIN_JERSEY_RATIO:
+                result[f"{jersey_number:02d}"] = {
+                    "count": count,
+                    "ratio": float(ratio),
+                }
 
-        if not jersey_scores:
-            return {}
-
-        max_score = max(jersey_scores.values())
-        if max_score <= 0:
-            return {}
-
-        return {
-            f"jersey_{jersey_number:02d}": float(score / max_score)
-            for jersey_number, score in sorted(jersey_scores.items())
-        }
+        return result
 
     def _build_player_evidence(self, fragment: ScoredFragment) -> Dict[str, float]:
         track_fragments = self._fragments_by_track.get(fragment.original_track_id, [])
@@ -168,17 +189,19 @@ class Pass3ACandidateGenerator:
         }
 
     @staticmethod
-    def _select_candidate_jersey(jersey_evidence: Dict[str, float]) -> Optional[int]:
+    def _select_candidate_jersey(jersey_evidence: Dict[str, object]) -> Optional[int]:
         if not jersey_evidence:
             return None
 
-        best_key = max(jersey_evidence, key=jersey_evidence.get)
-        if not best_key.startswith("jersey_"):
-            return None
+        # Select jersey with highest detection count
+        best_key = max(
+            jersey_evidence,
+            key=lambda k: jersey_evidence[k].get("count", 0) if isinstance(jersey_evidence[k], dict) else 0,
+        )
 
         try:
-            jersey_number = int(best_key.split("_", maxsplit=1)[1])
-        except (IndexError, ValueError):
+            jersey_number = int(best_key)
+        except (ValueError, TypeError):
             return None
 
         return jersey_number if jersey_number in ALLOWED_JERSEY_NUMBERS else None

@@ -101,6 +101,15 @@ KMEANS_MIN_FRAGMENT_QUALITY_SCORE = 0.40
 KMEANS_MIN_HSV_CONSISTENCY = 0.35
 
 # ============================================================================
+# PASS 3A JERSEY EVIDENCE THRESHOLDS
+# ============================================================================
+
+# Minimum support required to emit jersey evidence for a fragment.
+# Fragments below either threshold produce no jersey candidate — classifier noise suppressed.
+MIN_JERSEY_DETECTIONS = 10   # Minimum raw detection count
+MIN_JERSEY_RATIO = 0.02      # Minimum fraction of fragment detections
+
+# ============================================================================
 # JERSEY TEMPORAL EXCLUSIVITY
 # ============================================================================
 

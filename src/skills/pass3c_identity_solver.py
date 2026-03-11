@@ -931,18 +931,23 @@ class IdentitySolver:
                 for fid in active_group_frag_ids
             )
 
+            # Use MAX (not SUM) so a multi-fragment group does not beat a single
+            # high-evidence fragment purely by accumulation.
             group_jersey_scores: Dict[int, float] = defaultdict(float)
             if fragment_jersey_scores:
                 for fid in active_group_frag_ids:
                     per_fragment_scores = fragment_jersey_scores.get(fid, {})
                     for jersey, score in per_fragment_scores.items():
-                        group_jersey_scores[int(jersey)] += float(score)
+                        key = int(jersey)
+                        group_jersey_scores[key] = max(group_jersey_scores[key], float(score))
 
-            # Include inherited evidence at lower weight so short high-confidence windows can still win.
+            # Include inherited evidence at lower weight (at most once per jersey per group).
+            group_inherited_jerseys: set = set()
             for fid in active_group_frag_ids:
                 jersey = jersey_assignments.get(fid)
-                if jersey is not None:
-                    group_jersey_scores[int(jersey)] += 0.25
+                if jersey is not None and jersey not in group_inherited_jerseys:
+                    group_inherited_jerseys.add(jersey)
+                    group_jersey_scores[int(jersey)] = max(group_jersey_scores[int(jersey)], 0.25)
 
             if group_jersey_scores:
                 dominant_jersey = max(group_jersey_scores, key=group_jersey_scores.get)
@@ -985,7 +990,7 @@ class IdentitySolver:
         resolved_group_jersey: Dict[str, Optional[int]] = {}
         for candidate in sorted(
             group_candidates,
-            key=lambda item: (item["jersey"] is not None, item["jersey_score"], -(item["end"] - item["start"])),
+            key=lambda item: (item["jersey"] is not None, item["jersey_score"], item["end"] - item["start"]),
             reverse=True,
         ):
             root = candidate["root"]

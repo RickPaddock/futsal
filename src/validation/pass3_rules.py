@@ -42,7 +42,7 @@ def validate_pass3a_candidates(pass3a_output: Pass3AOutput) -> List[ValidationVi
     violations = []
 
     for candidate in pass3a_output.candidates:
-        # Check evidence scores are non-negative
+        # Check team evidence scores are non-negative
         for source, score in candidate.team_evidence.items():
             if score < 0:
                 violations.append(
@@ -59,19 +59,29 @@ def validate_pass3a_candidates(pass3a_output: Pass3AOutput) -> List[ValidationVi
                     )
                 )
 
-        for source, score in candidate.jersey_evidence.items():
-            if score < 0:
+        # jersey_evidence is {jersey_key: {"count": int, "ratio": float}}
+        for jersey_key, evidence in candidate.jersey_evidence.items():
+            if not isinstance(evidence, dict):
+                violations.append(
+                    ValidationViolation(
+                        rule="PASS3A_INVALID_JERSEY_EVIDENCE",
+                        severity="warning",
+                        message=f"Candidate {candidate.fragment_id} jersey_evidence['{jersey_key}'] is not a dict",
+                        fragment_id=candidate.fragment_id,
+                        details={"fragment_id": candidate.fragment_id, "jersey_key": jersey_key},
+                    )
+                )
+                continue
+            count = evidence.get("count", 0)
+            ratio = evidence.get("ratio", 0.0)
+            if count < 0 or ratio < 0:
                 violations.append(
                     ValidationViolation(
                         rule="PASS3A_NEGATIVE_SCORE",
                         severity="warning",
-                        message=f"Candidate {candidate.fragment_id} has negative jersey evidence score for '{source}': {score}",
+                        message=f"Candidate {candidate.fragment_id} jersey '{jersey_key}' has negative count/ratio",
                         fragment_id=candidate.fragment_id,
-                        details={
-                            "fragment_id": candidate.fragment_id,
-                            "source": source,
-                            "score": score,
-                        },
+                        details={"fragment_id": candidate.fragment_id, "jersey_key": jersey_key, "count": count, "ratio": ratio},
                     )
                 )
 
