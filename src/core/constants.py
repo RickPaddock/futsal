@@ -112,6 +112,9 @@ MAX_PLAYER_SPEED = 50.0  # Max plausible player speed (px/frame) for spatial fea
 # Fragments below either threshold produce no jersey candidate — classifier noise suppressed.
 MIN_JERSEY_DETECTIONS = 10   # Minimum raw detection count
 MIN_JERSEY_RATIO = 0.02      # Minimum fraction of fragment detections
+PASS3A_MIN_JERSEY_AVG_CONF = 0.60  # Min mean confidence for emitted jersey evidence.
+# Raised evidence quality gate for Pass 3A legacy candidates.
+# Prevents low-confidence jersey bleed-through from contaminating downstream constraints.
 
 # ============================================================================
 # JERSEY TEMPORAL EXCLUSIVITY

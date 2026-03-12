@@ -84,6 +84,20 @@ class IdentitySolver:
         self._validate_cannot_same_constraints(constraints, identity_groups)
         self.logger.info("CANNOT_SAME constraints validated successfully")
 
+        # Step 2.5: Apply conservative SOFT_SAME optimization from Pass 3A edges.
+        identity_groups, soft_optimization_diagnostics = self._optimize_soft_same_constraints(
+            identity_groups=identity_groups,
+            constraints=constraints,
+            fragments=fragments,
+            real_presence_frames=real_presence_frames,
+        )
+        self._validate_cannot_same_constraints(constraints, identity_groups)
+        self.logger.info(
+            "SOFT_SAME optimization applied: "
+            f"considered={soft_optimization_diagnostics['soft_edges_considered']}, "
+            f"merged={soft_optimization_diagnostics['soft_merges_applied']}"
+        )
+
         # Step 3C-1: Identity collapse validation BEFORE attribute assignment
         (
             refined_identity_groups,
@@ -140,10 +154,172 @@ class IdentitySolver:
             solver_log={
                 **team_diagnostics,
                 **collapse_diagnostics,
+                **soft_optimization_diagnostics,
                 "phase_order": ["collapse", "attributes"],
                 "retired_ghost_fragments": sorted(retired_ghost_fragments),
             },
         )
+
+    def _optimize_soft_same_constraints(
+        self,
+        identity_groups: Dict[str, Set[str]],
+        constraints: List[Constraint],
+        fragments: List[Fragment],
+        real_presence_frames: Optional[Dict[str, Set[int]]] = None,
+    ) -> Tuple[Dict[str, Set[str]], Dict[str, Any]]:
+        """
+        Greedily apply SOFT_SAME edges derived from Pass 3A evidence.
+
+        Safety guards:
+        - Never merge across explicit CANNOT_SAME constraints
+        - Never merge groups with overlapping real-presence frames
+        """
+        if not identity_groups:
+            return identity_groups, {
+                "soft_edges_total": 0,
+                "soft_edges_from_pass3a": 0,
+                "soft_edges_considered": 0,
+                "soft_edges_skipped_cannot": 0,
+                "soft_edges_skipped_overlap": 0,
+                "soft_merges_applied": 0,
+            }
+
+        fragment_lookup: Dict[str, Fragment] = {fragment.fragment_id: fragment for fragment in fragments}
+        all_fragment_ids = sorted(
+            {
+                fragment_id
+                for group in identity_groups.values()
+                for fragment_id in group
+            }
+        )
+        parent: Dict[str, str] = {fragment_id: fragment_id for fragment_id in all_fragment_ids}
+        members: Dict[str, Set[str]] = {fragment_id: {fragment_id} for fragment_id in all_fragment_ids}
+
+        def find(fragment_id: str) -> str:
+            root = fragment_id
+            while parent[root] != root:
+                root = parent[root]
+            while parent[fragment_id] != fragment_id:
+                next_id = parent[fragment_id]
+                parent[fragment_id] = root
+                fragment_id = next_id
+            return root
+
+        def union(fragment_a: str, fragment_b: str) -> bool:
+            root_a = find(fragment_a)
+            root_b = find(fragment_b)
+            if root_a == root_b:
+                return False
+            if len(members[root_a]) < len(members[root_b]):
+                root_a, root_b = root_b, root_a
+            parent[root_b] = root_a
+            members[root_a].update(members[root_b])
+            members.pop(root_b, None)
+            return True
+
+        for group in identity_groups.values():
+            group_ids = [fragment_id for fragment_id in group if fragment_id in parent]
+            if not group_ids:
+                continue
+            anchor = group_ids[0]
+            for fragment_id in group_ids[1:]:
+                union(anchor, fragment_id)
+
+        cannot_pairs = {
+            tuple(sorted((constraint.fragment_ids[0], constraint.fragment_ids[1])))
+            for constraint in constraints
+            if constraint.constraint_type == ConstraintType.CANNOT_SAME and len(constraint.fragment_ids) >= 2
+        }
+
+        soft_constraints = [
+            constraint
+            for constraint in constraints
+            if constraint.constraint_type == ConstraintType.SOFT_SAME and len(constraint.fragment_ids) >= 2
+        ]
+        pass3a_soft_constraints = [
+            constraint
+            for constraint in soft_constraints
+            if isinstance(constraint.value, dict) and constraint.value.get("kind") == "pass3a_edge_soft"
+        ]
+        pass3a_soft_constraints.sort(key=lambda constraint: float(constraint.weight), reverse=True)
+
+        def _group_has_real_overlap(group_a: Set[str], group_b: Set[str]) -> bool:
+            if real_presence_frames is None:
+                return False
+
+            frames_a: Set[int] = set()
+            frames_b: Set[int] = set()
+
+            for fragment_id in group_a:
+                fragment = fragment_lookup.get(fragment_id)
+                if fragment is None or bool(getattr(fragment, "is_ghost", False)):
+                    continue
+                fragment_frames = real_presence_frames.get(fragment_id)
+                if fragment_frames:
+                    frames_a.update(fragment_frames)
+                else:
+                    frames_a.update(range(fragment.start_frame, fragment.end_frame + 1))
+
+            for fragment_id in group_b:
+                fragment = fragment_lookup.get(fragment_id)
+                if fragment is None or bool(getattr(fragment, "is_ghost", False)):
+                    continue
+                fragment_frames = real_presence_frames.get(fragment_id)
+                if fragment_frames:
+                    frames_b.update(fragment_frames)
+                else:
+                    frames_b.update(range(fragment.start_frame, fragment.end_frame + 1))
+
+            if not frames_a or not frames_b:
+                return False
+            return bool(frames_a & frames_b)
+
+        considered = 0
+        skipped_cannot = 0
+        skipped_overlap = 0
+        merges_applied = 0
+
+        for constraint in pass3a_soft_constraints:
+            left, right = constraint.fragment_ids[0], constraint.fragment_ids[1]
+            if left not in parent or right not in parent:
+                continue
+
+            root_left = find(left)
+            root_right = find(right)
+            if root_left == root_right:
+                continue
+
+            considered += 1
+
+            has_cannot_conflict = any(
+                tuple(sorted((fragment_left, fragment_right))) in cannot_pairs
+                for fragment_left in members[root_left]
+                for fragment_right in members[root_right]
+            )
+            if has_cannot_conflict:
+                skipped_cannot += 1
+                continue
+
+            if _group_has_real_overlap(members[root_left], members[root_right]):
+                skipped_overlap += 1
+                continue
+
+            if union(left, right):
+                merges_applied += 1
+
+        optimized_groups: Dict[str, Set[str]] = defaultdict(set)
+        for fragment_id in all_fragment_ids:
+            optimized_groups[find(fragment_id)].add(fragment_id)
+
+        diagnostics = {
+            "soft_edges_total": len(soft_constraints),
+            "soft_edges_from_pass3a": len(pass3a_soft_constraints),
+            "soft_edges_considered": considered,
+            "soft_edges_skipped_cannot": skipped_cannot,
+            "soft_edges_skipped_overlap": skipped_overlap,
+            "soft_merges_applied": merges_applied,
+        }
+        return dict(optimized_groups), diagnostics
 
     def _validate_identity_collapse_pre_attributes(
         self,

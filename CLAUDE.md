@@ -738,48 +738,68 @@ Earlier passes must never assign identity.
 
 Pass 3 operates on fragments produced by Pass2A/B and ghosts from Pass2C.
 
-Pass 3A — Candidate Generation
+### Pass 3A — Candidate Generation
 
-Purpose:
+Purpose
 
 Generate identity continuity candidates between fragments based on physical and temporal plausibility.
 
-Pass 3A produces evidence edges, not decisions.
+Pass 3A produces **evidence edges**, not identity decisions.
+
+Identity assignment occurs later in Pass 3C.
+
+---
 
 Inputs
+
 pass2_fragments_scored.json
 pass2_ghost_fragments.json
 
-Fragments include:
+Fragments contain:
 
-fragment_id
-track_id
-start_frame
-end_frame
-bbox_series
-centroid_series
-jersey_number evidence
-HSV color evidence
-quality score
-is_ghost
+* fragment_id
+* track_id
+* start_frame
+* end_frame
+* bbox_series
+* centroid_series
+* jersey_number evidence
+* HSV color evidence
+* quality_score
+* is_ghost
 
-Ghost fragments may exist but must not generate identity edges.
+Ghost fragments may exist in the inputs but **must never generate identity edges**.
+
+Rule:
+
+If fragment.is_ghost == true
+→ fragment is excluded from candidate generation.
+
+Ghost fragments exist only to preserve player-count continuity.
+
+---
 
 Outputs
+
 pass3_identity_candidates.json
 
 Each candidate edge contains:
 
-fragment_a
-fragment_b
-temporal_gap
-spatial_distance
-jersey_match_score
-color_match_score
-velocity_consistency_score
-overall_candidate_score
+* fragment_a
+* fragment_b
+* temporal_gap
+* spatial_distance
+* track_continuity_score
+* jersey_match_score
+* color_match_score
+* velocity_consistency_score
+* overall_candidate_score
 
-Edges represent possible same-player continuity.
+Edges represent **possible same-player continuity**.
+
+Pass 3A does not decide identity; it only produces candidate evidence.
+
+---
 
 Candidate Eligibility Rules
 
@@ -789,11 +809,16 @@ fragment_a.end_frame < fragment_b.start_frame
 
 and
 
-gap_frames <= MAX_IDENTITY_GAP
+gap_frames ≤ MAX_IDENTITY_GAP
 
 Typical value:
 
 MAX_IDENTITY_GAP = 300 frames
+
+If this condition fails → candidate is rejected.
+
+---
+
 Spatial Feasibility Check
 
 Maximum plausible displacement:
@@ -803,79 +828,213 @@ distance(fragment_a.last_centroid, fragment_b.first_centroid)
 
 If exceeded:
 
-candidate rejected
+candidate rejected.
+
+This prevents identity continuity across physically impossible movement.
+
+---
+
+Track Continuity Rule
+
+Fragments originating from the **same Pass 1 track** strongly prefer identity continuity unless contradicted by strong evidence.
+
+If:
+
+fragment_a.track_id == fragment_b.track_id
+
+and
+
+temporal_gap ≤ TRACK_CONTINUITY_GAP
+
+and
+
+spatial_distance ≤ MAX_PLAYER_SPEED * temporal_gap
+
+then a candidate edge **must be generated** with strong continuity evidence.
+
+This rule prevents identity switching caused by overly aggressive fragmentation in Pass 2.
+
+Typical value:
+
+TRACK_CONTINUITY_GAP = 120 frames
+
+---
+
+Hard Jersey Conflict Rule
+
+If both fragments have **high-confidence but conflicting jersey numbers**:
+
+fragment_a.jersey_number ≠ fragment_b.jersey_number
+
+then:
+
+candidate rejected.
+
+Track continuity **must not override explicit jersey conflicts**.
+
+---
+
 Evidence Scoring
 
-Candidate score combines:
+Each candidate edge is scored using independent evidence sources.
+
+Track Continuity Evidence
+
+If fragments share the same original track:
+
+track_continuity_score = 1.0
+
+Otherwise:
+
+track_continuity_score = 0.0
+
+---
 
 Jersey Evidence
+
+Based on jersey-number agreement:
+
 same jersey number → strong positive
-conflicting jersey numbers → hard reject
-unknown → neutral
+unknown on one or both fragments → neutral
+conflicting numbers → candidate rejected
+
+Produces:
+
+jersey_match_score ∈ [0,1]
+
+---
+
 Color Evidence
 
-HSV similarity between fragments.
+HSV similarity between fragment appearance samples.
 
 Produces:
 
 color_match_score ∈ [0,1]
+
+---
+
 Motion Evidence
 
-Estimate exit velocity from fragment A.
-
-Check whether B's entry location is consistent.
+Estimate exit velocity from fragment A and compare predicted position to fragment B entry.
 
 Produces:
 
-velocity_consistency_score
+velocity_consistency_score ∈ [0,1]
+
+---
+
 Temporal Gap Penalty
 
-Long gaps reduce confidence.
+Longer gaps reduce confidence.
 
-Final Score
+Produces:
 
-Weighted combination:
+temporal_gap_score ∈ [0,1]
+
+---
+
+Final Candidate Score
+
+The final score is a weighted combination of the evidence signals.
+
+Example weighting:
 
 overall_candidate_score =
-    w1 * jersey_score +
-    w2 * color_score +
-    w3 * motion_score +
-    w4 * temporal_penalty
+0.5 * track_continuity_score +
+0.2 * velocity_consistency_score +
+0.15 * color_match_score +
+0.10 * jersey_match_score +
+0.05 * temporal_gap_score
 
-Candidates below threshold are discarded.
+Weights may be tuned but **track continuity should dominate when present**.
 
-Pass 3B — Constraint Graph Construction
+---
 
-Purpose:
+Candidate Filtering
 
-Convert candidate evidence into a global constraint graph.
+Candidates with:
 
-Nodes:
+overall_candidate_score < MIN_CANDIDATE_SCORE
+
+are discarded.
+
+Typical value:
+
+MIN_CANDIDATE_SCORE = 0.35
+
+---
+
+Key Architectural Rule
+
+Pass 3A generates **identity evidence edges only**.
+
+It must **not**:
+
+* assign identities
+* assign teams
+* assign jersey numbers
+* resolve conflicts
+
+Those responsibilities belong to Pass 3C.
+
+Pass 3A only provides the candidate graph used by later passes.
+
+
+### Pass 3B — Constraint Graph Construction
+
+Purpose
+
+Convert Pass 3A candidate evidence into a global identity constraint graph.
+
+Pass 3B does not assign identities.
+It converts candidate evidence into **hard and soft relational constraints**.
+
+---
+
+Inputs
+
+pass2_fragments_scored.json
+pass3a_candidates.json
+
+Fragments provide structural information.
+Candidate edges provide identity evidence.
+
+---
+
+Outputs
+
+pass3_constraint_graph.json
+
+Nodes
 
 fragment_id
 
-Edges:
+Edges
 
 MUST_SAME
 CANNOT_SAME
 SOFT_SAME
-Inputs
-pass2 fragments
-pass3_identity_candidates
-Outputs
-pass3_constraint_graph.json
+
+---
+
 MUST_SAME Constraints
 
 Fragments must belong to the same identity when:
 
-same track_id
-and temporal continuity exists
+overall_candidate_score ≥ MUST_SAME_THRESHOLD
 
-or
+Typical value:
 
-candidate_score >= MUST_SAME_THRESHOLD
+MUST_SAME_THRESHOLD = 0.85
 
-These edges are hard constraints.
+These edges represent **strong identity continuity evidence**.
+
+Before inserting a MUST_SAME edge, Pass 3B must verify that the edge does not create a contradiction with existing CANNOT_SAME constraints.
+
+If such a contradiction would occur, the edge must not be inserted.
+
+---
 
 CANNOT_SAME Constraints
 
@@ -889,33 +1048,56 @@ jersey conflict detected
 
 or
 
-spatial impossibility
+spatial impossibility detected
 
-These edges are hard exclusions.
+These edges are **hard exclusions** and must always be respected.
+
+---
 
 SOFT_SAME Constraints
 
-Weak evidence linking fragments.
+Weak identity evidence linking fragments.
 
 Created when:
 
-candidate_score >= SOFT_THRESHOLD
+SOFT_THRESHOLD ≤ overall_candidate_score < MUST_SAME_THRESHOLD
 
-but below MUST threshold.
+Typical value:
 
-These edges influence optimization but do not enforce identity.
+SOFT_THRESHOLD = 0.35
 
-Graph Invariants
+SOFT_SAME edges influence optimization but do not enforce identity.
+
+They are used later by Pass 3C.
+
+---
+
+Constraint Graph Invariants
 
 The constraint graph must satisfy:
 
-no fragment may have MUST_SAME edges to two fragments
-that have CANNOT_SAME between them
+1. No fragment may have MUST_SAME edges to two fragments that have CANNOT_SAME between them.
 
-If detected:
+2. MUST_SAME edges must not create a path that indirectly violates a CANNOT_SAME constraint.
 
-FAIL FAST
-Pass 3C — Identity Commit
+If any invariant is violated:
+
+FAIL FAST.
+
+---
+
+Architectural Rule
+
+Pass 3B must not:
+
+* assign identities
+* assign teams
+* assign jersey numbers
+
+Its responsibility is strictly **constraint graph construction**.
+
+
+### Pass 3C — Identity Commit
 
 Purpose:
 

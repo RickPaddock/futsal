@@ -2,7 +2,7 @@
 Pass 3B: Constraint Graph Construction
 
 Per CLAUDE.md Section 5 (Pass 3B):
-- Input: pass3_candidates.json, pass2_ghosts.json
+- Input: pass3a_candidates.json, pass2_ghosts.json
 - Output: pass3_constraints.json
 - Build MUST_SAME / CANNOT_SAME / SOFT_SAME constraints only
 """
@@ -18,8 +18,10 @@ from typing import Dict, List, Optional, Tuple
 from ..core import constants as const
 from ..core.data_models import (
     Constraint,
+    IdentityCandidateEdge,
     IdentityCandidate,
     Pass2COutput,
+    Pass3AEdgesOutput,
     Pass3AOutput,
     Pass3BOutput,
     ScoredFragment,
@@ -31,23 +33,40 @@ from ..utils.logging_utils import get_logger
 from ..validation.pass3_rules import validate_pass3b_constraints
 
 logger = get_logger("pass3b_constraint_builder")
+PASS3B_SOFT_THRESHOLD = float(getattr(const, "PASS3B_SOFT_THRESHOLD", 0.35))
+PASS3B_MUST_SAME_THRESHOLD = float(getattr(const, "PASS3B_MUST_SAME_THRESHOLD", 0.85))
 
 
 class Pass3BConstraintBuilder:
     """Construct identity constraints from Pass 3A candidates and Pass 2C fragments."""
 
-    def __init__(self, pass3a_output: Pass3AOutput, pass2c_output: Pass2COutput):
-        self.pass3a_output = pass3a_output
+    def __init__(
+        self,
+        pass3a_edges_output: Pass3AEdgesOutput,
+        pass2c_output: Pass2COutput,
+        pass3a_legacy_output: Optional[Pass3AOutput] = None,
+    ):
+        self.pass3a_edges_output = pass3a_edges_output
+        self.pass3a_legacy_output = pass3a_legacy_output
         self.pass2c_output = pass2c_output
 
         self._fragments_by_id: Dict[str, ScoredFragment] = {
             fragment.fragment_id: fragment
             for fragment in pass2c_output.fragments
         }
-        self._candidates_by_fragment: Dict[str, IdentityCandidate] = {
-            candidate.fragment_id: candidate
-            for candidate in pass3a_output.candidates
-        }
+        self._candidates_by_fragment: Dict[str, IdentityCandidate] = {}
+        if pass3a_legacy_output is not None:
+            self._candidates_by_fragment = {
+                candidate.fragment_id: candidate
+                for candidate in pass3a_legacy_output.candidates
+            }
+
+        self._edge_by_pair: Dict[Tuple[str, str], IdentityCandidateEdge] = {}
+        for edge in pass3a_edges_output.candidates:
+            pair = tuple(sorted((edge.fragment_a, edge.fragment_b)))
+            existing = self._edge_by_pair.get(pair)
+            if existing is None or edge.overall_candidate_score > existing.overall_candidate_score:
+                self._edge_by_pair[pair] = edge
 
         self._constraints: List[Constraint] = []
         self._constraint_counter = 0
@@ -56,6 +75,8 @@ class Pass3BConstraintBuilder:
         self._add_must_same_track_adjacency()
         self._add_must_same_ghost_continuity()
         self._add_cannot_same_jersey_conflicts()
+        self._add_must_same_edge_constraints()
+        self._add_soft_same_edge_constraints()
         self._add_soft_same_track_preferences()
 
         graph = self._build_constraint_graph()
@@ -94,6 +115,15 @@ class Pass3BConstraintBuilder:
                 reason=reason,
             )
         )
+
+    def _has_constraint(self, constraint_type: ConstraintType, fragment_ids: Tuple[str, str]) -> bool:
+        normalized_pair = tuple(sorted(fragment_ids))
+        for existing in self._constraints:
+            if existing.constraint_type != constraint_type:
+                continue
+            if tuple(sorted(existing.fragment_ids)) == normalized_pair:
+                return True
+        return False
 
     def _add_must_same_track_adjacency(self) -> None:
         hard_discontinuity_rules = {
@@ -195,6 +225,114 @@ class Pass3BConstraintBuilder:
                     weight=weight,
                 )
 
+    def _add_must_same_edge_constraints(self) -> None:
+        all_fragment_ids = [fragment.fragment_id for fragment in self.pass2c_output.fragments]
+        parent: Dict[str, str] = {fragment_id: fragment_id for fragment_id in all_fragment_ids}
+        members: Dict[str, set] = {fragment_id: {fragment_id} for fragment_id in all_fragment_ids}
+
+        def find(fragment_id: str) -> str:
+            root = fragment_id
+            while parent[root] != root:
+                root = parent[root]
+            while parent[fragment_id] != fragment_id:
+                next_id = parent[fragment_id]
+                parent[fragment_id] = root
+                fragment_id = next_id
+            return root
+
+        def union(fragment_a: str, fragment_b: str) -> None:
+            root_a = find(fragment_a)
+            root_b = find(fragment_b)
+            if root_a == root_b:
+                return
+            if len(members[root_a]) < len(members[root_b]):
+                root_a, root_b = root_b, root_a
+            parent[root_b] = root_a
+            members[root_a].update(members[root_b])
+            members.pop(root_b, None)
+
+        cannot_pairs = {
+            tuple(sorted((constraint.fragment_ids[0], constraint.fragment_ids[1])))
+            for constraint in self._constraints
+            if constraint.constraint_type == ConstraintType.CANNOT_SAME and len(constraint.fragment_ids) >= 2
+        }
+
+        for constraint in self._constraints:
+            if constraint.constraint_type != ConstraintType.MUST_SAME or len(constraint.fragment_ids) < 2:
+                continue
+            left, right = constraint.fragment_ids[0], constraint.fragment_ids[1]
+            if left in parent and right in parent:
+                union(left, right)
+
+        sorted_edges = sorted(
+            self._edge_by_pair.items(),
+            key=lambda item: item[1].overall_candidate_score,
+            reverse=True,
+        )
+
+        for pair, edge in sorted_edges:
+            if edge.overall_candidate_score < PASS3B_MUST_SAME_THRESHOLD:
+                continue
+            if self._has_constraint(ConstraintType.CANNOT_SAME, pair):
+                continue
+
+            left, right = pair
+            if left not in parent or right not in parent:
+                continue
+
+            root_left = find(left)
+            root_right = find(right)
+            if root_left == root_right:
+                continue
+
+            has_transitive_conflict = any(
+                tuple(sorted((fragment_left, fragment_right))) in cannot_pairs
+                for fragment_left in members[root_left]
+                for fragment_right in members[root_right]
+            )
+            if has_transitive_conflict:
+                continue
+
+            self._add_constraint(
+                constraint_type=ConstraintType.MUST_SAME,
+                fragment_ids=pair,
+                reason=(
+                    f"Pass 3A edge score >= MUST threshold "
+                    f"({edge.overall_candidate_score:.3f} >= {PASS3B_MUST_SAME_THRESHOLD:.3f})"
+                ),
+                value={
+                    "kind": "pass3a_edge_must",
+                    "overall_candidate_score": float(edge.overall_candidate_score),
+                    "temporal_gap": int(edge.temporal_gap),
+                    "spatial_distance": float(edge.spatial_distance),
+                },
+            )
+            union(left, right)
+
+    def _add_soft_same_edge_constraints(self) -> None:
+        for pair, edge in self._edge_by_pair.items():
+            score = float(edge.overall_candidate_score)
+            if score < PASS3B_SOFT_THRESHOLD or score >= PASS3B_MUST_SAME_THRESHOLD:
+                continue
+            if self._has_constraint(ConstraintType.CANNOT_SAME, pair):
+                continue
+
+            self._add_constraint(
+                constraint_type=ConstraintType.SOFT_SAME,
+                fragment_ids=pair,
+                reason=(
+                    f"Pass 3A edge score in SOFT range "
+                    f"({score:.3f} in [{PASS3B_SOFT_THRESHOLD:.3f}, {PASS3B_MUST_SAME_THRESHOLD:.3f}))"
+                ),
+                value={
+                    "kind": "pass3a_edge_soft",
+                    "overall_candidate_score": score,
+                    "temporal_gap": int(edge.temporal_gap),
+                    "spatial_distance": float(edge.spatial_distance),
+                },
+                weight=max(0.1, score),
+            )
+
     def _build_constraint_graph(self) -> Dict[str, List[str]]:
         graph: Dict[str, List[str]] = {
             fragment.fragment_id: []
@@ -250,20 +388,28 @@ def run_pass3b(
     if output_dir is None:
         output_dir = input_dir
 
-    pass3a_path = input_dir / const.PASS3_CANDIDATES_JSON
+    pass3a_edges_path = input_dir / const.PASS3A_CANDIDATES_JSON
+    pass3a_legacy_path = input_dir / const.PASS3_CANDIDATES_JSON
     pass2c_path = input_dir / const.PASS2_GHOSTS_JSON
     output_path = output_dir / const.PASS3_CONSTRAINTS_JSON
     validation_path = output_dir / const.PASS3_VALIDATION_JSON
 
-    if not pass3a_path.exists():
-        raise FileNotFoundError(f"Pass 3A output not found: {pass3a_path}")
+    if not pass3a_edges_path.exists():
+        raise FileNotFoundError(f"Pass 3A edge output not found: {pass3a_edges_path}")
     if not pass2c_path.exists():
         raise FileNotFoundError(f"Pass 2C output not found: {pass2c_path}")
 
-    pass3a_output = load_json(str(pass3a_path), Pass3AOutput)
+    pass3a_edges_output = load_json(str(pass3a_edges_path), Pass3AEdgesOutput)
+    pass3a_legacy_output: Optional[Pass3AOutput] = None
+    if pass3a_legacy_path.exists():
+        pass3a_legacy_output = load_json(str(pass3a_legacy_path), Pass3AOutput)
     pass2c_output = load_json(str(pass2c_path), Pass2COutput)
 
-    builder = Pass3BConstraintBuilder(pass3a_output=pass3a_output, pass2c_output=pass2c_output)
+    builder = Pass3BConstraintBuilder(
+        pass3a_edges_output=pass3a_edges_output,
+        pass2c_output=pass2c_output,
+        pass3a_legacy_output=pass3a_legacy_output,
+    )
     pass3b_output = builder.build()
 
     violations = validate_pass3b_constraints(pass3b_output)

@@ -42,6 +42,8 @@ from ..utils.logging_utils import get_logger
 
 logger = get_logger("pass3a_candidate_generator")
 ALLOWED_JERSEY_NUMBERS = set(const.JERSEY_NUMBERS)
+# Prefer shared constant when available; default matches contract typical value.
+TRACK_CONTINUITY_GAP = int(getattr(const, "TRACK_CONTINUITY_GAP", 120))
 
 
 def _clamp01(value: float) -> float:
@@ -138,6 +140,13 @@ class Pass3ACandidateGenerator:
 					self.debug_metrics["candidate_edges_rejected_gap"] += 1
 					continue
 
+				track_continuity_score = 0.0
+				if (
+					int(fragment_a.original_track_id) == int(fragment_b.original_track_id)
+					and temporal_gap <= TRACK_CONTINUITY_GAP
+				):
+					track_continuity_score = 1.0
+
 				end_centroid_a = self._fragment_last_centroid(fragment_a)
 				start_centroid_b = self._fragment_first_centroid(fragment_b)
 				if end_centroid_a is None or start_centroid_b is None:
@@ -161,9 +170,10 @@ class Pass3ACandidateGenerator:
 				jersey_similarity = self._jersey_similarity(fragment_a, fragment_b)
 
 				overall_candidate_score = _clamp01(
-					0.4 * velocity_consistency_score
-					+ 0.4 * appearance_similarity
-					+ 0.2 * jersey_similarity
+					0.5 * track_continuity_score
+					+ 0.2 * velocity_consistency_score
+					+ 0.2 * appearance_similarity
+					+ 0.1 * jersey_similarity
 				)
 
 				candidates.append(
@@ -344,6 +354,7 @@ class Pass3ACandidateGenerator:
 			return {}
 
 		counts: Dict[int, int] = defaultdict(int)
+		confidence_sums: Dict[int, float] = defaultdict(float)
 		for detection in detections:
 			jersey_number = detection.jersey_number
 			if (
@@ -352,6 +363,7 @@ class Pass3ACandidateGenerator:
 				and detection.jersey_confidence >= const.JERSEY_CONF_THRESHOLD
 			):
 				counts[int(jersey_number)] += 1
+				confidence_sums[int(jersey_number)] += float(detection.jersey_confidence)
 				continue
 
 			if not detection.jersey_probs:
@@ -372,14 +384,21 @@ class Pass3ACandidateGenerator:
 
 			if best_jersey is not None:
 				counts[int(best_jersey)] += 1
+				confidence_sums[int(best_jersey)] += float(best_score)
 
 		result: Dict[int, Dict[str, float]] = {}
 		for jersey_num, count in counts.items():
 			ratio = float(count / total)
-			if count >= const.MIN_JERSEY_DETECTIONS and ratio >= const.MIN_JERSEY_RATIO:
+			avg_confidence = float(confidence_sums[jersey_num] / max(1, count))
+			if (
+				count >= const.MIN_JERSEY_DETECTIONS
+				and ratio >= const.MIN_JERSEY_RATIO
+				and avg_confidence >= const.PASS3A_MIN_JERSEY_AVG_CONF
+			):
 				result[int(jersey_num)] = {
 					"count": float(count),
 					"ratio": ratio,
+					"avg_confidence": avg_confidence,
 				}
 
 		return result
