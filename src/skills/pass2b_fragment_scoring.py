@@ -173,6 +173,9 @@ class Pass2BFragmentScorer:
             split_rule_id=fragment.split_rule_id,
             parent_fragment_id=fragment.parent_fragment_id,
             dominant_jersey_number=fragment.dominant_jersey_number,
+            dominant_color_cluster_id=fragment.dominant_color_cluster_id,
+            dominant_team_cluster_id=fragment.dominant_team_cluster_id,
+            dominant_team_cluster_confidence=fragment.dominant_team_cluster_confidence,
             # Add quality fields
             quality=quality,
             quality_score=quality_score,
@@ -352,6 +355,10 @@ class Pass2BFragmentScorer:
             split_trigger_frame=fragment.split_trigger_frame,
             split_rule_id=fragment.split_rule_id,
             parent_fragment_id=fragment.parent_fragment_id,
+            dominant_jersey_number=fragment.dominant_jersey_number,
+            dominant_color_cluster_id=fragment.dominant_color_cluster_id,
+            dominant_team_cluster_id=fragment.dominant_team_cluster_id,
+            dominant_team_cluster_confidence=fragment.dominant_team_cluster_confidence,
             # Add quality fields
             quality=FragmentQuality.LOW,
             quality_score=quality_score,

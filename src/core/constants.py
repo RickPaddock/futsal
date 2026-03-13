@@ -114,6 +114,19 @@ MIN_CANDIDATE_SCORE = 0.35  # Minimum overall score required to keep a Pass 3A e
 PASS3B_SOFT_THRESHOLD = 0.35
 PASS3B_MUST_SAME_THRESHOLD = 0.85
 
+# Pass 3C short-fragment team stabilization.
+# Very short fragments are prone to noisy team assignment and may momentarily
+# flicker before a nearby long continuation fragment appears.
+PASS3_SHORT_FRAGMENT_MAX_FRAMES = 45
+PASS3_SHORT_FRAGMENT_NEIGHBOR_MIN_FRAMES = 180
+PASS3_SHORT_FRAGMENT_MAX_TEMPORAL_GAP = 40
+PASS3_SHORT_FRAGMENT_MAX_SPATIAL_DISTANCE = 50.0
+PASS3_SHORT_FRAGMENT_MIN_SOFT_SCORE = 0.36
+
+# Pass 3C experiment mode: lock teams from fragment color/subcluster evidence only.
+# When enabled, Pass 3C skips team-cap rebalance, GT calibration, and SOFT_SAME merges.
+PASS3_COLOR_ONLY_TEAM_ASSIGNMENT = True
+
 # Minimum support required to emit jersey evidence for a fragment.
 # Fragments below either threshold produce no jersey candidate — classifier noise suppressed.
 MIN_JERSEY_DETECTIONS = 10   # Minimum raw detection count
@@ -258,6 +271,9 @@ TEAM_SWITCH_EDGE_RESCUE_PROXIMITY_BBOX_WIDTHS = 0.90  # Stricter crossing gate a
 TEAM_SWITCH_TRACK_MINORITY_RATIO = 0.15  # Track must show meaningful support for both teams.
 TEAM_SWITCH_TRACK_MINORITY_SAMPLES = 6   # Minimum observations supporting the minority team.
 TEAM_SWITCH_MIN_TEAM_MARGIN = 0.05       # Minimum per-observation team-separation margin.
+TEAM_SWITCH_EDGE_RELAX_FRAMES = 45       # Near track boundary: allow split without global two-team support.
+TEAM_SWITCH_EDGE_RELAX_MIN_TEAM_CONF = 0.90    # Require strong team vote confidence on both windows.
+TEAM_SWITCH_EDGE_RELAX_MIN_CLUSTER_CONF = 0.50  # Require at least moderate dominant cluster confidence.
 
 # T5: Impossible Motion Spike
 PASS2_MAX_PLAYER_SPEED = 150      # Max pixels/frame for single-frame centroid jump (Pass 2A T5)

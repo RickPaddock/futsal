@@ -74,25 +74,74 @@ def _draw_dashed_rectangle(
     draw_dashed_line((x1, y2), (x1, y1))
 
 
-def _resolve_team_palette(pass3_output: Pass3COutput) -> Dict[TeamID, Tuple[int, int, int]]:
+def _resolve_team_palette(
+    pass3_output: Pass3COutput,
+) -> Tuple[Dict[TeamID, Tuple[int, int, int]], TeamID, TeamID, str]:
     """
-    Resolve team colors with bibbed team in ORANGE and the other team in BLACK.
+    Resolve team colors for debug overlays.
 
-    Uses solver diagnostic `bibbed_team_evidence` when available.
+    Contract for debug rendering:
+    - bibbed team -> ORANGE
+    - random-shirt team -> BLACK
+
+    Prefer solver hint when available; otherwise infer bibbed side from compactness
+    (tighter color cluster -> bibbed), then from fewer visible jersey numbers.
     """
     orange = (0, 165, 255)  # BGR
     black = (0, 0, 0)
 
-    # Prefer identity evidence: team with more resolved jersey numbers is likely bibbed team.
-    team_jersey_counts: Dict[TeamID, int] = {TeamID.TEAM_A: 0, TeamID.TEAM_B: 0}
-    for identity in pass3_output.identities:
-        if identity.jersey_number is None:
-            continue
-        if identity.team in team_jersey_counts:
-            team_jersey_counts[identity.team] += 1
+    solver_log = dict(getattr(pass3_output, "solver_log", {}) or {})
+    evidence = str(solver_log.get("bibbed_team_evidence", "")).strip().lower()
 
-    # Fixed mapping: team_a = black, team_b = orange.
-    return {TeamID.TEAM_A: black, TeamID.TEAM_B: orange}
+    bibbed_team: Optional[TeamID] = None
+    source = "fallback_default"
+    if evidence == TeamID.TEAM_A.value:
+        bibbed_team = TeamID.TEAM_A
+        source = "solver_log:bibbed_team_evidence"
+    elif evidence == TeamID.TEAM_B.value:
+        bibbed_team = TeamID.TEAM_B
+        source = "solver_log:bibbed_team_evidence"
+
+    if bibbed_team is None:
+        compactness = solver_log.get("cluster_compactness", {})
+        compact_a = compactness.get(TeamID.TEAM_A.value)
+        compact_b = compactness.get(TeamID.TEAM_B.value)
+        if isinstance(compact_a, (int, float)) and isinstance(compact_b, (int, float)):
+            if float(compact_a) < float(compact_b):
+                bibbed_team = TeamID.TEAM_A
+                source = "cluster_compactness_heuristic"
+            elif float(compact_b) < float(compact_a):
+                bibbed_team = TeamID.TEAM_B
+                source = "cluster_compactness_heuristic"
+
+    if bibbed_team is None:
+        team_jersey_counts: Dict[TeamID, int] = {TeamID.TEAM_A: 0, TeamID.TEAM_B: 0}
+        for identity in pass3_output.identities:
+            if identity.team not in team_jersey_counts:
+                continue
+            if identity.jersey_number is not None:
+                team_jersey_counts[identity.team] += 1
+
+        # Bibbed side often has fewer reliably visible jersey numbers.
+        if team_jersey_counts[TeamID.TEAM_A] < team_jersey_counts[TeamID.TEAM_B]:
+            bibbed_team = TeamID.TEAM_A
+            source = "jersey_count_heuristic"
+        elif team_jersey_counts[TeamID.TEAM_B] < team_jersey_counts[TeamID.TEAM_A]:
+            bibbed_team = TeamID.TEAM_B
+            source = "jersey_count_heuristic"
+
+    if bibbed_team is None:
+        # Deterministic fallback to avoid run-to-run palette drift.
+        bibbed_team = TeamID.TEAM_B
+
+    random_team = TeamID.TEAM_B if bibbed_team == TeamID.TEAM_A else TeamID.TEAM_A
+
+    logger.info(
+        f"Debug palette resolved: bibbed={bibbed_team.value} (orange), "
+        f"random={random_team.value} (black), source={source}"
+    )
+
+    return ({bibbed_team: orange, random_team: black}, bibbed_team, random_team, source)
 
 
 def _identity_label(identity: CommittedIdentity) -> str:
@@ -104,6 +153,7 @@ def _draw_pass3_overlay_frame(
     frame_idx: int,
     annotations: List[Dict[str, object]],
     team_palette: Dict[TeamID, Tuple[int, int, int]],
+    palette_line: str,
 ) -> np.ndarray:
     overlay = frame.copy()
 
@@ -137,11 +187,24 @@ def _draw_pass3_overlay_frame(
 
         label = ann["label"]
         jersey_number = ann.get("jersey_number")
+        track_id = ann.get("track_id")
+        fragment_id = ann.get("fragment_id")
         if is_ghost:
             label = f"GHOST {label}"
 
         # Top label: player identity (white text on black background for readability).
         _draw_text_with_bg(overlay, str(label), (x1, max(18, y1 - 8)), 0.48, (255, 255, 255), 2)
+
+        # Bottom edge label: track and fragment linkage for debugging split/jump behavior.
+        track_fragment_text = f"T{track_id} {fragment_id}"
+        _draw_text_with_bg(
+            overlay,
+            track_fragment_text,
+            (x1, max(y1 + 16, y2 - 6)),
+            0.42,
+            (255, 255, 255),
+            1,
+        )
 
         # Bottom label: jersey number and player name (if known).
         if jersey_number is not None:
@@ -153,16 +216,17 @@ def _draw_pass3_overlay_frame(
             _draw_text_with_bg(
                 overlay,
                 jersey_text,
-                (x1, min(overlay.shape[0] - 8, y2 + 28)),
-                0.82,
+                (x1, min(overlay.shape[0] - 8, y2 + 22)),
+                0.62,
                 (255, 255, 255),
                 2,
             )
 
     title = "PASS 3 DEBUG: COMMITTED IDENTITY"
     lines = [
-        "bibbed team=ORANGE, other team=BLACK | dashed boxes=ghosts",
+        f"{palette_line} | dashed boxes=ghosts",
         "top label=player_id, bottom label=#number - name (if known)",
+        "bbox bottom=track+fragment",
         f"frame={frame_idx} team_a={team_a_count} team_b={team_b_count} ghosts={committed_ghost_count}",
     ]
 
@@ -206,7 +270,10 @@ def render_pass3_debug_video_from_artifact(
     pass1_output = load_json(Path(pass1_output_path), Pass1Output)
     pass2c_output = load_json(Path(pass2c_output_path), Pass2COutput)
     pass3_output = load_json(Path(pass3_output_path), Pass3COutput)
-    team_palette = _resolve_team_palette(pass3_output)
+    team_palette, bibbed_team, random_team, palette_source = _resolve_team_palette(pass3_output)
+    palette_line = (
+        f"bibbed={bibbed_team.value}(ORANGE), random={random_team.value}(BLACK), source={palette_source}"
+    )
 
     detections_by_id: Dict[str, Detection] = {
         detection.detection_id: detection for detection in pass1_output.detections
@@ -236,6 +303,8 @@ def render_pass3_debug_video_from_artifact(
                         "bbox": bbox,
                         "team": identity.team,
                         "label": label,
+                        "track_id": fragment.original_track_id,
+                        "fragment_id": fragment.fragment_id,
                         "jersey_number": identity.jersey_number,
                         "is_ghost": True,
                     }
@@ -251,6 +320,8 @@ def render_pass3_debug_video_from_artifact(
                     "bbox": detection.bbox,
                     "team": identity.team,
                     "label": label,
+                    "track_id": fragment.original_track_id,
+                    "fragment_id": fragment.fragment_id,
                     "jersey_number": identity.jersey_number,
                     "is_ghost": False,
                 }
@@ -297,7 +368,13 @@ def render_pass3_debug_video_from_artifact(
                     break
 
                 anns = frame_annotations.get(frame_idx, [])
-                debug_frame = _draw_pass3_overlay_frame(frame, frame_idx, anns, team_palette)
+                debug_frame = _draw_pass3_overlay_frame(
+                    frame,
+                    frame_idx,
+                    anns,
+                    team_palette,
+                    palette_line,
+                )
                 writer.write(debug_frame)
                 pbar.update(1)
 

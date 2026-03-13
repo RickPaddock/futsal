@@ -168,6 +168,11 @@ class Fragment(BaseModel):
     # Fragment-level jersey summary (computed in Pass 2A)
     dominant_jersey_number: Optional[int] = None  # Mode of observed jersey numbers
 
+    # Fragment-level color/team-cluster hints from Pass 2A (for Pass 3 reuse)
+    dominant_color_cluster_id: Optional[int] = None
+    dominant_team_cluster_id: Optional[int] = None
+    dominant_team_cluster_confidence: Optional[float] = None
+
     # Pass 2A metadata fields (computed during mechanical fragmentation)
     jersey_visible_ratio: Optional[float] = None
     occlusion_ratio: Optional[float] = None

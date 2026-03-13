@@ -497,12 +497,22 @@ class Pass2AFragmenter:
             if team_after_conf < const.TEAM_SWITCH_CONFIDENCE:
                 continue
 
-            # Keep strict two-team gate for full-window checks, but allow edge-truncated
-            # windows to proceed even when global track-level evidence is sparse.
+            # Keep strict two-team gate for full-window checks, but allow near-edge
+            # exceptions when both windows are strongly confident. This catches
+            # brief initial ownership before a clean handoff (e.g. track steals).
             full_before = (t - W) >= track_start
             full_after = (t + W) <= track_end
+            near_edge = (
+                (t - track_start) <= int(const.TEAM_SWITCH_EDGE_RELAX_FRAMES)
+                or (track_end - t) <= int(const.TEAM_SWITCH_EDGE_RELAX_FRAMES)
+            )
             if not has_two_team_evidence and full_before and full_after:
-                continue
+                if not near_edge:
+                    continue
+                if min(team_before_conf, team_after_conf) < float(const.TEAM_SWITCH_EDGE_RELAX_MIN_TEAM_CONF):
+                    continue
+                if min(conf_before, conf_after) < float(const.TEAM_SWITCH_EDGE_RELAX_MIN_CLUSTER_CONF):
+                    continue
 
             if team_before == team_after:
                 continue  # Team-level cluster unchanged → no team switch
@@ -1041,6 +1051,31 @@ class Pass2AFragmenter:
             "motion_spike": "MOTION_SPIKE",
         }
 
+        dominant_color_cluster_id: Optional[int] = None
+        dominant_team_cluster_id: Optional[int] = None
+        dominant_team_cluster_confidence: Optional[float] = None
+
+        # Persist Pass 2A color/team evidence per fragment so downstream passes can
+        # reuse these signals instead of recomputing from scratch.
+        if self._cluster_centroids is not None:
+            cluster_counts: Counter = Counter()
+            team_weights: Dict[int, float] = defaultdict(float)
+            for det in dets:
+                if not det.jersey_roi_valid or not det.hsv_histogram_jersey:
+                    continue
+                _, _, cluster_id, crop_quality, team_id, margin = self._build_t4_sample(det)
+                cluster_counts[int(cluster_id)] += 1
+                weight = max(float(margin), float(const.TEAM_SWITCH_MIN_TEAM_MARGIN)) * max(float(crop_quality), 1e-3)
+                team_weights[int(team_id)] += float(weight)
+
+            if cluster_counts:
+                dominant_color_cluster_id = int(cluster_counts.most_common(1)[0][0])
+
+            if team_weights:
+                dominant_team_cluster_id, best_weight = max(team_weights.items(), key=lambda kv: kv[1])
+                total_weight = float(sum(team_weights.values()))
+                dominant_team_cluster_confidence = float(best_weight / max(total_weight, 1e-6))
+
         return Fragment(
             fragment_id=fid,
             track_id=track_id,
@@ -1052,6 +1087,9 @@ class Pass2AFragmenter:
             split_rule_id=rule_map.get(split_reason) if split_reason else None,
             parent_fragment_id=None,
             dominant_jersey_number=dominant_jersey,
+            dominant_color_cluster_id=dominant_color_cluster_id,
+            dominant_team_cluster_id=dominant_team_cluster_id,
+            dominant_team_cluster_confidence=dominant_team_cluster_confidence,
             jersey_visible_ratio=jersey_visible_ratio,
             occlusion_ratio=occlusion_ratio,
             mean_velocity=mean_velocity,

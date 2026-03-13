@@ -97,43 +97,93 @@ def load_ground_truth_rows(xlsx_path: Path, clip: int) -> List[GroundTruthRow]:
         if len(rows) < 3:
             raise ValueError("Ground-truth sheet does not contain expected header/data rows.")
 
-        header_cells = _parse_row_cells(rows[1], shared_strings)
-        sorted_cols = sorted(header_cells.keys(), key=_col_to_index)
-        headers = {col: (header_cells.get(col) or "").strip() for col in sorted_cols}
+        parsed_rows: List[Tuple[int, Dict[str, Optional[str]]]] = []
+        for row_elem in rows:
+            row_idx_raw = row_elem.attrib.get("r")
+            if not row_idx_raw or not row_idx_raw.isdigit():
+                continue
+            parsed_rows.append((int(row_idx_raw), _parse_row_cells(row_elem, shared_strings)))
 
-        checkpoint_columns: List[Tuple[str, int]] = []
-        for col in sorted_cols:
-            header = headers[col]
-            if header.isdigit():
-                checkpoint_columns.append((col, int(header)))
+        def checkpoint_cols_from_header(cells: Dict[str, Optional[str]]) -> List[Tuple[str, int]]:
+            cols = sorted(cells.keys(), key=_col_to_index)
+            out: List[Tuple[str, int]] = []
+            for col in cols:
+                header = (cells.get(col) or "").strip()
+                if header.isdigit():
+                    out.append((col, int(header)))
+            return out
 
-        result: List[GroundTruthRow] = []
-        for row_elem in rows[2:]:
-            cells = _parse_row_cells(row_elem, shared_strings)
-            clip_raw = (cells.get("A") or "").strip()
-            if not clip_raw.isdigit() or int(clip_raw) != clip:
+        # Workbook may contain multiple clip sections, each with its own frame header row.
+        # Detect every section header and pick the one that provides the broadest frame
+        # coverage for the requested clip.
+        header_rows: List[Tuple[int, List[Tuple[str, int]]]] = []
+        for row_idx, cells in parsed_rows:
+            col_a = (cells.get("A") or "").strip().lower()
+            col_b = (cells.get("B") or "").strip().lower()
+            if col_a != "clip" or col_b != "team":
+                continue
+            checkpoint_cols = checkpoint_cols_from_header(cells)
+            if len(checkpoint_cols) < 3:
+                continue
+            header_rows.append((row_idx, checkpoint_cols))
+
+        if not header_rows:
+            raise ValueError("Ground-truth sheet does not contain any valid section headers.")
+
+        header_row_indices = [row_idx for row_idx, _ in header_rows]
+        header_lookup = {row_idx: cols for row_idx, cols in header_rows}
+
+        best_rows: List[GroundTruthRow] = []
+        best_score: Tuple[int, int, int] = (-1, -1, -1)  # (max_frame, total_checkpoints, row_count)
+
+        for i, header_row_idx in enumerate(header_row_indices):
+            checkpoint_columns = header_lookup[header_row_idx]
+            next_header_idx = header_row_indices[i + 1] if i + 1 < len(header_row_indices) else 10 ** 9
+
+            block_rows: List[GroundTruthRow] = []
+            max_frame_in_block = -1
+            total_checkpoints = 0
+
+            for row_idx, cells in parsed_rows:
+                if row_idx <= header_row_idx or row_idx >= next_header_idx:
+                    continue
+
+                clip_raw = (cells.get("A") or "").strip()
+                if not clip_raw.isdigit() or int(clip_raw) != clip:
+                    continue
+
+                jersey_raw = (cells.get("D") or "").strip()
+                jersey_number = int(jersey_raw) if jersey_raw.isdigit() else None
+
+                checkpoints: Dict[int, int] = {}
+                for col, frame_idx in checkpoint_columns:
+                    track_raw = (cells.get(col) or "").strip()
+                    if track_raw.isdigit():
+                        checkpoints[frame_idx] = int(track_raw)
+
+                if checkpoints:
+                    max_frame_in_block = max(max_frame_in_block, max(checkpoints.keys()))
+                    total_checkpoints += len(checkpoints)
+
+                block_rows.append(
+                    GroundTruthRow(
+                        clip=int(clip_raw),
+                        team=(cells.get("B") or "").strip(),
+                        jersey_number=jersey_number,
+                        name=(cells.get("E") or "").strip(),
+                        checkpoints=checkpoints,
+                    )
+                )
+
+            if not block_rows:
                 continue
 
-            jersey_raw = (cells.get("D") or "").strip()
-            jersey_number = int(jersey_raw) if jersey_raw.isdigit() else None
+            score = (max_frame_in_block, total_checkpoints, len(block_rows))
+            if score > best_score:
+                best_score = score
+                best_rows = block_rows
 
-            checkpoints: Dict[int, int] = {}
-            for col, frame_idx in checkpoint_columns:
-                track_raw = (cells.get(col) or "").strip()
-                if track_raw.isdigit():
-                    checkpoints[frame_idx] = int(track_raw)
-
-            result.append(
-                GroundTruthRow(
-                    clip=int(clip_raw),
-                    team=(cells.get("B") or "").strip(),
-                    jersey_number=jersey_number,
-                    name=(cells.get("E") or "").strip(),
-                    checkpoints=checkpoints,
-                )
-            )
-
-    return result
+    return best_rows
 
 
 def _load_json(path: Path) -> dict:

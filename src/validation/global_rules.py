@@ -149,6 +149,7 @@ def validate_r2_no_unknown_teams(
         List of violations (empty if valid)
     """
     violations = []
+    from ..core import constants as const
 
     # Build identity map
     identity_map = {i.fragment_id: i for i in identities}
@@ -220,40 +221,46 @@ def validate_r2_no_unknown_teams(
 
             frame_team_counts[frame_idx][team].add(identity.player_id)
 
-    # Check max 6 per team at each frame
+    max_team_size = int(getattr(const, "MAX_TEAM_SIZE", 6))
+    allowed_violation_frames = int(getattr(const, "MAX_TEAM_SIZE_VIOLATION_FRAMES", 0))
+
+    team_a_violations = []
+    team_b_violations = []
     for frame_idx, team_counts in frame_team_counts.items():
         team_a_count = len(team_counts["team_a"])
         team_b_count = len(team_counts["team_b"])
 
-        if team_a_count > 6:
+        if team_a_count > max_team_size:
+            team_a_violations.append((frame_idx, team_a_count, sorted(team_counts["team_a"])))
+        if team_b_count > max_team_size:
+            team_b_violations.append((frame_idx, team_b_count, sorted(team_counts["team_b"])))
+
+    def _append_team_size_violations(team_name: str, items: List[Tuple[int, int, List[str]]]) -> None:
+        if not items:
+            return
+        severity = "warning" if len(items) <= allowed_violation_frames else "error"
+        for frame_idx, count, players in items:
             violations.append(
                 ValidationViolation(
                     rule="R2",
-                    severity="error",
-                    message=f"Frame {frame_idx}: team_a has {team_a_count} players (max 6 allowed)",
+                    severity=severity,
+                    message=(
+                        f"Frame {frame_idx}: {team_name} has {count} players "
+                        f"(max {max_team_size} allowed, tolerance={allowed_violation_frames} frames)"
+                    ),
                     frame_idx=frame_idx,
                     details={
                         "frame_idx": frame_idx,
-                        "team_a_count": team_a_count,
-                        "team_a_players": sorted(team_counts["team_a"]),
+                        f"{team_name}_count": count,
+                        f"{team_name}_players": players,
+                        "max_team_size": max_team_size,
+                        "allowed_violation_frames": allowed_violation_frames,
                     },
                 )
             )
 
-        if team_b_count > 6:
-            violations.append(
-                ValidationViolation(
-                    rule="R2",
-                    severity="error",
-                    message=f"Frame {frame_idx}: team_b has {team_b_count} players (max 6 allowed)",
-                    frame_idx=frame_idx,
-                    details={
-                        "frame_idx": frame_idx,
-                        "team_b_count": team_b_count,
-                        "team_b_players": sorted(team_counts["team_b"]),
-                    },
-                )
-            )
+    _append_team_size_violations("team_a", team_a_violations)
+    _append_team_size_violations("team_b", team_b_violations)
 
     return violations
 

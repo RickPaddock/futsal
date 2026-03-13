@@ -149,7 +149,10 @@ FRAGMENT_SCHEMA = {
         "split_reason": {"type": ["string", "null"]},
         "split_trigger_frame": {"type": ["integer", "null"], "minimum": 0},
         "split_rule_id": {"type": ["string", "null"]},
-        "parent_fragment_id": {"type": ["string", "null"]}
+        "parent_fragment_id": {"type": ["string", "null"]},
+        "dominant_color_cluster_id": {"type": ["integer", "null"]},
+        "dominant_team_cluster_id": {"type": ["integer", "null"]},
+        "dominant_team_cluster_confidence": {"type": ["number", "null"]}
     }
 }
 

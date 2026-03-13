@@ -391,6 +391,7 @@ class IdentitySolver:
         team_assignments, team_diagnostics = self._assign_and_lock_teams(
             fragments,
             refined_identity_groups,
+            constraints=constraints,
             fragment_histograms=fragment_histograms,
             real_presence_frames=real_presence_frames,
             fragment_jersey_scores=fragment_jersey_scores,
@@ -409,20 +410,34 @@ class IdentitySolver:
         self.logger.info(f"Applied jersey inheritance: {len(jersey_assignments)} fragments with jerseys")
 
         # Step 7: Apply SOFT_SAME only after lock inputs exist.
-        refined_identity_groups, soft_optimization_diagnostics = self._optimize_soft_same_constraints(
-            identity_groups=refined_identity_groups,
-            constraints=constraints,
-            fragments=fragments,
-            real_presence_frames=real_presence_frames,
-            team_assignments=team_assignments,
-            jersey_assignments=jersey_assignments,
-        )
-        self._validate_cannot_same_constraints(constraints, refined_identity_groups)
-        self.logger.info(
-            "SOFT_SAME optimization applied after locks: "
-            f"considered={soft_optimization_diagnostics['soft_edges_considered']}, "
-            f"merged={soft_optimization_diagnostics['soft_merges_applied']}"
-        )
+        if bool(getattr(const, "PASS3_COLOR_ONLY_TEAM_ASSIGNMENT", False)):
+            soft_optimization_diagnostics = {
+                "soft_edges_total": 0,
+                "soft_edges_from_pass3a": 0,
+                "soft_edges_considered": 0,
+                "soft_edges_skipped_cannot": 0,
+                "soft_edges_skipped_overlap": 0,
+                "soft_edges_skipped_team": 0,
+                "soft_edges_skipped_jersey": 0,
+                "soft_merges_applied": 0,
+                "soft_merge_reason": "disabled_in_color_only_mode",
+            }
+            self.logger.info("SOFT_SAME optimization skipped (PASS3_COLOR_ONLY_TEAM_ASSIGNMENT=True)")
+        else:
+            refined_identity_groups, soft_optimization_diagnostics = self._optimize_soft_same_constraints(
+                identity_groups=refined_identity_groups,
+                constraints=constraints,
+                fragments=fragments,
+                real_presence_frames=real_presence_frames,
+                team_assignments=team_assignments,
+                jersey_assignments=jersey_assignments,
+            )
+            self._validate_cannot_same_constraints(constraints, refined_identity_groups)
+            self.logger.info(
+                "SOFT_SAME optimization applied after locks: "
+                f"considered={soft_optimization_diagnostics['soft_edges_considered']}, "
+                f"merged={soft_optimization_diagnostics['soft_merges_applied']}"
+            )
 
         # Create committed identities
         committed_identities = self._create_committed_identities(
@@ -1004,6 +1019,7 @@ class IdentitySolver:
         self,
         fragments: List[Fragment],
         identity_groups: Dict[str, Set[str]],
+        constraints: Optional[List[Constraint]] = None,
         fragment_histograms: Optional[Dict[str, List[float]]] = None,
         real_presence_frames: Optional[Dict[str, Set[int]]] = None,
         fragment_jersey_scores: Optional[Dict[str, Dict[int, float]]] = None,
@@ -1021,6 +1037,7 @@ class IdentitySolver:
         """
         # Build fragment lookup
         frag_lookup = {f.fragment_id: f for f in fragments}
+        color_only_mode = bool(getattr(const, "PASS3_COLOR_ONLY_TEAM_ASSIGNMENT", False))
 
         # Extract HSV histograms for clustering (exclude ghosts and invalid histograms)
         # CRITICAL: Team assignment uses jersey HSV only.
@@ -1047,15 +1064,16 @@ class IdentitySolver:
                 continue
 
             # Optional quality gates: only apply if metadata exists on fragment.
-            quality_score = getattr(frag, 'quality_score', None)
-            if quality_score is not None and quality_score < KMEANS_MIN_FRAGMENT_QUALITY_SCORE:
-                skipped_low_quality += 1
-                continue
+            if not color_only_mode:
+                quality_score = getattr(frag, 'quality_score', None)
+                if quality_score is not None and quality_score < KMEANS_MIN_FRAGMENT_QUALITY_SCORE:
+                    skipped_low_quality += 1
+                    continue
 
-            hsv_consistency = getattr(frag, 'hsv_consistency', None)
-            if hsv_consistency is not None and hsv_consistency < KMEANS_MIN_HSV_CONSISTENCY:
-                skipped_low_hsv_consistency += 1
-                continue
+                hsv_consistency = getattr(frag, 'hsv_consistency', None)
+                if hsv_consistency is not None and hsv_consistency < KMEANS_MIN_HSV_CONSISTENCY:
+                    skipped_low_hsv_consistency += 1
+                    continue
 
             valid_frags.append(frag)
             valid_histograms.append(jersey_hist)
@@ -1164,6 +1182,56 @@ class IdentitySolver:
             team = cluster_to_team[label]
             assignments[frag.fragment_id] = team
 
+        if color_only_mode:
+            assignments, short_stability_diag = self._stabilize_short_fragment_team_assignments(
+                assignments=assignments,
+                fragments=fragments,
+                constraints=constraints or [],
+            )
+
+            # In color-only mode, keep per-fragment color assignment intact.
+            # Only fill in unassigned (typically ghosts) from same identity group.
+            for _, group_frag_ids in identity_groups.items():
+                group_teams = [assignments.get(fid) for fid in group_frag_ids if assignments.get(fid) in {TeamID.TEAM_A, TeamID.TEAM_B}]
+                if not group_teams:
+                    continue
+                team_counts = defaultdict(int)
+                for team in group_teams:
+                    team_counts[team] += 1
+                dominant_team = max(team_counts, key=team_counts.get)
+                for fid in group_frag_ids:
+                    assignments.setdefault(fid, dominant_team)
+
+            # Contract requires no unknown team after Pass 3C.
+            for frag in fragments:
+                if frag.fragment_id not in assignments:
+                    assignments[frag.fragment_id] = TeamID.TEAM_A
+
+            self.logger.info(
+                f"Team assignment complete (color-only): "
+                f"{sum(1 for t in assignments.values() if t == TeamID.TEAM_A)} TEAM_A, "
+                f"{sum(1 for t in assignments.values() if t == TeamID.TEAM_B)} TEAM_B, "
+                f"{sum(1 for t in assignments.values() if t == TeamID.UNKNOWN)} UNKNOWN"
+            )
+
+            diagnostics = {
+                "team_assignment_mode": "color_only_subcluster_nearest",
+                "cluster_compactness": team_compactness,
+                "cluster_compactness_a": team_compactness[TeamID.TEAM_A.value],
+                "cluster_compactness_b": team_compactness[TeamID.TEAM_B.value],
+                "compactness_ratio": compactness_ratio,
+                "bibbed_team_evidence": bibbed_team_evidence,
+                "cluster_label_to_team": {str(k): v.value for k, v in cluster_to_team.items()},
+                "color_cluster_count": int(color_k),
+                "color_cluster_to_team_cluster": {str(k): int(v) for k, v in color_cluster_to_team_cluster.items()},
+                "cluster_jersey_support": {str(k): float(v) for k, v in cluster_jersey_support.items()},
+                "kmeans_input_count": len(valid_histograms),
+                "team_rebalance_applied": False,
+                "team_rebalance_solver": "disabled_color_only_mode",
+                **short_stability_diag,
+            }
+            return assignments, diagnostics
+
         # Propagate team assignments within identity groups
         # If any fragment in a group has a team, all fragments in that group get that team
         for root, group_frag_ids in identity_groups.items():
@@ -1226,6 +1294,124 @@ class IdentitySolver:
             "cluster_jersey_support": {str(k): float(v) for k, v in cluster_jersey_support.items()},
             "kmeans_input_count": len(valid_histograms),
             **rebalance_diagnostics,
+        }
+
+        return assignments, diagnostics
+
+    def _stabilize_short_fragment_team_assignments(
+        self,
+        assignments: Dict[str, TeamID],
+        fragments: List[Fragment],
+        constraints: List[Constraint],
+    ) -> Tuple[Dict[str, TeamID], Dict[str, Any]]:
+        """
+        Reduce team-color flicker on very short fragments.
+
+        Short fragments are often tracker handoff artifacts and may have weak or
+        noisy appearance evidence. When a short fragment has a strong adjacent
+        SOFT_SAME edge to a much longer fragment, inherit the longer fragment team.
+        """
+        short_max_frames = int(getattr(const, "PASS3_SHORT_FRAGMENT_MAX_FRAMES", 45))
+        neighbor_min_frames = int(getattr(const, "PASS3_SHORT_FRAGMENT_NEIGHBOR_MIN_FRAMES", 180))
+        max_temporal_gap = int(getattr(const, "PASS3_SHORT_FRAGMENT_MAX_TEMPORAL_GAP", 3))
+        max_spatial_distance = float(getattr(const, "PASS3_SHORT_FRAGMENT_MAX_SPATIAL_DISTANCE", 50.0))
+        min_soft_score = float(getattr(const, "PASS3_SHORT_FRAGMENT_MIN_SOFT_SCORE", 0.36))
+
+        real_fragments = {
+            fragment.fragment_id: fragment
+            for fragment in fragments
+            if not bool(getattr(fragment, "is_ghost", False))
+        }
+
+        cannot_pairs: Set[Tuple[str, str]] = set()
+        soft_neighbors: Dict[str, List[Tuple[str, float, int, float]]] = defaultdict(list)
+
+        for constraint in constraints:
+            if len(constraint.fragment_ids) < 2:
+                continue
+
+            fragment_a, fragment_b = constraint.fragment_ids[0], constraint.fragment_ids[1]
+            pair = tuple(sorted((fragment_a, fragment_b)))
+
+            if constraint.constraint_type == ConstraintType.CANNOT_SAME:
+                cannot_pairs.add(pair)
+                continue
+
+            if constraint.constraint_type != ConstraintType.SOFT_SAME:
+                continue
+
+            value = constraint.value if isinstance(constraint.value, dict) else {}
+            score = float(value.get("overall_candidate_score", 0.0))
+            temporal_gap = int(value.get("temporal_gap", 10**9))
+            spatial_distance = float(value.get("spatial_distance", 10**9))
+
+            if score < min_soft_score:
+                continue
+            if temporal_gap > max_temporal_gap:
+                continue
+            if spatial_distance > max_spatial_distance:
+                continue
+            if fragment_a not in real_fragments or fragment_b not in real_fragments:
+                continue
+
+            soft_neighbors[fragment_a].append((fragment_b, score, temporal_gap, spatial_distance))
+            soft_neighbors[fragment_b].append((fragment_a, score, temporal_gap, spatial_distance))
+
+        considered = 0
+        flipped = 0
+
+        for fragment_id, fragment in real_fragments.items():
+            current_team = assignments.get(fragment_id)
+            if current_team not in {TeamID.TEAM_A, TeamID.TEAM_B}:
+                continue
+
+            fragment_len = int(fragment.end_frame) - int(fragment.start_frame) + 1
+            if fragment_len > short_max_frames:
+                continue
+
+            candidates = []
+            for neighbor_id, score, _gap, _distance in soft_neighbors.get(fragment_id, []):
+                if tuple(sorted((fragment_id, neighbor_id))) in cannot_pairs:
+                    continue
+                neighbor = real_fragments.get(neighbor_id)
+                if neighbor is None:
+                    continue
+                neighbor_len = int(neighbor.end_frame) - int(neighbor.start_frame) + 1
+                if neighbor_len < neighbor_min_frames:
+                    continue
+                neighbor_team = assignments.get(neighbor_id)
+                if neighbor_team not in {TeamID.TEAM_A, TeamID.TEAM_B}:
+                    continue
+                candidates.append((neighbor_id, neighbor_team, score, neighbor_len))
+
+            if not candidates:
+                continue
+
+            considered += 1
+            # Highest soft score first; tie-break by longer neighbor lifespan.
+            candidates.sort(key=lambda item: (item[2], item[3]), reverse=True)
+            best_neighbor_id, best_team, best_score, best_len = candidates[0]
+
+            if best_team != current_team:
+                assignments[fragment_id] = best_team
+                flipped += 1
+                self.logger.info(
+                    f"Short-fragment team stabilization: {fragment_id} ({fragment_len}f) "
+                    f"{current_team.value}->{best_team.value} via {best_neighbor_id} "
+                    f"(score={best_score:.3f}, len={best_len})"
+                )
+
+        diagnostics = {
+            "short_fragment_team_stabilization_applied": True,
+            "short_fragment_team_stabilization_considered": considered,
+            "short_fragment_team_stabilization_flipped": flipped,
+            "short_fragment_team_stabilization_thresholds": {
+                "short_max_frames": short_max_frames,
+                "neighbor_min_frames": neighbor_min_frames,
+                "max_temporal_gap": max_temporal_gap,
+                "max_spatial_distance": max_spatial_distance,
+                "min_soft_score": min_soft_score,
+            },
         }
 
         return assignments, diagnostics
@@ -1838,7 +2024,7 @@ class IdentitySolver:
                 "Pass 3C Step 6 fail-fast: jersey exclusivity violated after commit.\n" + preview
             )
 
-        # Check team size constraints (max 6 per team, excluding ghosts)
+        # Check team size constraints (configured cap/tolerance, excluding ghosts)
         team_counts = defaultdict(lambda: defaultdict(set))
 
         for identity in committed_identities:
@@ -1861,11 +2047,41 @@ class IdentitySolver:
         max_team_a = max((len(team_counts[frame].get(TeamID.TEAM_A, set())) for frame in team_counts), default=0)
         max_team_b = max((len(team_counts[frame].get(TeamID.TEAM_B, set())) for frame in team_counts), default=0)
 
-        # HARD constraint: Max 6 per team
-        if max_team_a > 6:
-            raise ValueError(f"R2 violation: TEAM_A has {max_team_a} players (max 6)")
-        if max_team_b > 6:
-            raise ValueError(f"R2 violation: TEAM_B has {max_team_b} players (max 6)")
+        max_allowed = int(getattr(const, "MAX_TEAM_SIZE", 6))
+        allowed_violation_frames = int(getattr(const, "MAX_TEAM_SIZE_VIOLATION_FRAMES", 0))
+
+        team_a_viol_frames = [
+            frame
+            for frame in sorted(team_counts.keys())
+            if len(team_counts[frame].get(TeamID.TEAM_A, set())) > max_allowed
+        ]
+        team_b_viol_frames = [
+            frame
+            for frame in sorted(team_counts.keys())
+            if len(team_counts[frame].get(TeamID.TEAM_B, set())) > max_allowed
+        ]
+
+        if len(team_a_viol_frames) > allowed_violation_frames:
+            raise ValueError(
+                f"R2 violation: TEAM_A exceeds max {max_allowed} players for "
+                f"{len(team_a_viol_frames)} frames (allowed {allowed_violation_frames})"
+            )
+        if len(team_b_viol_frames) > allowed_violation_frames:
+            raise ValueError(
+                f"R2 violation: TEAM_B exceeds max {max_allowed} players for "
+                f"{len(team_b_viol_frames)} frames (allowed {allowed_violation_frames})"
+            )
+
+        if team_a_viol_frames:
+            self.logger.warning(
+                f"TEAM_A exceeds max {max_allowed} on {len(team_a_viol_frames)} frames "
+                f"(allowed {allowed_violation_frames}); first={team_a_viol_frames[:5]}"
+            )
+        if team_b_viol_frames:
+            self.logger.warning(
+                f"TEAM_B exceeds max {max_allowed} on {len(team_b_viol_frames)} frames "
+                f"(allowed {allowed_violation_frames}); first={team_b_viol_frames[:5]}"
+            )
 
         # SOFT constraint: Warn about imbalance (but don't fail)
         if max_team_a > 0 and max_team_b > 0:
@@ -1876,7 +2092,8 @@ class IdentitySolver:
                 )
 
         self.logger.info(
-            f"Final state validation passed: TEAM_A max={max_team_a}, TEAM_B max={max_team_b}"
+            f"Final state validation passed: TEAM_A max={max_team_a}, TEAM_B max={max_team_b}, "
+            f"cap={max_allowed}, allowed_violation_frames={allowed_violation_frames}"
         )
 
 
@@ -2004,18 +2221,24 @@ def run_pass3c(
     )
 
     # Optional clip-level calibration against GroundTruth.xlsx when available.
-    calibration_diagnostics = _apply_ground_truth_team_calibration(
-        identities=result.identities,
-        fragments=fragments,
-        output_path=output_path,
-    )
-    if calibration_diagnostics.get("ground_truth_calibration_applied"):
-        dropped = solver._resolve_team_jersey_conflicts(  # noqa: SLF001 - intentional post-calibration repair
-            result.identities,
-            fragments,
-            real_presence_frames=real_presence_frames,
+    if bool(getattr(const, "PASS3_COLOR_ONLY_TEAM_ASSIGNMENT", False)):
+        calibration_diagnostics = {
+            "ground_truth_calibration_applied": False,
+            "ground_truth_reason": "disabled_color_only_mode",
+        }
+    else:
+        calibration_diagnostics = _apply_ground_truth_team_calibration(
+            identities=result.identities,
+            fragments=fragments,
+            output_path=output_path,
         )
-        calibration_diagnostics["ground_truth_post_calibration_jersey_drops"] = int(dropped)
+        if calibration_diagnostics.get("ground_truth_calibration_applied"):
+            dropped = solver._resolve_team_jersey_conflicts(  # noqa: SLF001 - intentional post-calibration repair
+                result.identities,
+                fragments,
+                real_presence_frames=real_presence_frames,
+            )
+            calibration_diagnostics["ground_truth_post_calibration_jersey_drops"] = int(dropped)
 
     solver_log = dict(result.solver_log or {})
     solver_log.update(calibration_diagnostics)

@@ -141,11 +141,23 @@ class Pass3BConstraintBuilder:
                 return True
         return False
 
+    def _get_constraint(self, constraint_type: ConstraintType, fragment_ids: Tuple[str, str]) -> Optional[Constraint]:
+        normalized_pair = tuple(sorted(fragment_ids))
+        for existing in self._constraints:
+            if existing.constraint_type != constraint_type:
+                continue
+            if tuple(sorted(existing.fragment_ids)) == normalized_pair:
+                return existing
+        return None
+
     def _add_must_same_track_adjacency(self) -> None:
         hard_discontinuity_rules = {
             "TRACK_COLLISION",
             "JERSEY_CHANGE",
+            "JERSEY_TEMPORAL_CONFLICT",
             "JERSEY_TEMPORAL_EXCLUSIVITY",
+            "TEAM_SWITCH",
+            "MOTION_SPIKE",
             "HARD_APPEARANCE_DISCONTINUITY",
         }
 
@@ -339,6 +351,11 @@ class Pass3BConstraintBuilder:
             for constraint in self._constraints
             if constraint.constraint_type == ConstraintType.CANNOT_SAME and len(constraint.fragment_ids) >= 2
         }
+        cannot_by_pair: Dict[Tuple[str, str], Constraint] = {
+            tuple(sorted((constraint.fragment_ids[0], constraint.fragment_ids[1]))): constraint
+            for constraint in self._constraints
+            if constraint.constraint_type == ConstraintType.CANNOT_SAME and len(constraint.fragment_ids) >= 2
+        }
 
         for constraint in self._constraints:
             if constraint.constraint_type != ConstraintType.MUST_SAME or len(constraint.fragment_ids) < 2:
@@ -356,7 +373,17 @@ class Pass3BConstraintBuilder:
         for pair, edge in sorted_edges:
             if edge.overall_candidate_score < PASS3B_MUST_SAME_THRESHOLD:
                 continue
-            if self._has_constraint(ConstraintType.CANNOT_SAME, pair):
+            cannot_constraint = self._get_constraint(ConstraintType.CANNOT_SAME, pair)
+            if cannot_constraint is not None:
+                cannot_kind = None
+                if isinstance(cannot_constraint.value, dict):
+                    cannot_kind = str(cannot_constraint.value.get("kind", ""))
+
+                # Split-triggered discontinuities are hard boundaries by design.
+                # For these cases, suppress MUST insertion rather than failing.
+                if cannot_kind == "split_discontinuity":
+                    continue
+
                 raise ValueError(
                     "Pass 3B contradiction (fail-fast): MUST_SAME threshold edge conflicts with "
                     f"existing CANNOT_SAME for pair {pair} (score={edge.overall_candidate_score:.3f})"
@@ -371,25 +398,28 @@ class Pass3BConstraintBuilder:
             if root_left == root_right:
                 continue
 
-            has_transitive_conflict = any(
-                tuple(sorted((fragment_left, fragment_right))) in cannot_pairs
+            conflicting_pairs = [
+                tuple(sorted((fragment_left, fragment_right)))
                 for fragment_left in members[root_left]
                 for fragment_right in members[root_right]
-            )
-            if has_transitive_conflict:
-                conflicting_pair = next(
-                    (
-                        tuple(sorted((fragment_left, fragment_right)))
-                        for fragment_left in members[root_left]
-                        for fragment_right in members[root_right]
-                        if tuple(sorted((fragment_left, fragment_right))) in cannot_pairs
-                    ),
-                    None,
-                )
-                raise ValueError(
-                    "Pass 3B contradiction (fail-fast): transitive MUST merge would violate CANNOT_SAME "
-                    f"between {conflicting_pair} while evaluating edge {pair}"
-                )
+                if tuple(sorted((fragment_left, fragment_right))) in cannot_pairs
+            ]
+            if conflicting_pairs:
+                non_split_conflicts = []
+                for conflict_pair in conflicting_pairs:
+                    conflict_constraint = cannot_by_pair.get(conflict_pair)
+                    conflict_kind = None
+                    if conflict_constraint is not None and isinstance(conflict_constraint.value, dict):
+                        conflict_kind = str(conflict_constraint.value.get("kind", ""))
+                    if conflict_kind != "split_discontinuity":
+                        non_split_conflicts.append(conflict_pair)
+
+                if non_split_conflicts:
+                    raise ValueError(
+                        "Pass 3B contradiction (fail-fast): transitive MUST merge would violate CANNOT_SAME "
+                        f"between {non_split_conflicts[0]} while evaluating edge {pair}"
+                    )
+                continue
 
             self._add_constraint(
                 constraint_type=ConstraintType.MUST_SAME,
