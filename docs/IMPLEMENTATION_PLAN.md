@@ -28,16 +28,16 @@ with the new CLAUDE.md contract.
 ### Fragment Output
 
 - [x] Assign `fragment_id` as sequential `F000001`, `F000002`, etc.
-- [ ] Compute per-fragment metadata:
+- [x] Compute per-fragment metadata:
   - [x] `track_id`, `start_frame`, `end_frame`, `detection_ids[]`
   - [x] `split_reason` (null for track's first fragment)
-  - [ ] `jersey_visible_ratio` (fraction of frames with non-None jersey_number)
+  - [x] `jersey_visible_ratio` (fraction of frames with non-None jersey_number)
   - [x] `dominant_jersey_number` (mode of observed jersey numbers, None if none seen)
-  - [ ] `occlusion_ratio` (fraction of frames where `jersey_roi_valid = False`)
-  - [ ] `mean_velocity` (mean centroid displacement per frame, pixels)
-  - [ ] `appearance_stability_score` (mean pairwise HSV similarity across fragment)
-  - [ ] `quality` (`HIGH` | `MEDIUM` | `LOW`)
-- [ ] Fragments shorter than `MIN_FRAGMENT_LENGTH` (15 frames) → `quality = "LOW"`, do NOT delete
+  - [x] `occlusion_ratio` (fraction of frames where `jersey_roi_valid = False`)
+  - [x] `mean_velocity` (mean centroid displacement per frame, pixels)
+  - [x] `appearance_stability_score` (mean pairwise HSV similarity across fragment)
+  - [x] `quality` (`HIGH` | `MEDIUM` | `LOW`)
+- [x] Fragments shorter than `MIN_FRAGMENT_LENGTH` (15 frames) → `quality = "LOW"`, do NOT delete
 
 ### Expected Behaviour
 
@@ -59,15 +59,15 @@ with the new CLAUDE.md contract.
 **Input**: `pass2_fragments.json`
 **Output**: `pass2b_scored_fragments.json`
 
-- [ ] Metadata-only pass — no splitting or merging
-- [ ] Confirm/compute `appearance_stability_score` (mean HSV pairwise similarity)
-- [ ] Confirm/compute `jersey_observability_score` (= `jersey_visible_ratio`)
-- [ ] Compute `motion_smoothness_score` (inverse of velocity variance)
-- [ ] Confirm `occlusion_ratio`
-- [ ] Assign quality tier:
-  - [ ] `HIGH`: appearance_stability ≥ 0.7 AND occlusion_ratio ≤ 0.2
-  - [ ] `MEDIUM`: appearance_stability ≥ 0.4
-  - [ ] `LOW`: otherwise
+- [x] Metadata-only pass — no splitting or merging
+- [x] Confirm/compute `appearance_stability_score` (mean HSV pairwise similarity)
+- [x] Confirm/compute `jersey_observability_score` (= `jersey_visible_ratio`)
+- [x] Compute `motion_smoothness_score` (inverse of velocity variance)
+- [x] Confirm `occlusion_ratio`
+- [x] Assign quality tier:
+  - [x] `HIGH`: appearance_stability ≥ 0.7 AND occlusion_ratio ≤ 0.2
+  - [x] `MEDIUM`: appearance_stability ≥ 0.4
+  - [x] `LOW`: otherwise
 
 ---
 
@@ -191,8 +191,8 @@ with the new CLAUDE.md contract.
 
 **File**: `src/core/data_models.py`
 
-- [ ] `Fragment` — Pass 2A output fields listed above
-- [ ] `ScoredFragment` — extends Fragment with quality scores
+- [x] `Fragment` — Pass 2A output fields listed above
+- [x] `ScoredFragment` — extends Fragment with quality scores
 - [ ] `GhostFragment` — adds `is_ghost`, `exclude_from_clustering`, `original_track_id`
 - [ ] `CandidateEdge` — fragment_a_id, fragment_b_id, all score fields, overall_candidate_score
 - [ ] `Constraint` — type (MUST_SAME | CANNOT_SAME | SOFT_SAME), fragment_a_id, fragment_b_id
@@ -235,7 +235,7 @@ with the new CLAUDE.md contract.
 After each pass, test on clip7:
 
 - [x] `pass2_fragments.json`: 20–30 fragments, 100% detection coverage, no overlapping ranges
-- [ ] `pass2b_scored_fragments.json`: quality tiers (HIGH/MEDIUM/LOW) present on all fragments
+- [x] `pass2b_scored_fragments.json`: quality tiers (HIGH/MEDIUM/LOW) present on all fragments
 - [ ] `pass2_ghosts.json`: `is_ghost` flags correct, level tracks high-water mark
 - [ ] `pass3a_candidates.json`: same-track pairs always have a candidate edge
 - [ ] `pass3b_constraints.json`: no contradictions, MUST/CANNOT/SOFT edges present

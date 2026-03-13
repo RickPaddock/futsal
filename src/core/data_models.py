@@ -168,6 +168,13 @@ class Fragment(BaseModel):
     # Fragment-level jersey summary (computed in Pass 2A)
     dominant_jersey_number: Optional[int] = None  # Mode of observed jersey numbers
 
+    # Pass 2A metadata fields (computed during mechanical fragmentation)
+    jersey_visible_ratio: Optional[float] = None
+    occlusion_ratio: Optional[float] = None
+    mean_velocity: Optional[float] = None
+    appearance_stability_score: Optional[float] = None
+    quality: Optional[FragmentQuality] = None
+
     # Ghost metadata (Pass 2C) - available at Fragment level for uniform access
     is_ghost: bool = False
 
@@ -205,8 +212,10 @@ class ScoredFragment(Fragment):
     - min_confidence: Minimum detection confidence over fragment lifespan.
     - occlusion_ratio: Proxy metric from bbox smoothness/stability.
     - jersey_visible_ratio: Fraction of consistent jersey observations.
+    - jersey_observability_score: Alias metric equal to jersey_visible_ratio.
     - appearance_stability_score: Stability of HSV appearance within fragment.
     - mean_velocity: Mean centroid velocity in px/frame.
+    - motion_smoothness_score: Inverse velocity variance in [0, 1].
 
     Ghost-specific fields (Pass 2C):
     - is_ghost: True if this is a ghost fragment (default False).
@@ -237,6 +246,8 @@ class ScoredFragment(Fragment):
         serialization_alias="appearance_stability_score",
     )  # HSV histogram similarity
     mean_velocity: float = 0.0  # px/frame based on centroid displacement
+    jersey_observability_score: float = 0.0
+    motion_smoothness_score: float = 0.0
 
     # Ghost-specific fields (Pass 2C)
     is_ghost: bool = False

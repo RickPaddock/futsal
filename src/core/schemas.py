@@ -183,7 +183,9 @@ SCORED_FRAGMENT_SCHEMA = {
         "min_confidence": {"type": "number"},
         "avg_bbox_stability": {"type": "number"},
         "jersey_consistency": {"type": "number"},
-        "hsv_consistency": {"type": "number"}
+        "hsv_consistency": {"type": "number"},
+        "jersey_observability_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "motion_smoothness_score": {"type": "number", "minimum": 0, "maximum": 1}
     }
 }
 

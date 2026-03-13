@@ -31,7 +31,7 @@ import numpy as np
 from tqdm import tqdm
 
 from ..core.data_models import Detection, Fragment, Pass1Output, Pass2AOutput
-from ..core.types import DetectionID, FragmentID, TrackID
+from ..core.types import DetectionID, FragmentID, FragmentQuality, TrackID
 from ..core import constants as const
 from ..utils.file_utils import load_json, save_json
 from ..utils.geometry import centroid_distance
@@ -775,6 +775,7 @@ class Pass2AFragmenter:
         fid = self._counter.next_id()
         start = min(d.frame_idx for d in dets)
         end = max(d.frame_idx for d in dets)
+        fragment_length = end - start + 1
 
         # Dominant jersey number (mode of non-None confident observations)
         jersey_obs = [
@@ -789,6 +790,16 @@ class Pass2AFragmenter:
                 dominant_jersey = mode(jersey_obs)
             except Exception:
                 dominant_jersey = Counter(jersey_obs).most_common(1)[0][0]
+
+        jersey_visible_ratio = self._compute_jersey_visible_ratio(dets)
+        occlusion_ratio = self._compute_occlusion_ratio(dets)
+        mean_velocity = self._compute_mean_velocity(dets)
+        appearance_stability_score = self._compute_appearance_stability_score(dets)
+        quality = self._assign_fragment_quality(
+            fragment_length=fragment_length,
+            occlusion_ratio=occlusion_ratio,
+            appearance_stability_score=appearance_stability_score,
+        )
 
         # Normalise split_trigger_frame to be within [start, end]
         eff_trigger = split_trigger_frame
@@ -814,8 +825,94 @@ class Pass2AFragmenter:
             split_rule_id=rule_map.get(split_reason) if split_reason else None,
             parent_fragment_id=None,
             dominant_jersey_number=dominant_jersey,
+            jersey_visible_ratio=jersey_visible_ratio,
+            occlusion_ratio=occlusion_ratio,
+            mean_velocity=mean_velocity,
+            appearance_stability_score=appearance_stability_score,
+            quality=quality,
             is_ghost=False,
         )
+
+    def _compute_jersey_visible_ratio(self, dets: List[Detection]) -> float:
+        """Fraction of detections where a jersey number is visible."""
+        if not dets:
+            return 0.0
+        visible = sum(1 for d in dets if d.jersey_number is not None)
+        return float(visible / len(dets))
+
+    def _compute_occlusion_ratio(self, dets: List[Detection]) -> float:
+        """Fraction of detections where jersey ROI extraction failed."""
+        if not dets:
+            return 0.0
+        occluded = sum(1 for d in dets if not d.jersey_roi_valid)
+        return float(occluded / len(dets))
+
+    def _compute_mean_velocity(self, dets: List[Detection]) -> float:
+        """Mean centroid displacement per frame in pixels/frame."""
+        if len(dets) < 2:
+            return 0.0
+
+        ordered = sorted(dets, key=lambda d: d.frame_idx)
+        velocities: List[float] = []
+        for i in range(len(ordered) - 1):
+            current = ordered[i]
+            nxt = ordered[i + 1]
+            frame_delta = max(1, nxt.frame_idx - current.frame_idx)
+            displacement = centroid_distance(current.centroid, nxt.centroid)
+            velocities.append(displacement / frame_delta)
+
+        return float(np.mean(velocities)) if velocities else 0.0
+
+    def _compute_appearance_stability_score(self, dets: List[Detection]) -> float:
+        """
+        Mean pairwise HSV similarity in [0, 1].
+
+        Uses a capped subset to keep runtime bounded on long fragments.
+        """
+        histograms = [
+            d.hsv_histogram_jersey
+            for d in dets
+            if d.hsv_histogram_jersey is not None
+        ]
+
+        if not histograms:
+            return 0.0
+        if len(histograms) == 1:
+            return 1.0
+
+        max_samples = 40
+        if len(histograms) > max_samples:
+            idx = np.linspace(0, len(histograms) - 1, max_samples, dtype=int)
+            histograms = [histograms[i] for i in idx]
+
+        similarities: List[float] = []
+        for i in range(len(histograms) - 1):
+            for j in range(i + 1, len(histograms)):
+                corr = compare_hsv_histograms(histograms[i], histograms[j])
+                similarities.append(float(np.clip((corr + 1.0) / 2.0, 0.0, 1.0)))
+
+        return float(np.mean(similarities)) if similarities else 0.0
+
+    def _assign_fragment_quality(
+        self,
+        fragment_length: int,
+        occlusion_ratio: float,
+        appearance_stability_score: float,
+    ) -> FragmentQuality:
+        """Assign Pass 2A quality tier; short fragments are always low quality."""
+        if fragment_length < const.MIN_FRAGMENT_LENGTH:
+            return FragmentQuality.LOW
+
+        if (
+            appearance_stability_score >= const.QUALITY_HIGH_THRESHOLD
+            and occlusion_ratio <= 0.2
+        ):
+            return FragmentQuality.HIGH
+
+        if appearance_stability_score >= const.QUALITY_MEDIUM_THRESHOLD:
+            return FragmentQuality.MEDIUM
+
+        return FragmentQuality.LOW
 
     # ------------------------------------------------------------------
     # T3 — Jersey Temporal Conflict (cross-track, post per-track splits)

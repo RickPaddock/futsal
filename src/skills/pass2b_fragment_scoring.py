@@ -14,13 +14,14 @@ Per CLAUDE.md Principle P1 (Pass Immutability):
 
 Quality Metrics:
 - Detection confidence stability (avg, min)
-- Occlusion proxy (bbox stability)
+- Occlusion ratio (jersey ROI invalid fraction)
 - Jersey visible ratio (consistency of jersey observations)
 - Appearance stability score (HSV histogram similarity)
 - Mean velocity (centroid displacement per frame)
+- Motion smoothness score (inverse velocity variance)
 """
 
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple
 from pathlib import Path
 import logging
 
@@ -35,9 +36,9 @@ from ..core.data_models import (
     ScoredFragment,
     Pass2BOutput,
 )
-from ..core.types import FragmentQuality, DetectionID, FragmentID
+from ..core.types import FragmentQuality, DetectionID
 from ..utils.file_utils import load_json, save_json
-from ..utils.geometry import bbox_width, bbox_height, centroid_distance
+from ..utils.geometry import centroid_distance
 from ..utils.hsv_color import compare_hsv_histograms
 from ..validation.validator import Validator
 from ..core import constants as const
@@ -129,35 +130,32 @@ class Pass2BFragmentScorer:
                 reasons=["No detections found for fragment"],
             )
 
-        # Compute quality metrics
+        # Compute Pass 2B contract metrics
         avg_confidence = self._compute_avg_confidence(fragment_detections)
         min_confidence = self._compute_min_confidence(fragment_detections)
-        occlusion_ratio = self._compute_bbox_stability(fragment_detections)
-        jersey_visible_ratio = self._compute_jersey_consistency(fragment_detections)
+        occlusion_ratio = self._compute_occlusion_ratio(fragment_detections)
+        jersey_visible_ratio = self._compute_jersey_visible_ratio(fragment_detections)
+        jersey_observability_score = jersey_visible_ratio
         appearance_stability_score = self._compute_hsv_consistency(fragment_detections)
-        mean_velocity = self._compute_mean_velocity(fragment_detections)
+        mean_velocity, motion_smoothness_score = self._compute_motion_metrics(fragment_detections)
 
-        # Compute overall quality score (0-1)
-        quality_score, quality_reasons = self._compute_quality_score(
-            fragment=fragment,
-            avg_confidence=avg_confidence,
-            min_confidence=min_confidence,
-            avg_bbox_stability=occlusion_ratio,
-            jersey_consistency=jersey_visible_ratio,
-            hsv_consistency=appearance_stability_score,
+        quality = self._assign_quality_tier(
+            appearance_stability_score=appearance_stability_score,
+            occlusion_ratio=occlusion_ratio,
         )
 
-        # Assign quality label
-        if quality_score >= const.QUALITY_HIGH_THRESHOLD:
-            quality = FragmentQuality.HIGH
-        elif quality_score >= const.QUALITY_MEDIUM_THRESHOLD:
-            quality = FragmentQuality.MEDIUM
-        else:
-            quality = FragmentQuality.LOW
+        # Keep a continuous score for ranking/audit while tiering remains rule-based.
+        quality_score, quality_reasons = self._compute_quality_score(
+            quality=quality,
+            appearance_stability_score=appearance_stability_score,
+            occlusion_ratio=occlusion_ratio,
+            jersey_observability_score=jersey_observability_score,
+            motion_smoothness_score=motion_smoothness_score,
+        )
 
         # Pass 2B contract: binary fragment classification (identity-agnostic)
         # quality tiers remain metadata only.
-        if quality == FragmentQuality.LOW or min_confidence < const.PLAYER_CONF_THRESHOLD:
+        if quality == FragmentQuality.LOW or occlusion_ratio > 0.5:
             presence_class = "occlusion_candidate"
         else:
             presence_class = "real"
@@ -174,6 +172,7 @@ class Pass2BFragmentScorer:
             split_trigger_frame=fragment.split_trigger_frame,
             split_rule_id=fragment.split_rule_id,
             parent_fragment_id=fragment.parent_fragment_id,
+            dominant_jersey_number=fragment.dominant_jersey_number,
             # Add quality fields
             quality=quality,
             quality_score=quality_score,
@@ -182,8 +181,10 @@ class Pass2BFragmentScorer:
             min_confidence=min_confidence,
             occlusion_ratio=occlusion_ratio,
             jersey_visible_ratio=jersey_visible_ratio,
+            jersey_observability_score=jersey_observability_score,
             appearance_stability_score=appearance_stability_score,
             mean_velocity=mean_velocity,
+            motion_smoothness_score=motion_smoothness_score,
             presence_class=presence_class,
         )
 
@@ -201,49 +202,23 @@ class Pass2BFragmentScorer:
         confidences = [det.confidence for det in detections]
         return float(np.min(confidences))
 
-    def _compute_bbox_stability(self, detections: List[Detection]) -> float:
+    def _compute_occlusion_ratio(self, detections: List[Detection]) -> float:
         """
-        Compute bbox stability (low jitter = high stability).
-
-        Measures how stable the bbox size and position are across frames.
-        Returns value in [0, 1] where 1 = perfectly stable.
+        Compute occlusion ratio as fraction of frames where jersey ROI is invalid.
         """
-        if len(detections) < 2:
-            return 1.0  # Single detection = no jitter
-
-        # Measure bbox size stability
-        widths = [bbox_width(det.bbox) for det in detections]
-        heights = [bbox_height(det.bbox) for det in detections]
-
-        width_std = float(np.std(widths))
-        height_std = float(np.std(heights))
-
-        # Measure centroid motion stability
-        centroids = [det.centroid for det in detections]
-        centroid_distances = [
-            centroid_distance(centroids[i], centroids[i + 1])
-            for i in range(len(centroids) - 1)
-        ]
-        centroid_std = float(np.std(centroid_distances)) if centroid_distances else 0.0
-
-        # Normalize to [0, 1] (lower std = higher stability)
-        # Use heuristic normalization based on typical values
-        width_stability = max(0.0, 1.0 - width_std / 50.0)
-        height_stability = max(0.0, 1.0 - height_std / 50.0)
-        centroid_stability = max(0.0, 1.0 - centroid_std / 10.0)
-
-        # Average the three stability metrics
-        stability = (width_stability + height_stability + centroid_stability) / 3.0
-        return float(np.clip(stability, 0.0, 1.0))
-
-    def _compute_mean_velocity(self, detections: List[Detection]) -> float:
-        """
-        Compute mean centroid velocity in pixels/frame.
-
-        Uses frame-normalized displacement between consecutive detections.
-        """
-        if len(detections) < 2:
+        if not detections:
             return 0.0
+        invalid = sum(1 for det in detections if not det.jersey_roi_valid)
+        return float(invalid / len(detections))
+
+    def _compute_motion_metrics(self, detections: List[Detection]) -> Tuple[float, float]:
+        """
+        Compute mean velocity and motion smoothness.
+
+        motion_smoothness_score is inverse velocity variance in [0, 1].
+        """
+        if len(detections) < 2:
+            return 0.0, 1.0
 
         ordered = sorted(detections, key=lambda d: d.frame_idx)
         velocities: List[float] = []
@@ -255,32 +230,22 @@ class Pass2BFragmentScorer:
             displacement = centroid_distance(current.centroid, nxt.centroid)
             velocities.append(displacement / frame_delta)
 
-        return float(np.mean(velocities)) if velocities else 0.0
+        if not velocities:
+            return 0.0, 1.0
 
-    def _compute_jersey_consistency(self, detections: List[Detection]) -> float:
+        mean_velocity = float(np.mean(velocities))
+        variance = float(np.var(velocities))
+        motion_smoothness_score = float(np.clip(1.0 / (1.0 + variance), 0.0, 1.0))
+        return mean_velocity, motion_smoothness_score
+
+    def _compute_jersey_visible_ratio(self, detections: List[Detection]) -> float:
         """
-        Compute jersey consistency (how often same jersey appears).
-
-        Returns value in [0, 1] where 1 = same jersey throughout.
+        Compute jersey observability as fraction of detections with visible jersey number.
         """
-        # Count jersey observations
-        jersey_observations = [
-            det.jersey_number
-            for det in detections
-            if det.jersey_number is not None
-        ]
-
-        if not jersey_observations:
-            return 0.0  # No jersey observed
-
-        # Find most common jersey
-        from collections import Counter
-        jersey_counts = Counter(jersey_observations)
-        most_common_jersey, most_common_count = jersey_counts.most_common(1)[0]
-
-        # Consistency = fraction of observations with most common jersey
-        consistency = most_common_count / len(jersey_observations)
-        return float(consistency)
+        if not detections:
+            return 0.0
+        visible = sum(1 for det in detections if det.jersey_number is not None)
+        return float(visible / len(detections))
 
     def _compute_hsv_consistency(self, detections: List[Detection]) -> float:
         """
@@ -298,77 +263,74 @@ class Pass2BFragmentScorer:
         if len(histograms) < 2:
             return 1.0 if histograms else 0.0  # Single histogram = consistent
 
-        # Compute pairwise histogram similarities
+        # Compute pairwise histogram similarities.
+        max_samples = 40
+        if len(histograms) > max_samples:
+            idx = np.linspace(0, len(histograms) - 1, max_samples, dtype=int)
+            histograms = [histograms[i] for i in idx]
+
         similarities = []
         for i in range(len(histograms) - 1):
-            similarity = compare_hsv_histograms(histograms[i], histograms[i + 1])
-            similarities.append(similarity)
+            for j in range(i + 1, len(histograms)):
+                corr = compare_hsv_histograms(histograms[i], histograms[j])
+                similarities.append(float(np.clip((corr + 1.0) / 2.0, 0.0, 1.0)))
 
         # Average similarity
         avg_similarity = float(np.mean(similarities)) if similarities else 0.0
         return float(np.clip(avg_similarity, 0.0, 1.0))
 
+    def _assign_quality_tier(
+        self,
+        appearance_stability_score: float,
+        occlusion_ratio: float,
+    ) -> FragmentQuality:
+        """
+        Assign quality tier using strict Pass 2B contract rules.
+
+        HIGH   : appearance_stability_score >= 0.7 and occlusion_ratio <= 0.2
+        MEDIUM : appearance_stability_score >= 0.4
+        LOW    : otherwise
+        """
+        if (
+            appearance_stability_score >= const.QUALITY_HIGH_THRESHOLD
+            and occlusion_ratio <= 0.2
+        ):
+            return FragmentQuality.HIGH
+
+        if appearance_stability_score >= const.QUALITY_MEDIUM_THRESHOLD:
+            return FragmentQuality.MEDIUM
+
+        return FragmentQuality.LOW
+
     def _compute_quality_score(
         self,
-        fragment: Fragment,
-        avg_confidence: float,
-        min_confidence: float,
-        avg_bbox_stability: float,
-        jersey_consistency: float,
-        hsv_consistency: float,
+        quality: FragmentQuality,
+        appearance_stability_score: float,
+        occlusion_ratio: float,
+        jersey_observability_score: float,
+        motion_smoothness_score: float,
     ) -> Tuple[float, List[str]]:
         """
-        Compute overall quality score from individual metrics.
+        Compute a continuous quality score for diagnostics/ranking.
 
         Returns:
             Tuple of (quality_score, quality_reasons)
         """
         reasons: List[str] = []
 
-        # Fragment length factor (short fragments are lower quality)
-        fragment_length = fragment.end_frame - fragment.start_frame + 1
-        length_factor = min(1.0, fragment_length / const.MIN_FRAGMENT_LENGTH)
-
-        if fragment_length < const.MIN_FRAGMENT_LENGTH:
-            reasons.append(f"Short fragment ({fragment_length} frames < {const.MIN_FRAGMENT_LENGTH})")
-
-        # Confidence factor
-        confidence_factor = (avg_confidence + min_confidence) / 2.0
-
-        if min_confidence < const.PLAYER_CONF_THRESHOLD:
-            reasons.append(f"Low min confidence ({min_confidence:.2f})")
-
-        # Stability factor
-        stability_factor = avg_bbox_stability
-
-        if avg_bbox_stability < 0.5:
-            reasons.append(f"Low bbox stability ({avg_bbox_stability:.2f})")
-
-        # Jersey factor
-        jersey_factor = jersey_consistency
-
-        if jersey_consistency < 0.5:
-            reasons.append(f"Low jersey consistency ({jersey_consistency:.2f})")
-
-        # HSV factor
-        hsv_factor = hsv_consistency
-
-        if hsv_consistency < 0.5:
-            reasons.append(f"Low HSV consistency ({hsv_consistency:.2f})")
-
-        # Weighted average (prioritize confidence and stability)
         quality_score = (
-            0.25 * confidence_factor +
-            0.20 * stability_factor +
-            0.20 * length_factor +
-            0.15 * jersey_factor +
-            0.20 * hsv_factor
-        )
+            0.65 * appearance_stability_score
+            + 0.20 * motion_smoothness_score
+            + 0.15 * jersey_observability_score
+        ) * (1.0 - 0.30 * occlusion_ratio)
 
         quality_score = float(np.clip(quality_score, 0.0, 1.0))
 
-        if not reasons:
-            reasons.append(f"Good quality (score={quality_score:.2f})")
+        reasons.append(f"tier={quality.value}")
+        reasons.append(f"appearance={appearance_stability_score:.2f}")
+        reasons.append(f"occlusion={occlusion_ratio:.2f}")
+        reasons.append(f"jersey_observability={jersey_observability_score:.2f}")
+        reasons.append(f"motion_smoothness={motion_smoothness_score:.2f}")
 
         return quality_score, reasons
 
@@ -399,8 +361,10 @@ class Pass2BFragmentScorer:
             min_confidence=0.0,
             occlusion_ratio=0.0,
             jersey_visible_ratio=0.0,
+            jersey_observability_score=0.0,
             appearance_stability_score=0.0,
             mean_velocity=0.0,
+            motion_smoothness_score=1.0,
         )
 
 

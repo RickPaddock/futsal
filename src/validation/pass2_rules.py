@@ -483,8 +483,10 @@ def validate_pass2b_quality_scoring(
         "start_frame",
         "end_frame",
         "jersey_visible_ratio",
+        "jersey_observability_score",
         "occlusion_ratio",
         "mean_velocity",
+        "motion_smoothness_score",
         "appearance_stability_score",
         "quality",
     ]
@@ -494,8 +496,10 @@ def validate_pass2b_quality_scoring(
         "start_frame",
         "end_frame",
         "jersey_visible_ratio",
+        "jersey_observability_score",
         "occlusion_ratio",
         "mean_velocity",
+        "motion_smoothness_score",
         "appearance_stability_score",
     }
 
@@ -670,9 +674,11 @@ def validate_pass2b_quality_scoring(
 
         numeric_ranges = {
             "jersey_visible_ratio": (fragment.jersey_visible_ratio, 0.0, 1.0),
+            "jersey_observability_score": (fragment.jersey_observability_score, 0.0, 1.0),
             "occlusion_ratio": (fragment.occlusion_ratio, 0.0, 1.0),
             "appearance_stability_score": (fragment.appearance_stability_score, 0.0, 1.0),
             "mean_velocity": (fragment.mean_velocity, 0.0, None),
+            "motion_smoothness_score": (fragment.motion_smoothness_score, 0.0, 1.0),
         }
 
         for metric_name, (value, low, high) in numeric_ranges.items():
