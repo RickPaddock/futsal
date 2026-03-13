@@ -23,6 +23,7 @@ from sklearn.cluster import KMeans
 from collections import defaultdict
 from pathlib import Path
 import re
+from bisect import bisect_right
 
 from ..core.data_models import (
     Fragment,
@@ -449,6 +450,13 @@ class IdentitySolver:
             fragment_jersey_scores=fragment_jersey_scores,
         )
 
+        committed_identities, jersey_global_diagnostics = self._reassign_jerseys_globally(
+            committed_identities=committed_identities,
+            fragments=fragments,
+            fragment_jersey_scores=fragment_jersey_scores,
+            real_presence_frames=real_presence_frames,
+        )
+
         dropped_conflicts = self._resolve_team_jersey_conflicts(
             committed_identities=committed_identities,
             fragments=fragments,
@@ -475,6 +483,7 @@ class IdentitySolver:
                 "group_locked_jerseys": {
                     group_id: jersey for group_id, jersey in group_locked_jerseys.items() if jersey is not None
                 },
+                **jersey_global_diagnostics,
                 "jersey_exclusivity_drops": dropped_conflicts,
                 "retired_ghost_fragments": sorted(retired_ghost_fragments),
             },
@@ -901,6 +910,224 @@ class IdentitySolver:
         }
         return refined_identity_groups, retired_ghost_fragments, diagnostics
 
+    def _reassign_jerseys_globally(
+        self,
+        committed_identities: List[CommittedIdentity],
+        fragments: List[Fragment],
+        fragment_jersey_scores: Optional[Dict[str, Dict[int, float]]] = None,
+        real_presence_frames: Optional[Dict[str, Set[int]]] = None,
+    ) -> Tuple[List[CommittedIdentity], Dict[str, Any]]:
+        """
+        Reassign jersey numbers globally with temporal continuity.
+
+        For each jersey in JERSEY_NUMBERS, select a non-overlapping sequence of
+        player intervals that maximizes total jersey evidence.
+        """
+        if not committed_identities:
+            return committed_identities, {
+                "jersey_global_reassignment_applied": False,
+                "jersey_global_assigned_players": {},
+                "jersey_global_selected_intervals": 0,
+            }
+
+        min_support = float(getattr(const, "PASS3_GLOBAL_JERSEY_MIN_SUPPORT", 0.55))
+        min_dominance = float(getattr(const, "PASS3_GLOBAL_JERSEY_MIN_DOMINANCE", 1.20))
+
+        frag_lookup = {fragment.fragment_id: fragment for fragment in fragments}
+
+        player_to_identities: Dict[str, List[CommittedIdentity]] = defaultdict(list)
+        for identity in committed_identities:
+            fragment = frag_lookup.get(identity.fragment_id)
+            if fragment is None:
+                continue
+            if bool(getattr(fragment, "is_ghost", False)):
+                continue
+            player_to_identities[identity.player_id].append(identity)
+
+        player_interval: Dict[str, Tuple[int, int]] = {}
+        player_support: Dict[str, Dict[int, float]] = {}
+        player_team: Dict[str, TeamID] = {}
+
+        for player_id, identities in player_to_identities.items():
+            starts: List[int] = []
+            ends: List[int] = []
+            support: Dict[int, float] = defaultdict(float)
+            teams: List[TeamID] = []
+
+            for identity in identities:
+                fragment = frag_lookup.get(identity.fragment_id)
+                if fragment is None:
+                    continue
+
+                if real_presence_frames is not None:
+                    active_frames = sorted(real_presence_frames.get(fragment.fragment_id, set()))
+                    if active_frames:
+                        starts.append(int(active_frames[0]))
+                        ends.append(int(active_frames[-1]))
+                    else:
+                        starts.append(int(fragment.start_frame))
+                        ends.append(int(fragment.end_frame))
+                else:
+                    starts.append(int(fragment.start_frame))
+                    ends.append(int(fragment.end_frame))
+
+                if fragment_jersey_scores:
+                    for jersey, score in (fragment_jersey_scores.get(fragment.fragment_id) or {}).items():
+                        if int(jersey) in const.JERSEY_NUMBERS:
+                            support[int(jersey)] += float(score)
+
+                if identity.team in {TeamID.TEAM_A, TeamID.TEAM_B}:
+                    teams.append(identity.team)
+
+            if not starts or not ends:
+                continue
+
+            player_interval[player_id] = (min(starts), max(ends))
+            player_support[player_id] = dict(support)
+            if teams:
+                team_counts: Dict[TeamID, int] = defaultdict(int)
+                for team in teams:
+                    team_counts[team] += 1
+                player_team[player_id] = max(team_counts, key=team_counts.get)
+
+        # Build candidate intervals per jersey.
+        candidates_by_jersey: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
+        for player_id, support in player_support.items():
+            if not support:
+                continue
+            start, end = player_interval[player_id]
+            duration = max(1, end - start + 1)
+
+            for jersey in const.JERSEY_NUMBERS:
+                score = float(support.get(int(jersey), 0.0))
+                if score < min_support:
+                    continue
+
+                competing = [float(v) for j, v in support.items() if int(j) != int(jersey)]
+                second_best = max(competing) if competing else 0.0
+                dominance = (score / second_best) if second_best > 1e-6 else float("inf")
+                if second_best > 0 and dominance < min_dominance:
+                    continue
+
+                duration_factor = 1.0 + min(duration, 1200) / 1200.0 * 0.15
+                weight = score * duration_factor
+                candidates_by_jersey[int(jersey)].append(
+                    {
+                        "player_id": player_id,
+                        "start": int(start),
+                        "end": int(end),
+                        "weight": float(weight),
+                        "score": float(score),
+                        "team": player_team.get(player_id, TeamID.UNKNOWN),
+                    }
+                )
+
+        def _select_non_overlapping(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            if not candidates:
+                return []
+            items = sorted(candidates, key=lambda item: (item["end"], item["start"]))
+            ends = [int(item["end"]) for item in items]
+
+            prev_idx: List[int] = []
+            for item in items:
+                idx = bisect_right(ends, int(item["start"]) - 1) - 1
+                prev_idx.append(idx)
+
+            n = len(items)
+            dp = [0.0] * n
+            take = [False] * n
+
+            for i in range(n):
+                include = float(items[i]["weight"]) + (dp[prev_idx[i]] if prev_idx[i] >= 0 else 0.0)
+                exclude = dp[i - 1] if i > 0 else 0.0
+                if include > exclude:
+                    dp[i] = include
+                    take[i] = True
+                else:
+                    dp[i] = exclude
+
+            selected: List[Dict[str, Any]] = []
+            i = n - 1
+            while i >= 0:
+                if take[i]:
+                    selected.append(items[i])
+                    i = prev_idx[i]
+                else:
+                    i -= 1
+
+            selected.reverse()
+            return selected
+
+        selected_by_jersey: Dict[int, List[Dict[str, Any]]] = {}
+        for jersey, candidates in candidates_by_jersey.items():
+            if not candidates:
+                selected_by_jersey[int(jersey)] = []
+                continue
+
+            team_weight: Dict[TeamID, float] = defaultdict(float)
+            for candidate in candidates:
+                team = candidate.get("team", TeamID.UNKNOWN)
+                if team in {TeamID.TEAM_A, TeamID.TEAM_B}:
+                    team_weight[team] += float(candidate.get("weight", 0.0))
+
+            if team_weight:
+                anchor_team = max(team_weight, key=team_weight.get)
+                candidates = [c for c in candidates if c.get("team") == anchor_team]
+
+            selected_by_jersey[int(jersey)] = _select_non_overlapping(candidates)
+
+        # Resolve player collisions (same player selected for multiple jerseys).
+        player_choice: Dict[str, Tuple[int, float]] = {}
+        for jersey, selections in selected_by_jersey.items():
+            for item in selections:
+                player_id = str(item["player_id"])
+                weight = float(item["weight"])
+                current = player_choice.get(player_id)
+                if current is None or weight > current[1]:
+                    player_choice[player_id] = (int(jersey), weight)
+
+        for identity in committed_identities:
+            fragment = frag_lookup.get(identity.fragment_id)
+            if fragment is None:
+                continue
+            if bool(getattr(fragment, "is_ghost", False)):
+                continue
+
+            chosen = player_choice.get(identity.player_id)
+            chosen_jersey = int(chosen[0]) if chosen is not None else None
+            previous_jersey = identity.jersey_number
+
+            if chosen_jersey in const.JERSEY_NUMBERS:
+                identity.jersey_number = chosen_jersey
+                reasons = list(identity.assignment_reasons or [])
+                reasons = [
+                    reason
+                    for reason in reasons
+                    if reason not in {"JERSEY_UNRESOLVED_AFTER_COLLAPSE", "JERSEY_EXCLUSIVITY_DROPPED"}
+                ]
+                if "JERSEY_GLOBAL_ASSIGNED" not in reasons:
+                    reasons.append("JERSEY_GLOBAL_ASSIGNED")
+                identity.assignment_reasons = reasons
+            else:
+                if previous_jersey in const.JERSEY_NUMBERS:
+                    reasons = list(identity.assignment_reasons or [])
+                    if "JERSEY_GLOBAL_REALLOCATED" not in reasons:
+                        reasons.append("JERSEY_GLOBAL_REALLOCATED")
+                    identity.assignment_reasons = reasons
+                identity.jersey_number = None
+
+        diagnostics = {
+            "jersey_global_reassignment_applied": True,
+            "jersey_global_candidate_players": int(len(player_interval)),
+            "jersey_global_selected_intervals": int(sum(len(v) for v in selected_by_jersey.values())),
+            "jersey_global_assigned_players": {
+                str(jersey): sorted(item["player_id"] for item in selected_by_jersey.get(jersey, []))
+                for jersey in const.JERSEY_NUMBERS
+            },
+        }
+
+        return committed_identities, diagnostics
+
     def _resolve_team_jersey_conflicts(
         self,
         committed_identities: List[CommittedIdentity],
@@ -909,12 +1136,12 @@ class IdentitySolver:
     ) -> int:
         """Clear jersey labels that violate same-team temporal exclusivity."""
         frag_lookup = {fragment.fragment_id: fragment for fragment in fragments}
-        identities_by_team_jersey: Dict[Tuple[TeamID, int], List[CommittedIdentity]] = defaultdict(list)
+        identities_by_jersey: Dict[int, List[CommittedIdentity]] = defaultdict(list)
 
         for identity in committed_identities:
             if identity.jersey_number is None:
                 continue
-            identities_by_team_jersey[(identity.team, int(identity.jersey_number))].append(identity)
+            identities_by_jersey[int(identity.jersey_number)].append(identity)
 
         def _active_frames(identity: CommittedIdentity) -> Set[int]:
             fragment = frag_lookup.get(identity.fragment_id)
@@ -929,7 +1156,7 @@ class IdentitySolver:
             return set(range(fragment.start_frame, fragment.end_frame + 1))
 
         dropped = 0
-        for _, identities in identities_by_team_jersey.items():
+        for _, identities in identities_by_jersey.items():
             if len(identities) <= 1:
                 continue
 
@@ -2158,14 +2385,28 @@ def run_pass3c(
                 ):
                     jersey_conf_samples[int(detection.jersey_number)].append(float(detection.jersey_confidence))
 
-                if detection.jersey_probs:
+                if bool(getattr(const, "PASS3_USE_JERSEY_PROBS_FALLBACK", False)) and detection.jersey_number is None and detection.jersey_probs:
+                    valid_probs: List[Tuple[int, float]] = []
                     for jersey_key, score in detection.jersey_probs.items():
                         try:
                             jersey_number = int(jersey_key)
                         except (TypeError, ValueError):
                             continue
-                        if jersey_number in const.JERSEY_NUMBERS and score is not None and float(score) > 0:
-                            jersey_conf_samples[int(jersey_number)].append(float(score))
+                        if jersey_number not in const.JERSEY_NUMBERS:
+                            continue
+                        if score is None:
+                            continue
+                        valid_probs.append((int(jersey_number), float(score)))
+
+                    if valid_probs:
+                        valid_probs.sort(key=lambda item: item[1], reverse=True)
+                        top_jersey, top_score = valid_probs[0]
+                        second_score = valid_probs[1][1] if len(valid_probs) > 1 else 0.0
+                        if (
+                            top_score >= float(getattr(const, "PASS3_JERSEY_PROB_FALLBACK_MIN", 0.92))
+                            and (top_score - second_score) >= float(getattr(const, "PASS3_JERSEY_PROB_FALLBACK_MARGIN", 0.20))
+                        ):
+                            jersey_conf_samples[int(top_jersey)].append(float(top_score))
 
                 if detection.hsv_histogram_jersey is None:
                     continue

@@ -132,6 +132,14 @@ PASS3_COLOR_ONLY_TEAM_ASSIGNMENT = True
 MIN_JERSEY_DETECTIONS = 10   # Minimum raw detection count
 MIN_JERSEY_RATIO = 0.02      # Minimum fraction of fragment detections
 PASS3A_MIN_JERSEY_AVG_CONF = 0.60  # Min mean confidence for emitted jersey evidence.
+PASS3_USE_JERSEY_PROBS_FALLBACK = False  # Prefer explicit jersey detections for stability.
+PASS3_JERSEY_PROB_FALLBACK_MIN = 0.92
+PASS3_JERSEY_PROB_FALLBACK_MARGIN = 0.20
+
+# Global jersey allocation (Pass 3C)
+PASS3_GLOBAL_JERSEY_MIN_SUPPORT = 0.55
+PASS3_GLOBAL_JERSEY_MIN_DOMINANCE = 1.20
+PASS3_GLOBAL_JERSEY_CURRENT_LABEL_BONUS = 0.20
 # Raised evidence quality gate for Pass 3A legacy candidates.
 # Prevents low-confidence jersey bleed-through from contaminating downstream constraints.
 
