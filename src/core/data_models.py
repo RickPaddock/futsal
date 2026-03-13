@@ -165,6 +165,9 @@ class Fragment(BaseModel):
     split_rule_id: Optional[str] = None
     parent_fragment_id: Optional[FragmentID] = None  # If split from another fragment
 
+    # Fragment-level jersey summary (computed in Pass 2A)
+    dominant_jersey_number: Optional[int] = None  # Mode of observed jersey numbers
+
     # Ghost metadata (Pass 2C) - available at Fragment level for uniform access
     is_ghost: bool = False
 

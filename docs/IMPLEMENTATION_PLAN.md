@@ -1,249 +1,244 @@
-# Futsal Tracking System - Implementation Plan & Progress Tracker
+# Futsal Tracking System — Implementation Plan
 
-
-
-### Pass 3A: Identity Candidates
-- [x] **[src/skills/pass3a_candidate_generator.py](../src/skills/pass3a_candidate_generator.py)** - Generate possibilities ✅
-  - [x] For each fragment, generate:
-    - [x] Possible teams with evidence scores (from HSV observability metadata)
-    - [x] Possible jerseys with probabilities (aggregated from jersey detections/probabilities)
-    - [x] Adjacent fragments (same-track continuity links in player evidence)
-  - [x] **NO LOCKING** (just candidates, no decisions)
-  - [x] Save `pass3_candidates.json`
-- [ ] **Pass 3A debug video** (`--video-output 3a`) - Identity candidates
-  - [ ] Show: Fragment bboxes with candidate teams/jerseys
-  - [ ] Overlays: Evidence scores, probability distributions, adjacency links
-  - [ ] Purpose: Verify candidate generation logic (are candidates reasonable?)
-
-### Pass 3B: Constraint Graph
-- [x] **[src/skills/pass3b_constraint_builder.py](../src/skills/pass3b_constraint_builder.py)** - Build constraint graph ✅
-  - [x] **MUST_SAME constraints**: Track adjacency (same track_id) + ghost continuity
-  - [x] **CANNOT_SAME constraints**: Jersey temporal exclusivity violations
-  - [x] **SOFT_SAME constraints**: Track continuity preferences (track-gap weighted)
-  - [x] Graph structure: fragment_id → constraint_ids
-  - [x] **Note**: Team assignment happens in Pass 3C AFTER identity resolution
-  - [x] Save `pass3_constraints.json`
-- [ ] **Pass 3B debug video** (`--video-output 3b`) - Constraint graph
-  - [ ] Show: Fragment bboxes with constraint edges overlaid
-  - [ ] Overlays: MUST_SAME (green), CANNOT_SAME (red), SOFT_SAME (yellow)
-  - [ ] Purpose: Verify constraint graph structure (are constraints correct?)
-
-### Pass 3C: Identity Commit (Already completed in Priority 3)
-✅ See Priority 3
-
-### Pass 3 Runtime Regression (clip9)
-- [x] Pass 3 runs end-to-end successfully on clip9 (exit code 0) ✅
-- [x] Removed synthetic fallback jersey assignment in Pass 3C ✅
-- [x] Overlap hard failures resolved (`PASS3C_PLAYER_OVERLAP_SAME_FRAME`) ✅
-- [x] Jersey conflicts from fabricated `#1` removed; unresolved jerseys now explicit warnings (`PASS3C_JERSEY_UNRESOLVED`) ✅
+Pass 1 is complete and verified on clip7. All remaining passes need a full rewrite to comply
+with the new CLAUDE.md contract.
 
 ---
 
-## Priority 7: Ball & Visualization (Day 9)
+## Pass 2A — Mechanical Fragmentation
 
-### Ball Interpolation
-- [ ] **[src/skills/ball_interpolator.py](../src/skills/ball_interpolator.py)** - Fill ball gaps
-  - [ ] Detect gaps in ball detections
-  - [ ] Gaps ≤ 30 frames: interpolate (linear or Kalman) → state = `interpolated`
-  - [ ] Gaps > 30 frames: mark as "out of play" → state = `out_of_play` (NO position)
-  - [ ] Flag interpolated frames
-  - [ ] Validate: ball STATE exists at every frame (not position - state ∈ {real, interpolated, out_of_play})
-  - [ ] Save `ball_interpolation.json`
-  - [ ] Validate output
-- [ ] **Ball interpolation debug video** (`--video-output ball`) - Ball tracking
-  - [ ] Show: Ball positions (real=solid, interpolated=dashed, out_of_play=none)
-  - [ ] Overlays: Ball state labels, gap lengths, interpolation method
-  - [ ] Purpose: Verify ball interpolation logic (are gaps filled correctly?)
+**File**: `src/skills/pass2a_fragmenter.py` (full rewrite)
+**Input**: `pass1_raw.json`
+**Output**: `pass2_fragments.json`, `pass2_validation.json`
 
-### Visualization
-- [ ] **[src/skills/visualizer.py](../src/skills/visualizer.py)** - Final video output
-  - [ ] Render video with:
-    - [ ] Bboxes colored by player_id
-    - [ ] Team colors (team_a, team_b)
-    - [ ] Jersey numbers overlaid
-    - [ ] Label rule: if jersey number known, show `<number> - <name>` when mapped (e.g., 4-Spyros, 7-Rick, 10-Kiki)
-    - [ ] Label fallback: if jersey known but unmapped, show jersey number; if jersey unknown, show player_id
-    - [ ] Ghosts rendered as dashed bboxes
-    - [ ] Ball rendering by state:
-      - [ ] `real`: solid circle
-      - [ ] `interpolated`: dashed circle
-      - [ ] `out_of_play`: no circle (ball not on court)
-  - [ ] **Deduplication logic**:
-    - [ ] ⚠️ CRITICAL: Only suppress if SAME track_id
-    - [ ] Different tracks can occupy same space (ghost + occluder)
-  - [ ] **Visualizer Isolation (CRITICAL - Prevents Truth Contamination)**:
-    - [ ] Visualizer may ONLY consume `CommittedIdentity` + `ball_interpolation.json`
-    - [ ] Visualizer CANNOT infer, fix, suppress, or merge entities
-    - [ ] Any visual inconsistency MUST be solved upstream (Pass 1-3C)
-    - [ ] No state leaks: Visualization logic cannot influence Pass 1-3C decisions
-  - [ ] Save `visualization.mp4`
+### Split Triggers
 
----
+- [x] **T1 — Track Collision**: same `track_id` produces >1 detection in the same frame → immediate split, reason `"track_collision"`
+- [x] **T2 — Jersey Change**: jersey transitions X → Y (both non-None, X ≠ Y), must persist ≥ `JERSEY_CHANGE_PERSISTENCE` frames (15) → split, reason `"jersey_change"`
+  - [x] NOT triggered by `None → X` (player turns around) or `X → None`
+- [x] **T3 — Jersey Temporal Conflict**: same jersey number on two different tracks simultaneously → split the later-appearing occurrence, reason `"jersey_temporal_conflict"`
+  - [x] Skip if jersey appears at very start of the fragment
+- [x] **T4 — Team Assignment Discontinuity**: compare mean HSV of window `[t-30, t-1]` vs `[t+1, t+30]`
+  - [x] Only trigger if HSV distance > `TEAM_SWITCH_HSV_THRESHOLD` AND both windows have ≥ `TEAM_SWITCH_MIN_SAMPLES` valid HSV samples AND both confidences ≥ `TEAM_SWITCH_CONFIDENCE`
+  - [x] Single-frame changes must NEVER trigger this
+  - [x] Use sub-clustering for non-bib team (compare against nearest sub-cluster centroid, not a global average)
+  - [x] Reason: `"team_switch"`
+- [x] **T5 — Impossible Motion Spike**: centroid displacement between adjacent frames > `MAX_PLAYER_SPEED * frame_dt` → immediate split, reason `"motion_spike"`
 
-## Priority 7.5: Pitch Projection & Homography (Tactical Analysis)
+### Fragment Output
 
-### Homography Transformation
-- [ ] **[src/geometry/homography.py](../src/geometry/homography.py)** - Camera to pitch transformation
-  - [ ] **Reference implementation**: `https://github.com/RickPaddock/futsal/blob/rick_claude_2pass_mvp1/src/geometry/homography.py`
-  - [ ] **Input**: `pass3_identity_commit.json`, `ball_interpolation.json` (camera coordinates)
-  - [ ] **Calibration points** (13-point correspondence):
-    - [ ] Source: Pixel coordinates from video frame
-      - [ ]   court_length: 40.0
-      - [ ]   court_width: 20.0
-      - [ ]   goal_width: 3.0
-      - [ ]   output_pixel_scale: 20  # Pixels per meter for 2D pitch (800x400 output)
-      - [ ] Far Left Corner: [680, 595]
-      - [ ] Left Red (PA Far): [843, 638] (3.5m penalty area depth)
-      - [ ] Left Blue (PA Near): [147, 1075]
-      - [ ] Far Right Corner: [3136, 611]
-      - [ ] Right Red (PA Far): [2964, 650]
-      - [ ] Right Blue (PA Near): [3644, 1100]
-      - [ ] Center Black X (Far): [1900, 530]
-      - [ ] Center Black X (Near): [1888, 1592]
-      - [ ] Left Purple (Goal Far): [303, 772]
-      - [ ] Left Orange (Goal Near): [128, 875]
-      - [ ] Right Purple (Goal Far): [3511, 808]
-      - [ ] Right Orange (Goal Near): [3692, 907]
-      - [ ] Center Circle: [1891, 760]
-    - [ ] Destination: Real-world pitch coordinates (meters)
-      - [ ] Pitch dimensions: 40m x 20m (standard futsal)
-      - [ ] Penalty area depth: 3.5m
-      - [ ] Goal width: 3m (posts at y=8.5m and y=11.5m)
-  - [ ] Compute homography matrix using cv2.findHomography() or DLT algorithm
-  - [ ] Project all player centroid positions to pitch coordinates (x, y in meters)
-  - [ ] Project all ball positions to pitch coordinates
-  - [ ] Handle edge cases (players off-court, out of bounds)
-  - [ ] Save `pitch_projection.json`
-  - [ ] Validate output (positions within pitch bounds)
+- [x] Assign `fragment_id` as sequential `F000001`, `F000002`, etc.
+- [ ] Compute per-fragment metadata:
+  - [x] `track_id`, `start_frame`, `end_frame`, `detection_ids[]`
+  - [x] `split_reason` (null for track's first fragment)
+  - [ ] `jersey_visible_ratio` (fraction of frames with non-None jersey_number)
+  - [x] `dominant_jersey_number` (mode of observed jersey numbers, None if none seen)
+  - [ ] `occlusion_ratio` (fraction of frames where `jersey_roi_valid = False`)
+  - [ ] `mean_velocity` (mean centroid displacement per frame, pixels)
+  - [ ] `appearance_stability_score` (mean pairwise HSV similarity across fragment)
+  - [ ] `quality` (`HIGH` | `MEDIUM` | `LOW`)
+- [ ] Fragments shorter than `MIN_FRAGMENT_LENGTH` (15 frames) → `quality = "LOW"`, do NOT delete
 
-### Tactical Analysis Output
-- [ ] **[src/skills/tactical_analyzer.py](../src/skills/tactical_analyzer.py)** - Compute tactical metrics
-  - [ ] **Input**: `pitch_projection.json`, `pass3_identity_commit.json`
-  - [ ] **Metrics to compute**:
-    - [ ] Team centroids (average position per team)
-    - [ ] Team spread (compactness in pitch space)
-    - [ ] Player heat maps (time spent in each pitch zone)
-    - [ ] Formation detection (4-0, 3-1, 2-2, etc.)
-    - [ ] Player distances (pairwise distances in meters)
-    - [ ] Offside positions (relative to ball and defenders)
-    - [ ] Pass opportunities (player-to-player distances < threshold)
-  - [ ] Save `tactical_metrics.json`
+### Expected Behaviour
 
-### Pitch Visualization
-- [ ] **[src/skills/pitch_visualizer.py](../src/skills/pitch_visualizer.py)** - 2D overhead pitch view
-  - [ ] **Input**: `pitch_projection.json`, `pass3_identity_commit.json`
-  - [ ] Render 2D top-down pitch (40m x 20m)
-    - [ ] Draw pitch lines (touchlines, goal lines, penalty areas, center circle)
-    - [ ] Draw goal posts
-    - [ ] Draw penalty spots
-  - [ ] Render players as colored dots (team_a=blue, team_b=red)
-  - [ ] Overlay jersey numbers on player dots
-  - [ ] Render ball position (solid=real, dashed=interpolated)
-  - [ ] Optional: Movement trails (last N seconds)
-  - [ ] Optional: Formation lines connecting players
-  - [ ] Save `pitch_visualization.mp4` (side-by-side with camera view, or separate)
-- [ ] **Pitch debug video** (`--video-output pitch`) - Top-down tactical view
-  - [ ] Show: 2D pitch with player/ball positions in real-world coordinates
-  - [ ] Overlays: Team formations, player spacing, tactical metrics
-  - [ ] Purpose: Verify homography transformation, tactical analysis
+- [x] Typical clip produces 20–30 fragments (significantly more → incorrect triggers)
+
+### Validation (blocking — fail pipeline if any fail)
+
+- [x] Fragment coverage = 100% of detections
+- [x] No detection left unassigned
+- [x] No fragment frame ranges overlap within the same track
+- [x] Every split point has a recorded trigger reason
+- [x] No frame assigned to more than one fragment on the same track
 
 ---
 
-## Priority 8: Orchestration (Day 10)
+## Pass 2B — Fragment Quality Scoring
 
-### Pipeline Orchestrator
-- [ ] **[src/orchestrator.py](../src/orchestrator.py)** - Pipeline execution
-  - [ ] Execute passes in strict order:
-    1. [ ] Pass 1: Raw Evidence
-    2. [ ] Pass 2A: Mechanical Fragmentation
-    3. [ ] Pass 2B: Fragment Quality Scoring
-    4. [ ] Pass 2C: Ghost Generation
-    5. [ ] Pass 3A: Identity Candidates
-    6. [ ] Pass 3B: Constraint Graph
-    7. [ ] Pass 3C: Identity Commit (LOCK POINT)
-    8. [ ] Ball Interpolation
-    9. [ ] Pitch Projection (Homography)
-    10. [ ] Tactical Analysis
-    11. [ ] Visualization (Camera View)
-    12. [ ] Pitch Visualization (2D Top-Down View)
-  - [ ] After each pass:
-    - [ ] Load previous pass output
-    - [ ] Run skill
-    - [ ] Validate output
-    - [ ] **FAIL-FAST** on validation error (do not write later artifacts)
-    - [ ] Save JSON
-  - [ ] Save `debug_metrics.json` (frame-by-frame debug info)
-  - [ ] Return final output directory
+**File**: `src/skills/pass2b_fragment_scoring.py` (full rewrite)
+**Input**: `pass2_fragments.json`
+**Output**: `pass2b_scored_fragments.json`
 
-### CLI Entry Point
-- [ ] **[src/main.py](../src/main.py)** - Command-line interface
-  - [ ] Parse arguments:
-    - [ ] `--input <video_path>` - Single video
-    - [ ] `--input-dir <folder>` - Batch process folder
-    - [ ] `--output-dir <path>` - Override output location (default: videos/output/)
-  - [ ] Create output directory: `videos/output/<clip_name>/`
-  - [ ] Call orchestrator.run(video_path, output_dir)
-  - [ ] Handle errors, log results
-  - [ ] Display summary statistics
+- [ ] Metadata-only pass — no splitting or merging
+- [ ] Confirm/compute `appearance_stability_score` (mean HSV pairwise similarity)
+- [ ] Confirm/compute `jersey_observability_score` (= `jersey_visible_ratio`)
+- [ ] Compute `motion_smoothness_score` (inverse of velocity variance)
+- [ ] Confirm `occlusion_ratio`
+- [ ] Assign quality tier:
+  - [ ] `HIGH`: appearance_stability ≥ 0.7 AND occlusion_ratio ≤ 0.2
+  - [ ] `MEDIUM`: appearance_stability ≥ 0.4
+  - [ ] `LOW`: otherwise
 
 ---
 
-## Priority 9: Testing & Verification
+## Pass 2C — Ghost Generation
 
-### Regression Test
-- [ ] **[tests/test_regression.py](../tests/test_regression.py)** - Permanent regression test
-  - [ ] Test clip: `videos/input/GoPro_Futsal_part1_CLEANED_clip9.mp4`
-  - [ ] Expected outcomes:
-    - [ ] No huge bboxes (Track 14-style hallucinations filtered at Pass 1)
-    - [ ] Zero `team = "unknown"` after Pass 3C
-    - [ ] Zero jersey temporal conflicts
-    - [ ] At most 12 concurrent players per frame
-    - [ ] Ball present at every frame (real or interpolated)
-    - [ ] InferenceSlicer-enabled ball detection improves or preserves recall vs full-frame baseline
-  - [ ] Assert validation.passed == True for all passes
-  - [ ] Assert specific metrics (from memory learnings)
+**File**: `src/skills/pass2c_ghost_generator.py` (full rewrite)
+**Input**: `pass1_raw.json` + `pass2b_scored_fragments.json`
+**Output**: `pass2_ghosts.json` (real fragments + ghost fragments, with `is_ghost` flag)
 
-### Unit Tests
-- [ ] **[tests/core/test_data_models.py](../tests/core/test_data_models.py)** - Model validation
-- [ ] **[tests/validation/test_global_rules.py](../tests/validation/test_global_rules.py)** - Rule enforcement
-- [ ] **[tests/skills/test_pass1_extractor.py](../tests/skills/test_pass1_extractor.py)** - Mock inputs
-- [ ] **[tests/skills/test_pass2a_fragmenter.py](../tests/skills/test_pass2a_fragmenter.py)** - Split logic
-- [ ] **[tests/skills/test_pass2c_ghost_generator.py](../tests/skills/test_pass2c_ghost_generator.py)** - Ghost creation
-- [ ] **[tests/skills/test_pass3c_identity_solver.py](../tests/skills/test_pass3c_identity_solver.py)** - Constraint satisfaction
-- [ ] **[tests/detectors/test_ball_detector.py](../tests/detectors/test_ball_detector.py)** - Slicer vs full-frame behavior
-  - [ ] Verifies slicer output format matches Pass 1 expectations
-  - [ ] Verifies no duplicate/conflicting ball detections after overlap filtering
-
-### End-to-End Test
-- [ ] Run full pipeline on multiple clips
-- [ ] Verify all 9 JSON artifacts created
-- [ ] Verify all validation reports show `passed: true`
-- [ ] Verify visualization quality:
-  - [ ] Players colored by team
-  - [ ] Jersey numbers visible
-  - [ ] Name labels shown for mapped jerseys (4=Spyros, 7=Rick, 10=Kiki)
-  - [ ] Ghosts shown as dashed during occlusions
-  - [ ] Ball tracked throughout (solid/dashed)
-  - [ ] No "unknown" grey boxes
+- [ ] Build frame-by-frame `present_count` from Pass 1 detections
+- [ ] Initialise `level` = max player count across first 10 frames
+- [ ] Dynamic level: for each frame, if `present_count > level`, set `level = min(12, present_count)` — never decreases
+- [ ] For each frame: `missing_count = level - present_count`
+- [ ] For each missing player slot: create or extend a ghost fragment
+  - [ ] Track by `original_track_id` (most recently seen track for that slot), NOT by fragment_id
+  - [ ] Ghost max duration: 60 frames
+  - [ ] If still absent after 60 frames: chain a new ghost fragment
+  - [ ] Ghost terminates when player track reappears OR clip ends
+- [ ] Tag ghosts: `is_ghost = True`, `quality = "GHOST"`, `exclude_from_clustering = True`
 
 ---
 
-## Success Criteria
+## Pass 3A — Identity Candidate Edges
 
-- [ ] All 30 implementation files created and tested
-- [ ] Pipeline runs without errors
-- [ ] All validation reports pass (passed: true)
-- [ ] Ball detector supports InferenceSlicer mode for small-object recall
-- [ ] Visualization shows:
-  - [ ] Correct team colors
-  - [ ] Jersey numbers
-  - [ ] Jersey-name labels for known mappings (4/7/10)
-  - [ ] Ghosts during occlusions
-  - [ ] Ball tracking (real + interpolated)
-  - [ ] Zero "unknown" fragments
-- [ ] Debug metrics show:
-  - [ ] 0 unknown teams
-  - [ ] 0 jersey temporal conflicts
-  - [ ] Max 12 concurrent players
-  - [ ] 100% frame coverage
+**File**: `src/skills/pass3a_candidate_generator.py` (full rewrite)
+**Input**: `pass2b_scored_fragments.json` (exclude `is_ghost = True`)
+**Output**: `pass3a_candidates.json`
 
+- [ ] For each fragment pair (A, B) where `A.end_frame < B.start_frame`:
+  - [ ] Reject if `gap > MAX_IDENTITY_GAP` (300 frames)
+  - [ ] Reject if spatial distance > `MAX_PLAYER_SPEED * gap_frames`
+  - [ ] Reject if both fragments have non-None conflicting jersey numbers (hard conflict)
+- [ ] **Track continuity rule**: if same `track_id` AND `gap ≤ TRACK_CONTINUITY_GAP` (120 frames) AND spatial ok → MUST generate candidate with `track_continuity_score = 1.0`
+- [ ] Score each candidate:
+  - [ ] `track_continuity_score`: 1.0 if same track_id, else 0.0
+  - [ ] `velocity_consistency_score`: predicted vs actual entry position match
+  - [ ] `color_match_score`: HSV similarity between fragment appearances
+  - [ ] `jersey_match_score`: same number = high, unknown = neutral, conflict = rejected
+  - [ ] `temporal_gap_score`: penalty for longer gaps
+  - [ ] `overall = 0.50*track + 0.20*velocity + 0.15*color + 0.10*jersey + 0.05*temporal`
+- [ ] Discard candidates with `overall < MIN_CANDIDATE_SCORE` (0.35)
+- [ ] Pass 3A must NOT assign identity, team, or jersey — evidence edges only
+
+---
+
+## Pass 3B — Constraint Graph
+
+**File**: `src/skills/pass3b_constraint_builder.py` (full rewrite)
+**Input**: `pass3a_candidates.json` + `pass2b_scored_fragments.json`
+**Output**: `pass3b_constraints.json`
+
+- [ ] `MUST_SAME`: `overall_candidate_score ≥ 0.85`
+- [ ] `CANNOT_SAME`: temporal overlap OR jersey conflict OR spatial impossibility
+- [ ] `SOFT_SAME`: `0.35 ≤ score < 0.85`
+- [ ] Before inserting MUST_SAME: verify it does not contradict any existing CANNOT_SAME
+  - [ ] If contradiction: FAIL FAST, write report, stop
+- [ ] Invariant: no fragment may MUST_SAME two fragments that CANNOT_SAME each other
+
+---
+
+## Pass 3C — Identity Commit
+
+**File**: `src/skills/pass3c_identity_solver.py` (full rewrite)
+**Input**: `pass3b_constraints.json` + `pass2b_scored_fragments.json`
+**Output**: `pass3_identity_commit.json`, `pass3_validation.json`, `debug_metrics.json`
+
+8-step algorithm (strict order):
+
+- [ ] **Step 1 — Build identity groups**: connected components via MUST_SAME edges
+- [ ] **Step 2 — Validate hard constraints**: no temporal overlaps, no CANNOT_SAME violations within group → FAIL FAST if any
+- [ ] **Step 3 — Jersey resolution**: per group, aggregate jersey observations weighted by confidence; conflicting numbers within a group → FAIL FAST
+- [ ] **Step 4 — Team assignment**: K-means (k=2) on HSV color embeddings; ghosts excluded (`exclude_from_clustering = True`)
+  - [ ] Lock immediately via `_locked_team` — single source of truth, never re-evaluated
+- [ ] **Step 5 — Lock identity labels**: `team_id` and `jersey_number` immutable after this point
+- [ ] **Step 6 — Enforce jersey exclusivity**: no two identities share the same jersey on the same team in the same frame
+- [ ] **Step 7 — Soft constraint optimisation**: apply SOFT_SAME merges only if ALL hold:
+  - [ ] No temporal overlap
+  - [ ] No CANNOT_SAME constraint
+  - [ ] Jersey numbers equal or both unknown
+  - [ ] Same `_locked_team`
+  - [ ] Jersey exclusivity preserved after merge
+- [ ] **Step 8 — Finalise**: assign `identity_id` (format `P07_team_a`); fragments inherit identity assignment
+- [ ] Fail conditions (write report, exit non-zero, do NOT write artifacts):
+  - [ ] Constraint contradictions
+  - [ ] Identity temporal overlap
+  - [ ] Team assignment fails
+  - [ ] Jersey exclusivity fails
+
+---
+
+## Ball Interpolation
+
+**File**: `src/skills/ball_interpolator.py` (create)
+**Input**: `pass1_raw.json` (ball_detections)
+**Output**: `ball_interpolation.json`
+
+- [ ] Detect gaps in ball detections
+- [ ] Gaps ≤ 30 frames: linear interpolation → `state = "interpolated"`
+- [ ] Gaps > 30 frames: `state = "out_of_play"` (no position field)
+- [ ] Every frame must have a ball state entry (validates R5)
+- [ ] Validate output
+
+---
+
+## Visualization
+
+**File**: `src/skills/visualizer.py` (create)
+**Input**: `pass3_identity_commit.json` + `ball_interpolation.json` ONLY
+**Output**: `visualization.mp4`
+
+- [ ] Bboxes colored by team (`team_a` = blue, `team_b` = red)
+- [ ] Label: `<jersey> - <name>` if mapped (4=Spyros, 7=Rick, 10=Kiki); else jersey number; else identity_id
+- [ ] Ghosts: dashed bboxes
+- [ ] Ball: solid circle (real), dashed circle (interpolated), no circle (out_of_play)
+- [ ] Deduplication: only suppress same `track_id` duplicates — different tracks may share screen space
+- [ ] Visualizer CANNOT infer, fix, suppress, or merge entities — any inconsistency must be fixed upstream
+
+---
+
+## Data Models
+
+**File**: `src/core/data_models.py`
+
+- [ ] `Fragment` — Pass 2A output fields listed above
+- [ ] `ScoredFragment` — extends Fragment with quality scores
+- [ ] `GhostFragment` — adds `is_ghost`, `exclude_from_clustering`, `original_track_id`
+- [ ] `CandidateEdge` — fragment_a_id, fragment_b_id, all score fields, overall_candidate_score
+- [ ] `Constraint` — type (MUST_SAME | CANNOT_SAME | SOFT_SAME), fragment_a_id, fragment_b_id
+- [ ] `CommittedIdentity` — identity_id, team_id, jersey_number, fragments[], is_ghost
+- [ ] `BallState` — frame_idx, state (real | interpolated | out_of_play), centroid (optional)
+
+---
+
+## Constants
+
+**File**: `src/core/constants.py`
+
+- [x] `JERSEY_CHANGE_PERSISTENCE = 15`
+- [x] `TEAM_SWITCH_WINDOW = 30`
+- [x] `TEAM_SWITCH_HSV_THRESHOLD` (HSV distance for team switch detection)
+- [x] `TEAM_SWITCH_CONFIDENCE` (min confidence per window)
+- [x] `TEAM_SWITCH_MIN_SAMPLES` (min valid HSV observations per window)
+- [x] `PASS2_MAX_PLAYER_SPEED` (pixels/frame for Pass 2A motion spike detection)
+- [x] `MIN_FRAGMENT_LENGTH = 15`
+- [ ] `MAX_IDENTITY_GAP = 300`
+- [ ] `TRACK_CONTINUITY_GAP = 120`
+- [ ] `MIN_CANDIDATE_SCORE = 0.35`
+- [ ] `MUST_SAME_THRESHOLD = 0.85`
+- [ ] `GHOST_MAX_DURATION = 60`
+
+---
+
+## Orchestrator / CLI
+
+**File**: `src/main.py` or `src/orchestrator.py`
+
+- [ ] Execute passes in strict order (1 → 2A → 2B → 2C → 3A → 3B → 3C → Ball → Viz)
+- [ ] After each pass: validate output, FAIL FAST on error, do NOT write later artifacts
+- [ ] Support `--passes 2a` style flag to run a subset of passes (for iterative development)
+
+---
+
+## Verification
+
+After each pass, test on clip7:
+
+- [x] `pass2_fragments.json`: 20–30 fragments, 100% detection coverage, no overlapping ranges
+- [ ] `pass2b_scored_fragments.json`: quality tiers (HIGH/MEDIUM/LOW) present on all fragments
+- [ ] `pass2_ghosts.json`: `is_ghost` flags correct, level tracks high-water mark
+- [ ] `pass3a_candidates.json`: same-track pairs always have a candidate edge
+- [ ] `pass3b_constraints.json`: no contradictions, MUST/CANNOT/SOFT edges present
+- [ ] `pass3_identity_commit.json`: 0 unknown teams, jersey exclusivity holds, correct player count
+- [ ] `ball_interpolation.json`: state present at every frame
+- [ ] `visualization.mp4`: correct team colours, labels, ghosts, ball tracking visible

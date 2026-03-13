@@ -78,7 +78,7 @@ PLAYER_TRACKER_CONFIG = "config/bytetrack_fast.yaml"  # Disable GMC for faster t
 # FRAGMENT PARAMETERS
 # ============================================================================
 
-MIN_FRAGMENT_LENGTH = 10  # Frames - but keep shorter ones, mark as low_quality
+MIN_FRAGMENT_LENGTH = 15  # Frames - but keep shorter ones, mark as low_quality
 MAX_FRAGMENT_GAP = 60     # Ghost MAX_GAP from memory (2 seconds at 30 FPS)
 MERGE_CONSECUTIVE_SHORT = False  # Fragments must never merge (CLAUDE.md Section 8)
 
@@ -106,7 +106,7 @@ KMEANS_MIN_HSV_CONSISTENCY = 0.35
 
 # Pass 3A candidate-edge eligibility constraints.
 MAX_IDENTITY_GAP = 300  # Maximum temporal gap (frames) for identity continuation edges
-MAX_PLAYER_SPEED = 50.0  # Max plausible player speed (px/frame) for spatial feasibility gate
+MAX_PLAYER_SPEED = 50.0  # Max plausible player speed (px/frame) for Pass 3 spatial feasibility gate
 
 # Minimum support required to emit jersey evidence for a fragment.
 # Fragments below either threshold produce no jersey candidate — classifier noise suppressed.
@@ -143,6 +143,8 @@ JERSEY_CHANGE_CONFIRM_OBSERVATIONS = 2  # Consecutive confirming sampled obs nee
 JERSEY_TEMPORAL_MIN_OVERLAP_FRAMES = 150  # Min frame overlap to trigger a temporal conflict split
 # Raised from 5: jersey classifier noise causes same jersey on different tracks for many frames.
 # Only a genuine sustained conflict (150+ overlapping frames) triggers a split. ~6s at 25fps.
+JERSEY_TEMPORAL_MIN_CONFIDENCE = 0.85  # Stricter confidence for T3 ownership voting.
+JERSEY_TEMPORAL_MIN_DENSITY = 0.10     # Min confident-jersey observation density within fragment.
 
 # Optional jersey-to-player display labels for visualization overlays.
 # Used only by visualization layer (does NOT affect identity inference or validation).
@@ -225,10 +227,36 @@ DEBUG_METRICS_JSON = "debug_metrics.json"
 VISUALIZATION_VIDEO = "visualization.mp4"
 
 # ============================================================================
-# SPLIT TRIGGERS (PASS 2A)
+# SPLIT TRIGGERS (PASS 2A) — per IMPLEMENTATION_PLAN.md contract
 # ============================================================================
 
-# Appearance drift thresholds
+# T2: Jersey Change Detection
+# New jersey number must persist for >= this many frames before a split fires.
+# At JERSEY_NUMBER_CLASSIFY_EVERY_N_FRAMES=5, 15 frames = 3 consecutive samples.
+JERSEY_CHANGE_PERSISTENCE_FRAMES = 15
+
+# T4: Team Assignment Discontinuity (windowed HSV + K-means clustering)
+TEAM_SWITCH_WINDOW = 30           # Frames before/after split candidate
+TEAM_SWITCH_HSV_THRESHOLD = 0.35  # Min 1-correlation between window means to fire.
+TEAM_SWITCH_MIN_SAMPLES = 3       # Min valid HSV samples required in each window
+TEAM_SWITCH_CONFIDENCE = 0.60     # Min dominant-cluster ratio required on both windows
+TEAM_SWITCH_MIN_CROP_QUALITY = 0.55  # Min mean jersey-crop quality in each window
+TEAM_SWITCH_SCAN_STEP = 10        # Scan a split candidate every N frames
+TEAM_SWITCH_EDGE_MARGIN = 30      # Do not evaluate T4 too close to track start/end
+TEAM_SWITCH_TEAM_CLUSTERS = 2     # Collapse colour clusters into 2 team-level groups
+TEAM_SWITCH_PROXIMITY_BBOX_WIDTHS = 1.8  # Require nearby-player crossing evidence
+TEAM_SWITCH_EDGE_RESCUE_MAX_TRACK_FRAMES = 300  # Only run edge rescue on short tracks.
+TEAM_SWITCH_EDGE_RESCUE_MIN_MAIN_CONF = 0.95    # Strong dominant cluster before split.
+TEAM_SWITCH_EDGE_RESCUE_PROXIMITY_BBOX_WIDTHS = 0.90  # Stricter crossing gate at edges.
+
+# T5: Impossible Motion Spike
+PASS2_MAX_PLAYER_SPEED = 150      # Max pixels/frame for single-frame centroid jump (Pass 2A T5)
+
+# Global HSV K-means for T4 cluster comparison
+N_COLOR_CLUSTERS = 4              # 1 bib colour + ~3 shirt colours
+KMEANS_SUBSAMPLE_SIZE = 3000      # Max histograms sampled for K-means fit
+
+# Appearance drift thresholds (legacy — kept for reference, not used in new T4)
 HSV_DRIFT_THRESHOLD = 0.58  # Min HSV distance to split on colour discontinuity.
 # Natural player movement (angle/lighting) peaks at ~p95=0.32 across clip7/clip2.
 # Genuine jersey colour swaps (e.g. orange vs black) produce 0.58+.

@@ -45,7 +45,8 @@
       "Bash(do)",
       "Bash(done)",
       "Bash(f=\"videos/output/GoPro_Futsal_part1_CLEANED_$clip/pass2_validation.json\")",
-      "Bash(pip install openpyxl --target .venv/Lib/site-packages -q)"
+      "Bash(pip install openpyxl --target .venv/Lib/site-packages -q)",
+      "Bash(wc -l \"c:\\\\Users\\\\rickp\\\\Documents\\\\GitRepos\\\\futsal\\\\src\\\\skills\"/*.py)"
     ]
   }
 }

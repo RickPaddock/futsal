@@ -1,1250 +1,970 @@
 """
-Pass 2A: Mechanical Fragmentation
+Pass 2A: Mechanical Fragmentation  —  full rewrite per IMPLEMENTATION_PLAN.md
 
-Per CLAUDE.md Section 5 (Pass 2A):
-- Input: pass1_raw.json
-- Output: pass2_fragments.json, pass2_validation.json
-- Splits tracks into fragments based on mechanical divergence points
-- Keeps ALL fragments (even <10 frames), marks short ones as low_quality
-- Merges consecutive short fragments on same track
+Input : pass1_raw.json
+Output: pass2_fragments.json, pass2_validation.json
 
-Per CLAUDE.md Principle P1 (Pass Immutability):
-- Reads Pass 1 output (read-only)
-- Never modifies Pass 1 artifacts
-- Emits new artifacts only
+Split triggers (T1–T5 only — no other triggers allowed):
+  T1 — Track Collision      : same track_id, >1 detection per frame
+  T2 — Jersey Change        : number X → Y (both non-None, X≠Y), persists ≥15 frames
+  T3 — Jersey Temporal Conflict: same jersey on two tracks simultaneously
+  T4 — Team Assignment Discontinuity: windowed HSV + global K-means cluster change
+    T5 — Impossible Motion Spike: centroid jump > PASS2_MAX_PLAYER_SPEED px in 1 frame
 
-Per CLAUDE.md Rule R1 (No Identity Logic in Fragmentation):
-- NO team assignment
-- NO player_id assignment
-- Only mechanical split triggers (geometry, appearance)
+FORBIDDEN triggers:
+  - jersey disappearance  (X → None)
+  - jersey first-appearance (None → X)
+  - standalone HSV drift without cluster change
+  - occlusion / confidence drops / tracker jitter
 """
 
-from typing import List, Dict, Tuple, Optional, Set
-from pathlib import Path
-import logging
-from functools import lru_cache
-import hashlib
+from __future__ import annotations
 
-import cv2
+import logging
+import math
+from collections import Counter, defaultdict
+from pathlib import Path
+from statistics import mode
+from typing import Dict, List, Optional, Set, Tuple
+
 import numpy as np
 from tqdm import tqdm
 
-from ..core.data_models import (
-    Detection,
-    Pass1Output,
-    Fragment,
-    Pass2AOutput,
-)
-from ..core.types import FragmentID, TrackID, DetectionID, HSVHistogram
-from ..utils.file_utils import load_json, save_json
-from ..utils.geometry import bbox_centroid, centroid_distance
-from ..utils.hsv_color import compare_hsv_histograms
-from ..utils.video_io import VideoReader
-from ..validation.validator import Validator
+from ..core.data_models import Detection, Fragment, Pass1Output, Pass2AOutput
+from ..core.types import DetectionID, FragmentID, TrackID
 from ..core import constants as const
+from ..utils.file_utils import load_json, save_json
+from ..utils.geometry import centroid_distance
+from ..utils.hsv_color import compare_hsv_histograms
+from ..validation.validator import Validator
 
 logger = logging.getLogger(__name__)
 
 
-@lru_cache(maxsize=1)
-def _load_pass2_intention_lines(max_lines: int = 4) -> List[str]:
-    """Load Pass 2 intent lines from validation/pass2_rules.py docstring."""
+# ---------------------------------------------------------------------------
+# K-means helpers (pure numpy, no external deps needed beyond sklearn)
+# ---------------------------------------------------------------------------
+
+def _kmeans_fit(X: np.ndarray, k: int, n_init: int = 5, max_iter: int = 100,
+                random_state: int = 42) -> np.ndarray:
+    """
+    Fit K-means on rows of X (shape N×D).
+    Returns cluster centroids (shape k×D).
+    Uses sklearn if available, falls back to numpy.
+    """
     try:
-        from ..validation import pass2_rules
+        from sklearn.cluster import KMeans
+        km = KMeans(n_clusters=k, n_init=n_init, max_iter=max_iter,
+                    random_state=random_state)
+        km.fit(X)
+        return km.cluster_centers_
+    except ImportError:
+        pass
 
-        doc = pass2_rules.__doc__ or ""
-        lines: List[str] = []
-        for raw in doc.splitlines():
-            line = raw.strip()
-            if line.startswith("- "):
-                lines.append(line[2:].strip())
-
-        if not lines:
-            return ["Pass 2A mechanical fragmentation is active."]
-
-        return lines[:max_lines]
-    except Exception:
-        return ["Pass 2A mechanical fragmentation is active."]
-
-
-def _compute_median_hsv(histograms: List) -> np.ndarray:
-    """Element-wise median of a list of HSV histograms (robust baseline anchor)."""
-    stacked = np.stack([np.array(h, dtype=np.float32) for h in histograms])
-    return np.median(stacked, axis=0)
-
-
-def _fragment_color(fragment_id: str) -> Tuple[int, int, int]:
-    """Deterministic BGR color for fragment overlays."""
-    digest = hashlib.md5(fragment_id.encode("utf-8")).digest()
-    return (
-        60 + (digest[0] % 170),
-        60 + (digest[1] % 170),
-        60 + (digest[2] % 170),
-    )
-
-
-def _draw_text_with_bg(
-    img: np.ndarray,
-    text: str,
-    org: Tuple[int, int],
-    font_scale: float,
-    color: Tuple[int, int, int] = (255, 255, 255),
-    thickness: int = 1,
-) -> None:
-    """Draw text with black background for visibility."""
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    (text_w, text_h), baseline = cv2.getTextSize(text, font, font_scale, thickness)
-    x, y = org
-    pad_x = 4
-    pad_y = 3
-    x1 = max(0, x - pad_x)
-    y1 = max(0, y - text_h - pad_y)
-    x2 = min(img.shape[1] - 1, x + text_w + pad_x)
-    y2 = min(img.shape[0] - 1, y + baseline + pad_y)
-    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 0), -1)
-    cv2.putText(img, text, (x, y), font, font_scale, color, thickness, cv2.LINE_AA)
+    # Fallback: pure numpy K-means
+    rng = np.random.default_rng(random_state)
+    best_centroids = None
+    best_inertia = float("inf")
+    for _ in range(n_init):
+        idx = rng.choice(len(X), k, replace=False)
+        centroids = X[idx].copy()
+        for _ in range(max_iter):
+            dists = np.linalg.norm(X[:, None, :] - centroids[None, :, :], axis=-1)  # N×k
+            labels = dists.argmin(axis=1)
+            new_centroids = np.zeros_like(centroids)
+            for j in range(k):
+                mask = labels == j
+                new_centroids[j] = X[mask].mean(axis=0) if mask.any() else centroids[j]
+            if np.allclose(new_centroids, centroids, atol=1e-6):
+                break
+            centroids = new_centroids
+        inertia = dists.min(axis=1).sum()
+        if inertia < best_inertia:
+            best_inertia = inertia
+            best_centroids = centroids.copy()
+    return best_centroids
 
 
-def _draw_dashed_rectangle(
-    img: np.ndarray,
-    pt1: Tuple[int, int],
-    pt2: Tuple[int, int],
-    color: Tuple[int, int, int],
-    thickness: int,
-    dash_length: int = 10,
-) -> None:
-    """Draw a dashed rectangle for ghost visualization."""
-    x1, y1 = pt1
-    x2, y2 = pt2
-
-    # Draw dashed lines for each edge
-    def draw_dashed_line(p1, p2):
-        dist = int(np.hypot(p2[0] - p1[0], p2[1] - p1[1]))
-        pts = []
-        for i in range(0, dist, dash_length * 2):
-            r = i / dist
-            x = int((p1[0] * (1 - r) + p2[0] * r) + .5)
-            y = int((p1[1] * (1 - r) + p2[1] * r) + .5)
-            pts.append((x, y))
-
-        for i in range(0, len(pts) - 1, 2):
-            cv2.line(img, pts[i], pts[min(i + 1, len(pts) - 1)], color, thickness)
-
-    # Draw four edges
-    draw_dashed_line((x1, y1), (x2, y1))  # Top
-    draw_dashed_line((x2, y1), (x2, y2))  # Right
-    draw_dashed_line((x2, y2), (x1, y2))  # Bottom
-    draw_dashed_line((x1, y2), (x1, y1))  # Left
+def _nearest_cluster(hist: np.ndarray, centroids: np.ndarray) -> int:
+    """Return index of the centroid nearest to hist (L2 distance)."""
+    dists = np.linalg.norm(centroids - hist, axis=1)
+    return int(dists.argmin())
 
 
-def _quality_color(fragment) -> Tuple[int, int, int]:
-    """Get color based on fragment quality (if available)."""
-    if not hasattr(fragment, 'quality'):
-        return _fragment_color(fragment.fragment_id)
-
-    from ..core.types import FragmentQuality
-    quality = fragment.quality
-
-    if quality == FragmentQuality.HIGH:
-        return (0, 255, 0)  # Green
-    elif quality == FragmentQuality.MEDIUM:
-        return (0, 255, 255)  # Yellow
-    elif quality == FragmentQuality.LOW:
-        return (0, 0, 255)  # Red
-    elif quality == FragmentQuality.GHOST:
-        return (128, 128, 128)  # Gray
-    else:
-        return _fragment_color(fragment.fragment_id)
+def _hist_mean(histograms: List[np.ndarray]) -> np.ndarray:
+    """Element-wise mean of a list of histogram arrays."""
+    return np.stack(histograms).mean(axis=0)
 
 
-def _draw_pass2a_debug_overlay_frame(
-    frame: np.ndarray,
-    frame_idx: int,
-    frame_annotations: List[Tuple[Detection, Fragment]],
-    split_log_count: int,
-    ghost_count: int = 0,
-) -> np.ndarray:
-    """Draw unified Pass 2 overlay (fragments + quality + ghosts)."""
-    overlay = frame.copy()
+# ---------------------------------------------------------------------------
+# Fragment-id counter
+# ---------------------------------------------------------------------------
 
-    active_fragments: Set[str] = set()
-    active_ghosts: Set[str] = set()
-    quality_counts = {'high': 0, 'medium': 0, 'low': 0}
+class _Counter:
+    def __init__(self):
+        self._n = 0
 
-    for det, fragment in frame_annotations:
-        x1, y1, x2, y2 = [int(round(v)) for v in det.bbox]
+    def next_id(self) -> FragmentID:
+        fid = f"F{self._n:06d}"
+        self._n += 1
+        return fid
 
-        # Color by quality if available, otherwise by fragment_id
-        color = _quality_color(fragment)
 
-        # Ghosts: dashed boxes
-        if fragment.is_ghost:
-            _draw_dashed_rectangle(overlay, (x1, y1), (x2, y2), color, 2, dash_length=10)
-            label = f"GHOST {fragment.fragment_id} (T{fragment.original_track_id})"
-            reason = fragment.ghost_reason or "occluded"
-            active_ghosts.add(fragment.fragment_id)
-        else:
-            # Real fragments: solid boxes
-            cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 2)
-
-            # Add quality label if available
-            quality_label = ""
-            if hasattr(fragment, 'quality'):
-                from ..core.types import FragmentQuality
-                q = fragment.quality.value if isinstance(fragment.quality, FragmentQuality) else fragment.quality
-                quality_label = f" [{q.upper()}]"
-                if q in quality_counts:
-                    quality_counts[q] += 1
-
-            label = f"{fragment.fragment_id} (T{fragment.original_track_id}){quality_label}"
-            reason = fragment.split_reason or "initial"
-            active_fragments.add(fragment.fragment_id)
-
-        _draw_text_with_bg(overlay, label, (x1, max(18, y1 - 8)), 0.42, color, 1)
-
-        # Show quality score if available
-        if hasattr(fragment, 'quality_score') and not fragment.is_ghost:
-            score_text = f"Q={fragment.quality_score:.2f} {reason}"
-            _draw_text_with_bg(overlay, score_text, (x1, min(overlay.shape[0] - 6, y2 + 16)), 0.38, color, 1)
-        else:
-            _draw_text_with_bg(overlay, reason, (x1, min(overlay.shape[0] - 6, y2 + 16)), 0.40, color, 1)
-
-    intent_lines = _load_pass2_intention_lines()
-
-    # Build runtime stats
-    real_count = len(active_fragments)
-    ghost_count_frame = len(active_ghosts)
-    total_players = real_count + ghost_count_frame
-
-    runtime_lines = [
-        "Pass 2: Fragments + Quality + Ghosts (mechanical only, no team/player inference)",
-        "Colors: GREEN=high quality, YELLOW=medium, RED=low, GRAY=ghost | Dashed boxes=ghosts",
-        f"Frame: real={real_count} (H:{quality_counts['high']} M:{quality_counts['medium']} L:{quality_counts['low']}) ghosts={ghost_count_frame} total={total_players}",
-        f"Total splits: {split_log_count}",
-    ]
-
-    title = "PASS 2: FRAGMENTS + QUALITY + GHOSTS"
-    all_lines = intent_lines + runtime_lines
-
-    frame_h, frame_w = overlay.shape[:2]
-    top = max(12, int(frame_h * 0.055))
-    left = 12
-    line_gap = 20
-    title_y = top + 14
-    first_rule_y = title_y + line_gap
-    footer_y = first_rule_y + (len(all_lines) * line_gap) + 8
-    panel_bottom = min(frame_h - 8, footer_y + 24)
-
-    panel = overlay.copy()
-    panel_top = max(6, top - 12)
-    cv2.rectangle(panel, (6, panel_top), (frame_w - 6, panel_bottom), (0, 0, 0), -1)
-    overlay = cv2.addWeighted(panel, 0.55, overlay, 0.45, 0)
-
-    _draw_text_with_bg(overlay, title, (left, title_y), 0.50, (255, 255, 255), 2)
-    for idx, line in enumerate(all_lines):
-        y = first_rule_y + (idx * line_gap)
-        _draw_text_with_bg(overlay, f"- {line}", (left + 4, y), 0.46, (255, 255, 255), 2)
-
-    _draw_text_with_bg(
-        overlay,
-        "Boxes=fragment-colored | Label: Fxxxxxx + original track + split reason",
-        (left, footer_y),
-        0.45,
-        (255, 255, 255),
-        2,
-    )
-    _draw_text_with_bg(overlay, f"frame={frame_idx}", (left, footer_y + 18), 0.52, (255, 255, 255), 2)
-
-    return overlay
-
+# ---------------------------------------------------------------------------
+# Main fragmenter class
+# ---------------------------------------------------------------------------
 
 class Pass2AFragmenter:
     """
-    Pass 2A: Mechanical track fragmentation.
+    Mechanical track fragmenter.
 
-    Responsibilities:
-    - Split tracks at divergence points (appearance, geometry, jersey conflicts)
-    - Keep ALL fragments (mark short ones as low_quality)
-    - Merge consecutive short fragments on same track
-    - Validate output (100% coverage, no overlaps)
-
-    Does NOT:
-    - Assign teams or player identities
-    - Make clustering decisions
-    - Modify Pass 1 output
+    Does NOT assign teams, player identities, or cluster labels.
+    Only fires splits on mechanical evidence (T1–T5).
     """
 
     def __init__(self):
-        self.fragment_counter = 0
+        self._counter = _Counter()
         self.split_log: List[Dict] = []
-        # Cross-track frame lookup for proximity checks in HSV trigger.
-        # Built in run() before the per-track loop.  frame_idx → [Detection, ...]
-        self._all_dets_by_frame: Dict[int, List] = {}
+        self._cluster_centroids: Optional[np.ndarray] = None  # shape (k, 512)
+        self._cluster_to_team: Dict[int, int] = {}
+        self._all_dets_by_frame: Dict[int, List[Detection]] = {}
+
+    # ------------------------------------------------------------------
+    # Public entry point
+    # ------------------------------------------------------------------
 
     def run(self, pass1_path: Path, output_path: Path) -> Pass2AOutput:
-        """
-        Execute Pass 2A fragmentation.
+        logger.info(f"Pass 2A: loading {pass1_path}")
+        pass1: Pass1Output = load_json(pass1_path, Pass1Output)
+        logger.info(f"  {len(pass1.detections)} detections across clip")
 
-        Args:
-            pass1_path: Path to pass1_raw.json
-            output_path: Path to write pass2_fragments.json
+        # Build cross-frame lookup (for T4 proximity gate if needed)
+        for det in pass1.detections:
+            self._all_dets_by_frame.setdefault(det.frame_idx, []).append(det)
 
-        Returns:
-            Pass2AOutput with fragments and split log
+        # Step 0 — global K-means (used by T4)
+        self._cluster_centroids = self._build_color_clusters(pass1.detections)
+        if self._cluster_centroids is not None:
+            self._cluster_to_team = self._build_team_cluster_map(self._cluster_centroids)
+            logger.info(f"  K-means: {len(self._cluster_centroids)} colour clusters")
+            logger.info(f"  Team cluster map: {self._cluster_to_team}")
+        else:
+            logger.warning("  K-means skipped (insufficient valid HSV data) — T4 disabled")
 
-        Raises:
-            ValidationError if output fails validation
-        """
-        logger.info(f"Pass 2A: Loading Pass 1 data from {pass1_path}")
-        pass1_output = load_json(pass1_path, Pass1Output)
+        # Group detections by track
+        tracks = self._group_by_track(pass1.detections)
+        logger.info(f"  Processing {len(tracks)} tracks")
 
-        logger.info(f"Pass 2A: Fragmenting {len(pass1_output.detections)} detections")
+        # Per-track splitting (T1, T2, T4, T5)
+        all_fragments: List[Fragment] = []
+        for track_id, dets in tqdm(tracks.items(), desc="Fragmenting tracks"):
+            all_fragments.extend(self._fragment_track(track_id, dets))
 
-        # Build cross-track frame lookup for proximity checks in the HSV trigger.
-        # Maps frame_idx → all detections at that frame (across ALL tracks).
-        self._all_dets_by_frame = {}
-        for det in pass1_output.detections:
-            if det.frame_idx not in self._all_dets_by_frame:
-                self._all_dets_by_frame[det.frame_idx] = []
-            self._all_dets_by_frame[det.frame_idx].append(det)
+        logger.info(f"  After per-track splits: {len(all_fragments)} fragments")
 
-        # Group detections by track_id
-        tracks = self._group_detections_by_track(pass1_output.detections)
+        # T3 — jersey temporal conflicts (cross-track)
+        all_fragments = self._resolve_t3(all_fragments, pass1.detections)
+        logger.info(f"  After T3 jersey conflicts: {len(all_fragments)} fragments")
 
-        logger.info(f"Pass 2A: Processing {len(tracks)} tracks")
+        output = Pass2AOutput(fragments=all_fragments, split_log=self.split_log)
 
-        # Split each track into fragments
-        all_fragments = []
-        for track_id, detections in tracks.items():
-            fragments = self._split_track(track_id, detections)
-            all_fragments.extend(fragments)
-
-        logger.info(f"Pass 2A: Created {len(all_fragments)} fragments (before jersey temporal exclusivity)")
-
-        # Check for jersey temporal exclusivity violations (cross-track conflicts)
-        all_fragments = self._split_jersey_temporal_conflicts(all_fragments, pass1_output.detections)
-        logger.info(f"Pass 2A: After jersey temporal exclusivity: {len(all_fragments)} fragments")
-
-        # Merge consecutive short fragments
-        if const.MERGE_CONSECUTIVE_SHORT:
-            all_fragments = self._merge_consecutive_short_fragments(all_fragments)
-            logger.info(f"Pass 2A: After merging: {len(all_fragments)} fragments")
-
-        # Create output
-        output = Pass2AOutput(
-            fragments=all_fragments,
-            split_log=self.split_log,
-        )
-
-        # Validate BEFORE writing (CRITICAL - fail-fast)
-        logger.info("Pass 2A: Validating output")
+        # Validate (fail-fast)
         validator = Validator()
-        validation_result = validator.validate_pass2a(output, pass1_output)
+        result = validator.validate_pass2a(output, pass1)
+        val_path = output_path.parent / const.PASS2_VALIDATION_JSON
+        save_json(result.dict(), str(val_path))
 
-        if not validation_result.passed:
-            # Write validation JSON ONLY (no fragments JSON)
-            validation_path = output_path.parent / const.PASS2_VALIDATION_JSON
-            save_json(validation_result.dict(), str(validation_path))
+        if not result.passed:
+            msg = f"Pass 2A validation FAILED: {len(result.violations)} violations"
+            logger.error(msg)
+            for v in result.violations[:5]:
+                logger.error(f"  {v.rule}: {v.message}")
+            raise ValueError(msg)
 
-            # Raise error (fail-fast)
-            error_msg = f"Pass 2A validation failed: {len(validation_result.violations)} violations"
-            logger.error(error_msg)
-            for v in validation_result.violations[:5]:  # Show first 5
-                logger.error(f"  - {v.rule}: {v.message}")
-            raise ValueError(error_msg)
-
-        # Validation passed - write output JSON
-        logger.info(f"Pass 2A: Writing output to {output_path}")
         save_json(output.dict(), str(output_path))
-
-        # Write validation JSON (passed)
-        validation_path = output_path.parent / const.PASS2_VALIDATION_JSON
-        save_json(validation_result.dict(), str(validation_path))
-
-        logger.info(f"Pass 2A: Complete - {len(all_fragments)} fragments, {len(self.split_log)} splits")
-
+        logger.info(f"Pass 2A: {len(all_fragments)} fragments written → {output_path}")
         return output
 
-    def _group_detections_by_track(
+    # ------------------------------------------------------------------
+    # K-means colour clustering
+    # ------------------------------------------------------------------
+
+    def _build_color_clusters(
+        self, detections: List[Detection]
+    ) -> Optional[np.ndarray]:
+        """
+        Fit K-means on all valid jersey HSV histograms.
+        Returns centroids (k × 512) or None if not enough data.
+        """
+        histos = [
+            np.array(d.hsv_histogram_jersey, dtype=np.float32)
+            for d in detections
+            if d.jersey_roi_valid and d.hsv_histogram_jersey
+        ]
+        if len(histos) < const.N_COLOR_CLUSTERS * 10:
+            return None
+
+        X = np.stack(histos)
+        # Subsample for speed
+        if len(X) > const.KMEANS_SUBSAMPLE_SIZE:
+            rng = np.random.default_rng(42)
+            idx = rng.choice(len(X), const.KMEANS_SUBSAMPLE_SIZE, replace=False)
+            X = X[idx]
+
+        return _kmeans_fit(X, k=const.N_COLOR_CLUSTERS)
+
+    def _build_team_cluster_map(self, colour_centroids: np.ndarray) -> Dict[int, int]:
+        """
+        Collapse colour clusters into team-level groups (k=2).
+
+        This prevents T4 from splitting on colour changes that remain within
+        the same team palette (e.g., black <-> white).
+        """
+        if len(colour_centroids) < const.TEAM_SWITCH_TEAM_CLUSTERS:
+            return {i: i for i in range(len(colour_centroids))}
+
+        team_centroids = _kmeans_fit(
+            colour_centroids,
+            k=const.TEAM_SWITCH_TEAM_CLUSTERS,
+            n_init=10,
+            max_iter=100,
+            random_state=42,
+        )
+
+        mapping: Dict[int, int] = {}
+        for idx, centroid in enumerate(colour_centroids):
+            team_id = _nearest_cluster(centroid, team_centroids)
+            mapping[idx] = int(team_id)
+        return mapping
+
+    # ------------------------------------------------------------------
+    # Track grouping
+    # ------------------------------------------------------------------
+
+    def _group_by_track(
         self, detections: List[Detection]
     ) -> Dict[TrackID, List[Detection]]:
-        """
-        Group detections by track_id.
-
-        Args:
-            detections: All Pass 1 detections
-
-        Returns:
-            Dict mapping track_id -> detections (sorted by frame_idx)
-        """
-        tracks: Dict[TrackID, List[Detection]] = {}
-
+        tracks: Dict[TrackID, List[Detection]] = defaultdict(list)
         for det in detections:
-            if det.track_id not in tracks:
-                tracks[det.track_id] = []
             tracks[det.track_id].append(det)
+        for tid in tracks:
+            tracks[tid].sort(key=lambda d: d.frame_idx)
+        return dict(tracks)
 
-        # Sort detections within each track by frame_idx
-        for track_id in tracks:
-            tracks[track_id] = sorted(tracks[track_id], key=lambda d: d.frame_idx)
+    # ------------------------------------------------------------------
+    # Per-track fragmentation
+    # ------------------------------------------------------------------
 
-        return tracks
-
-    def _split_track(
-        self, track_id: TrackID, detections: List[Detection]
+    def _fragment_track(
+        self, track_id: TrackID, dets: List[Detection]
     ) -> List[Fragment]:
-        """
-        Split a single track into fragments based on divergence points.
+        """Apply T1, T2, T4, T5 and create Fragment objects."""
+        split_points: List[Tuple[int, str]] = []
 
-        Per CLAUDE.md Section 5 (Pass 2A) - EXHAUSTIVE allowed split triggers:
-        1. Track Collision: same track_id, >1 detection per frame (ByteTrack failure)
-        2. Jersey Change: #7 → #4 (number to different number, NOT disappearance)
-        3. Jersey Temporal Exclusivity: same jersey on different tracks (handled separately)
-        4. Hard Appearance Discontinuity: ALL of (jersey visible both sides + HSV + impossible motion)
+        split_points.extend(self._detect_t1(track_id, dets))
+        split_points.extend(self._detect_t2(track_id, dets))
+        split_points.extend(self._detect_t4(track_id, dets))
+        split_points.extend(self._detect_t5(track_id, dets))
 
-        FORBIDDEN (loss of observability ≠ identity change):
-        - Jersey disappearance (#4 → None)
-        - Jersey first appearance (None → #4)
-        - Standalone appearance drift
-        - Standalone velocity spikes
-        - Occlusion, confidence drops, missed detections, normal drift
+        # Deduplicate: same frame can only have one split trigger
+        seen: Set[int] = set()
+        unique: List[Tuple[int, str]] = []
+        for frame, reason in sorted(split_points, key=lambda x: x[0]):
+            if frame not in seen:
+                seen.add(frame)
+                unique.append((frame, reason))
 
-        Args:
-            track_id: Track to split
-            detections: Detections for this track (sorted by frame_idx)
+        return self._build_fragments(track_id, dets, unique)
 
-        Returns:
-            List of fragments (may be 1 if no splits needed)
-        """
-        if not detections:
-            return []
+    # ------------------------------------------------------------------
+    # T1 — Track Collision
+    # ------------------------------------------------------------------
 
-        # Detect split points
-        split_points = self._detect_split_points(track_id, detections)
+    def _detect_t1(
+        self, track_id: TrackID, dets: List[Detection]
+    ) -> List[Tuple[int, str]]:
+        """Same track_id, >1 detection in the same frame → immediate split."""
+        frame_counts: Dict[int, int] = Counter(d.frame_idx for d in dets)
+        splits = []
+        for frame, count in frame_counts.items():
+            if count > 1:
+                splits.append((frame, "track_collision"))
+                self.split_log.append({
+                    "track_id": track_id, "frame_idx": frame,
+                    "reason": "track_collision",
+                    "details": f"{count} detections at frame {frame}",
+                })
+        return splits
 
-        # Split at detected points
-        fragments = self._create_fragments_from_splits(track_id, detections, split_points)
+    # ------------------------------------------------------------------
+    # T2 — Jersey Change (X → Y, both non-None, persists ≥ N frames)
+    # ------------------------------------------------------------------
 
-        return fragments
-
-    def _detect_split_points(
-        self, track_id: TrackID, detections: List[Detection]
+    def _detect_t2(
+        self, track_id: TrackID, dets: List[Detection]
     ) -> List[Tuple[int, str]]:
         """
-        Detect split points within a track.
-
-        Per CLAUDE.md Section 5 (Pass 2A) - EXHAUSTIVE split triggers only.
-
-        Returns:
-            List of (frame_idx, reason) tuples where splits should occur
+        Jersey changes from number X to number Y (both non-None, X ≠ Y).
+        The new jersey must be confirmed by enough consecutive sampled observations
+        so that it has persisted for at least JERSEY_CHANGE_PERSISTENCE_FRAMES frames.
+        None → X and X → None are NOT splits.
         """
-        split_points = []
+        step = max(1, const.JERSEY_NUMBER_CLASSIFY_EVERY_N_FRAMES)
+        # Observations where jersey classifier actually ran
+        sampled = [d for d in dets if d.frame_idx % step == 0]
+        if len(sampled) < 2:
+            return []
 
-        # ============================================================================
-        # TRIGGER 1: Track Collision (ByteTrack failure)
-        # Same track_id produces >1 detection in same frame
-        # ============================================================================
-        frame_counts: Dict[int, int] = {}
-        for det in detections:
-            frame_counts[det.frame_idx] = frame_counts.get(det.frame_idx, 0) + 1
+        # Minimum consecutive confirmations ≥ persistence / sample_interval
+        confirm_needed = max(
+            2,
+            int(math.ceil(const.JERSEY_CHANGE_PERSISTENCE_FRAMES / step)) + 1,
+        )
 
-        for frame_idx, count in frame_counts.items():
-            if count > 1:
-                split_points.append((frame_idx, "track_collision"))
-                self.split_log.append({
-                    "track_id": track_id,
-                    "frame_idx": frame_idx,
-                    "reason": "track_collision",
-                    "details": f"Track {track_id} has {count} detections at frame {frame_idx} (ByteTrack failure)",
-                })
+        splits = []
+        i = 0
+        while i < len(sampled) - 1:
+            prev = sampled[i]
+            curr = sampled[i + 1]
 
-        # ============================================================================
-        # TRIGGER 2: Jersey Change (#7 → #4)
-        # Jersey number changes from one NUMBER to another NUMBER (NOT disappearance)
-        # ============================================================================
-        # Check jersey inconsistency ONLY across jersey-classifier sampled observations.
-        # This prevents false splits from unsampled frames where jersey_number is intentionally None.
-        jersey_sample_every = max(1, int(const.JERSEY_NUMBER_CLASSIFY_EVERY_N_FRAMES))
-        sampled_observations = [d for d in detections if (d.frame_idx % jersey_sample_every) == 0]
+            # Both must have a number, they must differ, both must be confident
+            if (prev.jersey_number is not None
+                    and curr.jersey_number is not None
+                    and prev.jersey_number != curr.jersey_number
+                    and prev.jersey_confidence >= const.JERSEY_CHANGE_MIN_CONF
+                    and curr.jersey_confidence >= const.JERSEY_CHANGE_MIN_CONF):
 
-        for i in range(1, len(sampled_observations)):
-            prev_det = sampled_observations[i - 1]
-            curr_det = sampled_observations[i]
-
-            prev_jersey = prev_det.jersey_number
-            curr_jersey = curr_det.jersey_number
-
-            # ✅ SPLIT: Jersey changes (#7 → #4) on sampled observations
-            # NUMBER → DIFFERENT NUMBER (hard identity proof)
-            # GUARD 1: Both sides must exceed JERSEY_CHANGE_MIN_CONF (prevents noisy low-conf reads)
-            # GUARD 2: New jersey must be confirmed by N consecutive sampled obs (prevents one-frame noise)
-            if (prev_jersey is not None and curr_jersey is not None and prev_jersey != curr_jersey
-                    and prev_det.jersey_confidence >= const.JERSEY_CHANGE_MIN_CONF
-                    and curr_det.jersey_confidence >= const.JERSEY_CHANGE_MIN_CONF):
-                # Potential jersey change - look ahead to confirm with N consecutive sampled obs
-                confirm_count = 0
-                for k in range(i + 1, min(i + 1 + const.JERSEY_CHANGE_CONFIRM_OBSERVATIONS, len(sampled_observations))):
-                    look_det = sampled_observations[k]
-                    if (look_det.jersey_number == curr_jersey
-                            and look_det.jersey_confidence >= const.JERSEY_CHANGE_MIN_CONF):
-                        confirm_count += 1
+                # Old jersey must also be stable before the boundary.
+                old_confirmed = 1  # prev already qualifies
+                for k in range(i - 1, max(-1, i - confirm_needed), -1):
+                    look = sampled[k]
+                    if (look.jersey_number == prev.jersey_number
+                            and look.jersey_confidence >= const.JERSEY_CHANGE_MIN_CONF):
+                        old_confirmed += 1
                     else:
-                        break  # Stop at first non-confirming observation
+                        break
+                if old_confirmed < confirm_needed:
+                    i += 1
+                    continue
 
-                if confirm_count >= const.JERSEY_CHANGE_CONFIRM_OBSERVATIONS:
-                    split_points.append((curr_det.frame_idx, "jersey_change"))
+                # Confirm with subsequent samples
+                confirmed = 1  # curr already qualifies
+                for k in range(i + 2, min(i + 1 + confirm_needed, len(sampled))):
+                    look = sampled[k]
+                    if (look.jersey_number == curr.jersey_number
+                            and look.jersey_confidence >= const.JERSEY_CHANGE_MIN_CONF):
+                        confirmed += 1
+                    else:
+                        break
+
+                if confirmed >= confirm_needed:
+                    splits.append((curr.frame_idx, "jersey_change"))
                     self.split_log.append({
                         "track_id": track_id,
-                        "frame_idx": curr_det.frame_idx,
+                        "frame_idx": curr.frame_idx,
                         "reason": "jersey_change",
                         "details": (
-                            f"Jersey changed from #{prev_jersey} (conf={prev_det.jersey_confidence:.2f}) "
-                            f"to #{curr_jersey} (conf={curr_det.jersey_confidence:.2f}) "
-                            f"between sampled observations ({prev_det.frame_idx}->{curr_det.frame_idx}), "
-                            f"confirmed by {confirm_count} subsequent observations"
+                            f"#{prev.jersey_number}→#{curr.jersey_number} "
+                            f"confirmed old/new by {old_confirmed}/{confirmed} samples "
+                            f"(frames {prev.frame_idx}→{curr.frame_idx})"
                         ),
                     })
+                    i += confirmed  # Skip past confirmed region
+                    continue
 
-            # ❌ NO SPLIT: Jersey disappearance (#4 → None)
-            # Per CLAUDE.md: This is loss of observability, NOT identity change
-            # Record as metadata only (handled in Pass 2B quality scoring)
+            i += 1
+        return splits
 
-            # ❌ NO SPLIT: Jersey first appearance (None → #4)
-            # Per CLAUDE.md: Player turned around / became readable
-            # This is normal, NOT a track jump
+    # ------------------------------------------------------------------
+    # T4 — Team Assignment Discontinuity (windowed HSV + K-means)
+    # ------------------------------------------------------------------
 
-        # ============================================================================
-        # TRIGGER 4: Hard Appearance Discontinuity (HSV colour change)
-        # Per CLAUDE.md: detects ID swaps during player crossings where motion is smooth.
-        # Required:
-        # - Colour ROI valid on both sides (jersey_roi_valid, NOT jersey number)
-        # - Large HSV histogram discontinuity
-        #
-        # Two complementary sub-checks run in the same loop:
-        #
-        # 4a — Consecutive streak check:
-        #   Compare each sample to the last stable anchor.
-        #   Require HSV_SPLIT_STREAK_REQUIRED consecutive samples all above threshold
-        #   AND a spatial sanity check (centroid shift OR bbox size change) to filter
-        #   lighting-induced HSV changes where the player doesn't move.
-        #   Fires at the FIRST frame of the streak (where the change actually began).
-        #   Replaces the old single-frame transient-suppression approach, which was
-        #   insufficient: single-frame spikes caused false positives and chaos cooldowns
-        #   consumed the evidence window, preventing detection of later real swaps.
-        #
-        # 4b — Baseline drift check:
-        #   Build a stable median baseline from the first HSV_BASELINE_SAMPLES trusted
-        #   samples of the fragment. Compare every sample to this anchor. Require
-        #   HSV_BASELINE_PERSIST_COUNT consecutive above-threshold samples before firing.
-        #   Catches gradual swaps where no single consecutive step crosses threshold but
-        #   the cumulative drift does. Baseline persists for the entire fragment; it resets
-        #   only when a split creates a new fragment.
-        #
-        # Consecutive streak check fires first; baseline only runs if streak didn't fire.
-        # Both share the same cooldown, fragment-start, and last-trusted-anchor state.
-        # All state resets on any split (consecutive or baseline drift).
-        # ============================================================================
-        hsv_samples = sorted(
+    def _detect_t4(
+        self, track_id: TrackID, dets: List[Detection]
+    ) -> List[Tuple[int, str]]:
+        """
+        Compare mean HSV of window [t-W, t-1] vs [t+1, t+W].
+        Fires only when:
+          - Both windows have ≥ TEAM_SWITCH_MIN_SAMPLES valid HSV samples.
+          - The two window means are assigned to DIFFERENT K-means clusters.
+          - The 1-correlation distance between means exceeds TEAM_SWITCH_HSV_THRESHOLD.
+        Cooldown: no second split within TEAM_SWITCH_WINDOW frames of the last.
+        """
+        if self._cluster_centroids is None:
+            return []
+
+        # Build HSV sample list: (frame_idx, histogram, nearest_cluster, crop_quality)
+        hsv_samples: List[Tuple[int, np.ndarray, int, float]] = sorted(
             [
-                (d.frame_idx, d.hsv_histogram_jersey)
-                for d in detections
+                (
+                    d.frame_idx,
+                    np.array(d.hsv_histogram_jersey, dtype=np.float32),
+                    _nearest_cluster(
+                        np.array(d.hsv_histogram_jersey, dtype=np.float32),
+                        self._cluster_centroids,
+                    ),
+                    float(d.jersey_crop_quality or 0.0),
+                )
+                for d in dets
+                if d.jersey_roi_valid and d.hsv_histogram_jersey
+            ],
+            key=lambda x: x[0],
+        )
+        if len(hsv_samples) < 2 * const.TEAM_SWITCH_MIN_SAMPLES:
+            return []
+
+        # Index for fast range queries
+        frames_arr = np.array([f for f, _, _, _ in hsv_samples])
+        hsvs_arr = np.stack([h for _, h, _, _ in hsv_samples])
+        cluster_arr = np.array([c for _, _, c, _ in hsv_samples], dtype=np.int32)
+        quality_arr = np.array([q for _, _, _, q in hsv_samples], dtype=np.float32)
+
+        det_frames = sorted(d.frame_idx for d in dets)
+        if not det_frames:
+            return []
+
+        W = const.TEAM_SWITCH_WINDOW
+        step = const.TEAM_SWITCH_SCAN_STEP
+        splits = []
+        last_split_frame = -W * 2
+        det_by_frame: Dict[int, Detection] = {d.frame_idx: d for d in dets}
+
+        scan_start = det_frames[0] + W + const.TEAM_SWITCH_EDGE_MARGIN
+        scan_end = det_frames[-1] - W - const.TEAM_SWITCH_EDGE_MARGIN
+        if scan_end < scan_start:
+            return []
+
+        for t in range(scan_start, scan_end + 1, step):
+            if t - last_split_frame < W:
+                continue  # Cooldown
+
+            # Indices in window
+            before_mask = (frames_arr >= t - W) & (frames_arr < t)
+            after_mask = (frames_arr > t) & (frames_arr <= t + W)
+
+            n_before = before_mask.sum()
+            n_after = after_mask.sum()
+            if n_before < const.TEAM_SWITCH_MIN_SAMPLES:
+                continue
+            if n_after < const.TEAM_SWITCH_MIN_SAMPLES:
+                continue
+
+            before_clusters = cluster_arr[before_mask]
+            after_clusters = cluster_arr[after_mask]
+
+            # Dominant cluster + confidence on each side of split candidate.
+            c_before, c_before_count = Counter(before_clusters.tolist()).most_common(1)[0]
+            c_after, c_after_count = Counter(after_clusters.tolist()).most_common(1)[0]
+            conf_before = c_before_count / float(n_before)
+            conf_after = c_after_count / float(n_after)
+
+            if conf_before < const.TEAM_SWITCH_CONFIDENCE:
+                continue
+            if conf_after < const.TEAM_SWITCH_CONFIDENCE:
+                continue
+
+            team_before = self._cluster_to_team.get(int(c_before), int(c_before))
+            team_after = self._cluster_to_team.get(int(c_after), int(c_after))
+            if team_before == team_after:
+                continue  # Team-level cluster unchanged → no team switch
+
+            # Crop quality gate: reject noisy windows with weak jersey visibility.
+            q_before = float(quality_arr[before_mask].mean())
+            q_after = float(quality_arr[after_mask].mean())
+            if q_before < const.TEAM_SWITCH_MIN_CROP_QUALITY:
+                continue
+            if q_after < const.TEAM_SWITCH_MIN_CROP_QUALITY:
+                continue
+
+            before_mean = hsvs_arr[before_mask].mean(axis=0)
+            after_mean = hsvs_arr[after_mask].mean(axis=0)
+
+            # Confirm with histogram distance
+            dist = 1.0 - compare_hsv_histograms(
+                before_mean.tolist(), after_mean.tolist()
+            )
+            if dist < const.TEAM_SWITCH_HSV_THRESHOLD:
+                continue  # Distance below threshold → noise
+
+            # Find nearest actual detection frame to t
+            split_frame = self._nearest_det_frame(t, det_frames)
+            curr_det = det_by_frame.get(split_frame)
+            if curr_det is None:
+                continue
+            if not self._has_nearby_crossing(track_id, split_frame, curr_det):
+                continue
+
+            splits.append((split_frame, "team_switch"))
+            self.split_log.append({
+                "track_id": track_id,
+                "frame_idx": split_frame,
+                "reason": "team_switch",
+                "details": (
+                    f"cluster {c_before}→{c_after}, "
+                    f"team {team_before}→{team_after}, "
+                    f"conf={conf_before:.2f}/{conf_after:.2f}, "
+                    f"q={q_before:.2f}/{q_after:.2f}, "
+                    f"dist={dist:.3f} (>{const.TEAM_SWITCH_HSV_THRESHOLD}), "
+                    f"before_n={int(n_before)} after_n={int(n_after)}, "
+                    f"scan_t={t}"
+                ),
+            })
+            last_split_frame = t
+
+        # Edge rescue for short tracks: allows partial windows near boundaries
+        # with stricter confidence/proximity requirements.
+        edge_splits = self._detect_t4_edge_rescue(
+            track_id=track_id,
+            dets=dets,
+            existing_split_frames={f for f, _ in splits},
+            last_split_scan_t=last_split_frame,
+        )
+        splits.extend(edge_splits)
+
+        return splits
+
+    @staticmethod
+    def _nearest_det_frame(t: int, det_frames: List[int]) -> int:
+        """Return the detection frame index closest to t."""
+        if not det_frames:
+            return t
+        return min(det_frames, key=lambda f: abs(f - t))
+
+    def _has_nearby_crossing(
+        self,
+        track_id: TrackID,
+        frame_idx: int,
+        det: Detection,
+        max_bbox_widths: Optional[float] = None,
+    ) -> bool:
+        """
+        Require nearby-player evidence before firing T4.
+
+        Genuine team-switch steals usually happen at crossings; isolated tracks are
+        more likely lighting/pose shifts.
+        """
+        bbox_w = max(1.0, float(det.bbox[2] - det.bbox[0]))
+        if max_bbox_widths is None:
+            max_bbox_widths = const.TEAM_SWITCH_PROXIMITY_BBOX_WIDTHS
+        max_dist = bbox_w * max_bbox_widths
+        for other in self._all_dets_by_frame.get(frame_idx, []):
+            if other.track_id == track_id:
+                continue
+            if centroid_distance(det.centroid, other.centroid) <= max_dist:
+                return True
+        return False
+
+    def _detect_t4_edge_rescue(
+        self,
+        track_id: TrackID,
+        dets: List[Detection],
+        existing_split_frames: Set[int],
+        last_split_scan_t: int,
+    ) -> List[Tuple[int, str]]:
+        """
+        Edge rescue for short tracks.
+
+        Core T4 requires full +/-W windows and intentionally skips boundaries.
+        This rescue path only targets short tracks where a true handoff happens
+        near track end/start and uses stricter gates to avoid false positives.
+        """
+        if not dets:
+            return []
+
+        track_start = min(d.frame_idx for d in dets)
+        track_end = max(d.frame_idx for d in dets)
+        if (track_end - track_start + 1) > const.TEAM_SWITCH_EDGE_RESCUE_MAX_TRACK_FRAMES:
+            return []
+
+        if self._cluster_centroids is None:
+            return []
+
+        hsv_samples: List[Tuple[int, np.ndarray, int, float]] = sorted(
+            [
+                (
+                    d.frame_idx,
+                    np.array(d.hsv_histogram_jersey, dtype=np.float32),
+                    _nearest_cluster(
+                        np.array(d.hsv_histogram_jersey, dtype=np.float32),
+                        self._cluster_centroids,
+                    ),
+                    float(d.jersey_crop_quality or 0.0),
+                )
+                for d in dets
                 if d.jersey_roi_valid and d.hsv_histogram_jersey
             ],
             key=lambda x: x[0],
         )
 
-        # Detection lookup for spatial sanity check (frame_idx → Detection)
-        det_by_frame = {d.frame_idx: d for d in detections}
+        if len(hsv_samples) < 2 * const.TEAM_SWITCH_MIN_SAMPLES:
+            return []
 
-        last_hsv_split_frame = -(const.HSV_SPLIT_COOLDOWN_FRAMES + 1)
-        hsv_split_count: int = 0  # Number of HSV splits fired so far on this track
-        active_cooldown = const.HSV_SPLIT_COOLDOWN_PROGRESSIVE[0]  # Grows with each split
-        last_valid_idx = 0  # Index of the last stable (below-threshold) HSV sample
-        fragment_start_frame = hsv_samples[0][0] if hsv_samples else 0
-        streak_count: int = 0  # Consecutive samples above HSV_DRIFT_THRESHOLD
+        frames_arr = np.array([f for f, _, _, _ in hsv_samples])
+        hsvs_arr = np.stack([h for _, h, _, _ in hsv_samples])
+        cluster_arr = np.array([c for _, _, c, _ in hsv_samples], dtype=np.int32)
+        quality_arr = np.array([q for _, _, _, q in hsv_samples], dtype=np.float32)
+        det_frames = sorted(d.frame_idx for d in dets)
+        det_by_frame: Dict[int, Detection] = {d.frame_idx: d for d in dets}
 
-        # Baseline drift state — seeded with the very first sample of this fragment
-        baseline_collect: List = [hsv_samples[0][1]] if hsv_samples else []
-        baseline_hsv: Optional[np.ndarray] = None
-        drift_count: int = 0              # Consecutive above-threshold baseline distances seen
-        drift_first_frame: Optional[int] = None  # Frame of the first drift sample in current streak
+        W = const.TEAM_SWITCH_WINDOW
+        step = const.TEAM_SWITCH_SCAN_STEP
+        splits: List[Tuple[int, str]] = []
+        last_scan_t = last_split_scan_t
 
-        for i in range(1, len(hsv_samples)):
-            curr_frame, curr_hsv = hsv_samples[i]
-            # Compare against the last STABLE anchor (the last sample that was below threshold).
-            prev_frame, prev_hsv = hsv_samples[last_valid_idx]
-
-            # Within-cooldown: sample is trusted new-fragment colour; advance anchor,
-            # reset streak and drift, skip both checks.
-            if curr_frame - last_hsv_split_frame < active_cooldown:
-                last_valid_idx = i
-                if len(baseline_collect) < const.HSV_BASELINE_SAMPLES:
-                    baseline_collect.append(curr_hsv)
-                streak_count = 0
-                drift_count = 0
-                drift_first_frame = None
+        for t in range(track_start + 1, track_end, step):
+            if t - last_scan_t < W:
                 continue
 
-            # Minimum fragment age: suppress splits on very young fragments whose
-            # jersey ROI hasn't stabilised yet (player entering frame, partial view).
-            if curr_frame - fragment_start_frame < const.HSV_SPLIT_MIN_FRAGMENT_AGE:
-                last_valid_idx = i
-                if len(baseline_collect) < const.HSV_BASELINE_SAMPLES:
-                    baseline_collect.append(curr_hsv)
-                streak_count = 0
-                drift_count = 0
-                drift_first_frame = None
+            left = max(track_start, t - W)
+            right = min(track_end, t + W)
+
+            # Edge-only: require at least one truncated side vs full +/-W windows.
+            if (t - W >= track_start) and (t + W <= track_end):
                 continue
 
-            # Lock baseline once we have enough stable early samples (computed once per segment).
-            if baseline_hsv is None and len(baseline_collect) >= const.HSV_BASELINE_SAMPLES:
-                baseline_hsv = _compute_median_hsv(baseline_collect)
-
-            # ---- 4a: Consecutive streak check ----
-            # Compare current sample to the last stable anchor.
-            # Require HSV_SPLIT_STREAK_REQUIRED consecutive above-threshold samples to fire.
-            # The 3-frame streak is the primary false-positive filter — lighting spikes are
-            # transient (1-2 frames) while genuine identity swaps persist for many frames.
-            # Spatial check is computed for logging but does NOT gate the streak: track steals
-            # happen at player crossings where centroids overlap, so requiring spatial
-            # displacement would incorrectly block the swaps we're trying to detect.
-            hsv_distance = 1.0 - compare_hsv_histograms(prev_hsv, curr_hsv)
-
-            # Spatial metadata (logged, not a gating condition — see note above).
-            spatial_changed = True  # default when bbox data unavailable
-            prev_det = det_by_frame.get(prev_frame)
-            curr_det = det_by_frame.get(curr_frame)
-            if prev_det and curr_det:
-                shift = centroid_distance(bbox_centroid(prev_det.bbox), bbox_centroid(curr_det.bbox))
-                bbox_w = max(1, prev_det.bbox[2] - prev_det.bbox[0])
-                prev_area = max(1, (prev_det.bbox[2] - prev_det.bbox[0]) * (prev_det.bbox[3] - prev_det.bbox[1]))
-                curr_area = max(1, (curr_det.bbox[2] - curr_det.bbox[0]) * (curr_det.bbox[3] - curr_det.bbox[1]))
-                area_ratio = max(prev_area, curr_area) / min(prev_area, curr_area)
-                spatial_changed = (
-                    shift > const.HSV_SPATIAL_CENTROID_RATIO * bbox_w
-                    or area_ratio > 1.3
-                )
-
-            if hsv_distance > const.HSV_DRIFT_THRESHOLD:
-                streak_count += 1
-                if streak_count >= const.HSV_SPLIT_STREAK_REQUIRED:
-                    # Proximity gate: genuine ID swaps require player crossing.
-                    # Lighting-induced HSV changes happen to isolated players.
-                    # Gate on curr_frame (when streak completes — players still nearby).
-                    if not self._is_nearby_track_present(track_id, curr_frame, curr_det):
-                        streak_count = 0
-                        last_valid_idx = i
-                        continue
-                    # Fire at the FIRST frame of the streak (where the change actually began)
-                    streak_start_idx = i - (const.HSV_SPLIT_STREAK_REQUIRED - 1)
-                    split_frame = hsv_samples[streak_start_idx][0]
-                    last_valid_idx = i
-                    fragment_start_frame = curr_frame
-                    last_hsv_split_frame = curr_frame
-                    hsv_split_count += 1
-                    active_cooldown = const.HSV_SPLIT_COOLDOWN_PROGRESSIVE[
-                        min(hsv_split_count, len(const.HSV_SPLIT_COOLDOWN_PROGRESSIVE) - 1)
-                    ]
-                    baseline_collect = [curr_hsv]  # Reset baseline for new fragment
-                    baseline_hsv = None
-                    streak_count = 0
-                    drift_count = 0
-                    drift_first_frame = None
-                    split_points.append((split_frame, "hard_appearance_discontinuity"))
-                    self.split_log.append({
-                        "track_id": track_id,
-                        "frame_idx": split_frame,
-                        "reason": "hard_appearance_discontinuity",
-                        "details": (
-                            f"HSV streak: distance={hsv_distance:.3f} "
-                            f"persisted {const.HSV_SPLIT_STREAK_REQUIRED} samples "
-                            f"from frame {split_frame} to {curr_frame} "
-                            f"spatial_changed={spatial_changed}"
-                        ),
-                    })
-                    continue
-                # Mid-streak: don't advance anchor or accumulate baseline yet
+            before_mask = (frames_arr >= left) & (frames_arr < t)
+            after_mask = (frames_arr > t) & (frames_arr <= right)
+            n_before = int(before_mask.sum())
+            n_after = int(after_mask.sum())
+            if n_before < const.TEAM_SWITCH_MIN_SAMPLES:
                 continue
-            else:
-                # Below threshold — stable sample, advance anchor and reset streak
-                streak_count = 0
-                last_valid_idx = i
-
-            # ---- 4b: Baseline drift check ----
-            # Consecutive distance was below threshold (or consecutive was transient and
-            # we skipped above). Now compare against the stable median baseline.
-            baseline_fired = False
-            if baseline_hsv is not None:
-                baseline_dist = 1.0 - compare_hsv_histograms(curr_hsv, baseline_hsv)
-                if baseline_dist > const.HSV_DRIFT_THRESHOLD:
-                    if drift_count == 0:
-                        drift_first_frame = curr_frame
-                    drift_count += 1
-                    if drift_count >= const.HSV_BASELINE_PERSIST_COUNT:
-                        # Proximity gate: same principle as streak check above.
-                        if not self._is_nearby_track_present(track_id, curr_frame, curr_det):
-                            drift_count = 0
-                            drift_first_frame = None
-                            continue
-                        split_frame = drift_first_frame  # Fire at first persistent drift sample
-                        last_valid_idx = i
-                        fragment_start_frame = split_frame
-                        last_hsv_split_frame = curr_frame  # Cooldown from current (2nd) sample
-                        baseline_collect = [curr_hsv]      # Reset baseline for new fragment
-                        baseline_hsv = None
-                        streak_count = 0
-                        drift_count = 0
-                        drift_first_frame = None
-                        hsv_split_count += 1
-                        active_cooldown = const.HSV_SPLIT_COOLDOWN_PROGRESSIVE[
-                            min(hsv_split_count, len(const.HSV_SPLIT_COOLDOWN_PROGRESSIVE) - 1)
-                        ]
-                        split_points.append((split_frame, "hard_appearance_discontinuity"))
-                        self.split_log.append({
-                            "track_id": track_id,
-                            "frame_idx": split_frame,
-                            "reason": "hard_appearance_discontinuity",
-                            "details": (
-                                f"HSV baseline drift: dist_baseline={baseline_dist:.3f} "
-                                f"from median baseline, persisted "
-                                f"{const.HSV_BASELINE_PERSIST_COUNT} samples "
-                                f"from frame {split_frame}"
-                            ),
-                        })
-                        baseline_fired = True
-                else:
-                    # Within normal range of baseline: reset drift streak
-                    drift_count = 0
-                    drift_first_frame = None
-
-            if baseline_fired:
+            if n_after < const.TEAM_SWITCH_MIN_SAMPLES:
                 continue
 
-            # ---- No split: stable sample ----
-            # Only advance last_valid_idx when NOT accumulating a drift streak.
-            # If drift_count > 0, current sample is suspicious — keep the prior anchor
-            # so the consecutive check stays referenced to the pre-drift colour.
-            if drift_count == 0:
-                last_valid_idx = i
-                if len(baseline_collect) < const.HSV_BASELINE_SAMPLES:
-                    baseline_collect.append(curr_hsv)
-
-        # ============================================================================
-        # TRIGGER 5: Impossible Motion Spike
-        # Per CLAUDE.md: extreme spatial displacement inconsistent with human movement.
-        # Independent of appearance — a track can teleport without changing colour.
-        # ============================================================================
-        for i in range(1, len(detections)):
-            prev_det = detections[i - 1]
-            curr_det = detections[i]
-
-            # Only check adjacent frames (gap == 1) — larger gaps are occlusions, not teleports
-            frame_gap = curr_det.frame_idx - prev_det.frame_idx
-            if frame_gap != 1:
+            c_before, c_before_count = Counter(cluster_arr[before_mask].tolist()).most_common(1)[0]
+            c_after, c_after_count = Counter(cluster_arr[after_mask].tolist()).most_common(1)[0]
+            conf_before = c_before_count / float(n_before)
+            conf_after = c_after_count / float(n_after)
+            if conf_before < const.TEAM_SWITCH_EDGE_RESCUE_MIN_MAIN_CONF:
+                continue
+            if conf_after < const.TEAM_SWITCH_CONFIDENCE:
                 continue
 
-            motion_distance = centroid_distance(prev_det.centroid, curr_det.centroid)
-            if motion_distance <= const.VELOCITY_SPIKE_THRESHOLD:
-                continue  # Motion within human range → NO SPLIT
+            team_before = self._cluster_to_team.get(int(c_before), int(c_before))
+            team_after = self._cluster_to_team.get(int(c_after), int(c_after))
+            if team_before == team_after:
+                continue
 
-            split_points.append((curr_det.frame_idx, "impossible_motion"))
+            q_before = float(quality_arr[before_mask].mean())
+            q_after = float(quality_arr[after_mask].mean())
+            if q_before < const.TEAM_SWITCH_MIN_CROP_QUALITY:
+                continue
+            if q_after < const.TEAM_SWITCH_MIN_CROP_QUALITY:
+                continue
+
+            before_mean = hsvs_arr[before_mask].mean(axis=0)
+            after_mean = hsvs_arr[after_mask].mean(axis=0)
+            dist = 1.0 - compare_hsv_histograms(before_mean.tolist(), after_mean.tolist())
+            if dist < const.TEAM_SWITCH_HSV_THRESHOLD:
+                continue
+
+            split_frame = self._nearest_det_frame(t, det_frames)
+            if split_frame in existing_split_frames:
+                continue
+            curr_det = det_by_frame.get(split_frame)
+            if curr_det is None:
+                continue
+            if not self._has_nearby_crossing(
+                track_id=track_id,
+                frame_idx=split_frame,
+                det=curr_det,
+                max_bbox_widths=const.TEAM_SWITCH_EDGE_RESCUE_PROXIMITY_BBOX_WIDTHS,
+            ):
+                continue
+
+            splits.append((split_frame, "team_switch"))
             self.split_log.append({
                 "track_id": track_id,
-                "frame_idx": curr_det.frame_idx,
-                "reason": "impossible_motion",
-                "details": f"Motion spike: {motion_distance:.1f}px in 1 frame (threshold={const.VELOCITY_SPIKE_THRESHOLD}px)",
+                "frame_idx": split_frame,
+                "reason": "team_switch",
+                "details": (
+                    f"edge_rescue=1, cluster {c_before}→{c_after}, "
+                    f"team {team_before}→{team_after}, "
+                    f"conf={conf_before:.2f}/{conf_after:.2f}, "
+                    f"q={q_before:.2f}/{q_after:.2f}, "
+                    f"dist={dist:.3f} (>{const.TEAM_SWITCH_HSV_THRESHOLD}), "
+                    f"before_n={n_before} after_n={n_after}, scan_t={t}"
+                ),
             })
+            existing_split_frames.add(split_frame)
+            last_scan_t = t
 
-        # Sort and deduplicate split points
-        split_points = sorted(set(split_points), key=lambda x: x[0])
+        return splits
 
-        return split_points
+    # ------------------------------------------------------------------
+    # T5 — Impossible Motion Spike
+    # ------------------------------------------------------------------
 
-    def _create_fragments_from_splits(
+    def _detect_t5(
+        self, track_id: TrackID, dets: List[Detection]
+    ) -> List[Tuple[int, str]]:
+        """
+        Centroid displacement between adjacent frames > PASS2_MAX_PLAYER_SPEED → split.
+        Only fires for gap == 1 (teleports, not occlusion gaps).
+        """
+        splits = []
+        for i in range(1, len(dets)):
+            prev, curr = dets[i - 1], dets[i]
+            if curr.frame_idx - prev.frame_idx != 1:
+                continue
+            dist = centroid_distance(prev.centroid, curr.centroid)
+            if dist > const.PASS2_MAX_PLAYER_SPEED:
+                splits.append((curr.frame_idx, "motion_spike"))
+                self.split_log.append({
+                    "track_id": track_id,
+                    "frame_idx": curr.frame_idx,
+                    "reason": "motion_spike",
+                    "details": f"jump {dist:.1f}px > {const.PASS2_MAX_PLAYER_SPEED}px/frame",
+                })
+        return splits
+
+    # ------------------------------------------------------------------
+    # Build Fragment objects from split points
+    # ------------------------------------------------------------------
+
+    def _build_fragments(
         self,
         track_id: TrackID,
-        detections: List[Detection],
+        dets: List[Detection],
         split_points: List[Tuple[int, str]],
     ) -> List[Fragment]:
         """
-        Create fragments by splitting at detected points.
-
-        Args:
-            track_id: Original track ID
-            detections: All detections for this track
-            split_points: List of (frame_idx, reason) split triggers
-
-        Returns:
-            List of Fragment objects
+        Slice detections at split_points and create Fragment objects.
+        Each detection goes into exactly one fragment.
         """
-        if not detections:
+        if not dets:
             return []
 
+        # Build a quick lookup: frame_idx → reason
+        split_map: Dict[int, str] = {frame: reason for frame, reason in split_points}
+
+        segments: List[Tuple[List[Detection], Optional[str], Optional[int]]] = []
+        current: List[Detection] = []
+        current_reason: Optional[str] = None
+        current_trigger: Optional[int] = None
+
+        for det in dets:
+            if det.frame_idx in split_map and current:
+                segments.append((current, current_reason, current_trigger))
+                current = [det]
+                current_reason = split_map[det.frame_idx]
+                current_trigger = det.frame_idx
+            else:
+                current.append(det)
+
+        if current:
+            segments.append((current, current_reason, current_trigger))
+
         fragments = []
-        current_segment: List[Detection] = []
-        split_reason = "initial"
-        split_trigger_frame: Optional[int] = None
-
-        for det in detections:
-            # Check if we hit a split point
-            hit_split = False
-            for split_frame, reason in split_points:
-                if det.frame_idx == split_frame:
-                    # Save current segment as fragment (if not empty)
-                    if current_segment:
-                        fragments.append(
-                            self._create_fragment(
-                                track_id,
-                                current_segment,
-                                split_reason,
-                                split_trigger_frame,
-                            )
-                        )
-
-                    # Start new segment
-                    current_segment = [det]
-                    split_reason = reason
-                    split_trigger_frame = split_frame
-                    hit_split = True
-                    break
-
-            if not hit_split:
-                current_segment.append(det)
-
-        # Save final segment
-        if current_segment:
+        for seg_dets, reason, trigger in segments:
+            if not seg_dets:
+                continue
             fragments.append(
-                self._create_fragment(
-                    track_id,
-                    current_segment,
-                    split_reason,
-                    split_trigger_frame,
-                )
+                self._make_fragment(track_id, seg_dets, reason, trigger)
             )
 
         return fragments
 
-    def _create_fragment(
+    def _make_fragment(
         self,
         track_id: TrackID,
-        detections: List[Detection],
-        split_reason: str,
-        split_trigger_frame: Optional[int] = None,
+        dets: List[Detection],
+        split_reason: Optional[str],
+        split_trigger_frame: Optional[int],
     ) -> Fragment:
-        """
-        Create a Fragment from a list of detections.
+        fid = self._counter.next_id()
+        start = min(d.frame_idx for d in dets)
+        end = max(d.frame_idx for d in dets)
 
-        Args:
-            track_id: Original track ID
-            detections: Detections for this fragment
-            split_reason: Why this fragment was created
+        # Dominant jersey number (mode of non-None confident observations)
+        jersey_obs = [
+            d.jersey_number
+            for d in dets
+            if d.jersey_number is not None
+            and d.jersey_confidence >= const.JERSEY_MIN_CONFIDENCE
+        ]
+        dominant_jersey: Optional[int] = None
+        if jersey_obs:
+            try:
+                dominant_jersey = mode(jersey_obs)
+            except Exception:
+                dominant_jersey = Counter(jersey_obs).most_common(1)[0][0]
 
-        Returns:
-            Fragment object
-        """
-        fragment_id = f"F{self.fragment_counter:06d}"
-        self.fragment_counter += 1
+        # Normalise split_trigger_frame to be within [start, end]
+        eff_trigger = split_trigger_frame
+        if eff_trigger is not None and not (start <= eff_trigger <= end):
+            eff_trigger = start
 
-        start_frame = min(d.frame_idx for d in detections)
-        end_frame = max(d.frame_idx for d in detections)
-
-        # Use actual detection_ids from Pass 1 (format: {frame_idx}_{track_id}_{bbox_hash})
-        detection_ids = [d.detection_id for d in detections]
-
-        # Per CLAUDE.md Section 5 (Pass 2A) - EXHAUSTIVE split rule mapping
-        split_rule_by_reason = {
+        rule_map = {
             "track_collision": "TRACK_COLLISION",
             "jersey_change": "JERSEY_CHANGE",
             "jersey_temporal_conflict": "JERSEY_TEMPORAL_CONFLICT",
-            "hard_appearance_discontinuity": "HARD_APPEARANCE_DISCONTINUITY",
-            "impossible_motion": "IMPOSSIBLE_MOTION",
-            "merged_short_fragments": "MERGE_SHORT_FRAGMENTS",
+            "team_switch": "TEAM_SWITCH",
+            "motion_spike": "MOTION_SPIKE",
         }
 
-        non_initial = split_reason != "initial"
-        effective_trigger_frame = split_trigger_frame if non_initial else None
-        if effective_trigger_frame is not None:
-            # Secondary split operations (e.g., temporal jersey conflict) can produce
-            # sub-fragments where inherited trigger frame sits outside the new bounds.
-            # Normalize to this fragment boundary to keep metadata self-consistent.
-            if effective_trigger_frame < start_frame or effective_trigger_frame > end_frame:
-                effective_trigger_frame = start_frame
-        effective_rule_id = split_rule_by_reason.get(split_reason) if non_initial else None
-
         return Fragment(
-            fragment_id=fragment_id,
-            original_track_id=track_id,
-            start_frame=start_frame,
-            end_frame=end_frame,
-            detection_ids=detection_ids,
-            split_reason=split_reason if split_reason != "initial" else None,
-            split_trigger_frame=effective_trigger_frame,
-            split_rule_id=effective_rule_id,
-            parent_fragment_id=None,  # Will be set during jersey temporal exclusivity
+            fragment_id=fid,
+            track_id=track_id,
+            start_frame=start,
+            end_frame=end,
+            detection_ids=[d.detection_id for d in dets],
+            split_reason=split_reason,
+            split_trigger_frame=eff_trigger,
+            split_rule_id=rule_map.get(split_reason) if split_reason else None,
+            parent_fragment_id=None,
+            dominant_jersey_number=dominant_jersey,
+            is_ghost=False,
         )
 
-    def _is_nearby_track_present(
-        self,
-        track_id: TrackID,
-        frame_idx: int,
-        this_det: Optional["Detection"],
-    ) -> bool:
-        """
-        Return True if any other track has a detection within
-        HSV_PROXIMITY_THRESHOLD bbox-widths of this_det at frame_idx.
+    # ------------------------------------------------------------------
+    # T3 — Jersey Temporal Conflict (cross-track, post per-track splits)
+    # ------------------------------------------------------------------
 
-        Used as a proximity gate for the HSV split trigger:
-        genuine identity swaps require player crossing (another track nearby),
-        whereas lighting-induced HSV changes happen to isolated players.
-
-        If this_det is None (no bbox data), returns True (conservative: allow split).
-        If no other detections exist at this frame, returns False (isolated player).
-        """
-        if this_det is None:
-            return True  # No bbox data → can't gate → allow split conservatively
-
-        frame_dets = self._all_dets_by_frame.get(frame_idx, [])
-        this_centroid = bbox_centroid(this_det.bbox)
-        bbox_w = max(1, this_det.bbox[2] - this_det.bbox[0])
-        max_dist = const.HSV_PROXIMITY_THRESHOLD * bbox_w
-
-        for other_det in frame_dets:
-            if other_det.track_id == track_id:
-                continue  # Skip own track
-            dist = centroid_distance(this_centroid, bbox_centroid(other_det.bbox))
-            if dist <= max_dist:
-                return True
-
-        return False
-
-    def _split_jersey_temporal_conflicts(
+    def _resolve_t3(
         self,
         fragments: List[Fragment],
         all_detections: List[Detection],
     ) -> List[Fragment]:
         """
-        Detect and split jersey temporal exclusivity violations.
+        Detect fragments that concurrently "own" the same jersey number and split
+        the later-appearing fragment at the first frame it claims that jersey.
 
-        Per CLAUDE.md R3 and IMPLEMENTATION_PLAN.md:
-        - Same jersey CANNOT appear on different tracks simultaneously
-        - Uses VOTING/CONSENSUS across fragment, NOT first appearance
-        - Jersey must appear ≥3 times with conf ≥0.5 to be considered "owned"
-        - Fragment must have ≥50% observations with same jersey to "own" it
-        - If two fragments "own" same jersey with overlapping times → split the later one
+        Ownership: fragment must have ≥ JERSEY_MIN_OBSERVATIONS confident detections
+        with the same jersey, AND ≥ JERSEY_MAJORITY_THRESHOLD fraction of its
+        jersey-observed frames showing that number.
 
-        Args:
-            fragments: All fragments created so far
-            all_detections: All Pass 1 detections (for jersey lookups)
-
-        Returns:
-            Fragments with temporal conflicts resolved via splits
+        Skip: if the conflicting jersey appears at the very start of the fragment
+        (within the first MIN_FRAGMENT_LENGTH frames of track start).
         """
-        from collections import Counter
+        det_by_id: Dict[str, Detection] = {d.detection_id: d for d in all_detections}
 
-        # Build detection lookup by detection_id for fast access
-        detection_by_id = {det.detection_id: det for det in all_detections}
-
-        # Build jersey timeline: jersey_number -> [(fragment, start_frame, end_frame, first_jersey_frame)]
-        jersey_timeline: Dict[int, List[Tuple[Fragment, int, int, int]]] = {}
+        # Determine jersey ownership for each fragment
+        jersey_owner: Dict[str, Tuple[int, int, int]] = {}
+        # fragment_id → (jersey_num, start_frame, first_jersey_frame)
 
         for frag in fragments:
-            # Count jersey observations across fragment (VOTING/CONSENSUS)
-            jersey_observations = []
-            first_jersey_frame = None
-
-            for det_id in frag.detection_ids:
-                det = detection_by_id.get(det_id)
+            obs: List[Tuple[int, int]] = []  # (frame_idx, jersey_number)
+            for did in frag.detection_ids:
+                det = det_by_id.get(did)
                 if det and det.jersey_number is not None:
-                    # Only count high-confidence observations
-                    if det.jersey_confidence >= const.JERSEY_MIN_CONFIDENCE:
-                        jersey_observations.append(det.jersey_number)
-                        if first_jersey_frame is None:
-                            first_jersey_frame = det.frame_idx
+                    if det.jersey_confidence >= const.JERSEY_TEMPORAL_MIN_CONFIDENCE:
+                        obs.append((det.frame_idx, det.jersey_number))
 
-            # Determine if fragment "owns" a jersey via majority vote
-            jersey_num = None
-            if len(jersey_observations) >= const.JERSEY_MIN_OBSERVATIONS:
-                # Count occurrences
-                jersey_counts = Counter(jersey_observations)
-                most_common_jersey, most_common_count = jersey_counts.most_common(1)[0]
-
-                # Check if it's a majority (≥50% of observations)
-                if most_common_count / len(jersey_observations) >= const.JERSEY_MAJORITY_THRESHOLD:
-                    jersey_num = most_common_jersey
-
-            if jersey_num is not None and first_jersey_frame is not None:
-                if jersey_num not in jersey_timeline:
-                    jersey_timeline[jersey_num] = []
-
-                jersey_timeline[jersey_num].append((
-                    frag,
-                    frag.start_frame,
-                    frag.end_frame,
-                    first_jersey_frame,
-                ))
-
-        # Detect temporal overlaps for each jersey
-        new_fragments = []
-        fragments_to_split: Set[str] = set()  # fragment_ids to split
-        # Deduplicate per (track_id, jersey_number): after HSV pre-splits a track into N
-        # fragments, each independently "owns" the same wrong jersey and would generate N
-        # redundant splits. One split per (track_id, jersey) pair is the correct evidence.
-        split_pairs_seen: Set[Tuple[int, int]] = set()
-
-        for jersey_num, appearances in jersey_timeline.items():
-            if len(appearances) < 2:
-                # No conflict - only one fragment has this jersey
+            if len(obs) < const.JERSEY_MIN_OBSERVATIONS:
                 continue
 
-            # Sort by first_jersey_frame (when jersey first appears)
-            appearances = sorted(appearances, key=lambda x: x[3])
+            counts = Counter(j for _, j in obs)
+            best_jersey, best_count = counts.most_common(1)[0]
+            ratio = best_count / len(obs)
+            if ratio < const.JERSEY_MAJORITY_THRESHOLD:
+                continue
+            density = len(obs) / max(1, len(frag.detection_ids))
+            if density < const.JERSEY_TEMPORAL_MIN_DENSITY:
+                continue
 
-            # Check for overlaps
-            for i in range(len(appearances)):
-                for j in range(i + 1, len(appearances)):
-                    frag_a, start_a, end_a, first_a = appearances[i]
-                    frag_b, start_b, end_b, first_b = appearances[j]
+            first_jersey_frame = min(f for f, j in obs if j == best_jersey)
+            jersey_owner[frag.fragment_id] = (best_jersey, frag.start_frame, first_jersey_frame)
 
-                    # Check if time ranges overlap with minimum duration threshold
-                    # Brief overlaps (< JERSEY_TEMPORAL_MIN_OVERLAP_FRAMES) are classifier noise
-                    # at fragment boundaries — skip to avoid false splits
-                    overlap_start = max(start_a, start_b)
-                    overlap_end = min(end_a, end_b)
-                    overlap_frames = overlap_end - overlap_start + 1
+        # Group by jersey number and find temporal overlaps
+        # jersey_num → [(frag_id, frag_start, frag_end, first_jersey_frame)]
+        jersey_groups: Dict[int, List[Tuple[str, int, int, int]]] = defaultdict(list)
+        frag_by_id = {f.fragment_id: f for f in fragments}
 
-                    if overlap_frames >= const.JERSEY_TEMPORAL_MIN_OVERLAP_FRAMES:
-                        # Genuine sustained conflict! Jersey appears on both fragments at overlapping times
-                        # Split the one where jersey appears LATER
-                        if first_b > first_a:
-                            # Fragment B "stole" the jersey - split it at first_b
-                            split_key = (frag_b.original_track_id, jersey_num)
-                            if split_key in split_pairs_seen:
-                                continue  # Already split this track for this jersey
-                            split_pairs_seen.add(split_key)
-                            fragments_to_split.add(frag_b.fragment_id)
-                            self.split_log.append({
-                                "track_id": frag_b.original_track_id,
-                                "frame_idx": first_b,
-                                "reason": "jersey_temporal_conflict",
-                                "details": f"Jersey #{jersey_num} already in use by {frag_a.fragment_id} (track {frag_a.original_track_id})",
-                                "conflict_with": frag_a.fragment_id,
-                            })
-                        else:
-                            # Fragment A "stole" the jersey - split it at first_a
-                            split_key = (frag_a.original_track_id, jersey_num)
-                            if split_key in split_pairs_seen:
-                                continue  # Already split this track for this jersey
-                            split_pairs_seen.add(split_key)
-                            fragments_to_split.add(frag_a.fragment_id)
-                            self.split_log.append({
-                                "track_id": frag_a.original_track_id,
-                                "frame_idx": first_a,
-                                "reason": "jersey_temporal_conflict",
-                                "details": f"Jersey #{jersey_num} already in use by {frag_b.fragment_id} (track {frag_b.original_track_id})",
-                                "conflict_with": frag_b.fragment_id,
-                            })
+        for fid, (jnum, fstart, fjframe) in jersey_owner.items():
+            frag = frag_by_id[fid]
+            jersey_groups[jnum].append((fid, frag.start_frame, frag.end_frame, fjframe))
 
-        # Process fragments: split conflicted ones, keep others
+        to_split: Dict[str, int] = {}  # fragment_id → split_frame
+        seen_pairs: Set[Tuple[str, int]] = set()
+
+        for jnum, group in jersey_groups.items():
+            if len(group) < 2:
+                continue
+            group_sorted = sorted(group, key=lambda x: x[3])  # by first_jersey_frame
+
+            for i in range(len(group_sorted)):
+                for j in range(i + 1, len(group_sorted)):
+                    fid_a, sa, ea, fja = group_sorted[i]
+                    fid_b, sb, eb, fjb = group_sorted[j]
+
+                    # Compute frame overlap
+                    overlap_start = max(sa, sb)
+                    overlap_end = min(ea, eb)
+                    overlap = overlap_end - overlap_start + 1
+                    # Minimum overlap to avoid false positives from classifier noise
+                    # at fragment boundaries. ~5 seconds at 30fps is deliberate.
+                    if overlap < const.JERSEY_TEMPORAL_MIN_OVERLAP_FRAMES:
+                        continue
+
+                    # Fragment B appeared later (by first_jersey_frame)
+                    # Split B at fjb (first frame it claims this jersey)
+                    frag_b = frag_by_id[fid_b]
+
+                    # Skip if jersey appears at very start of fragment B's track
+                    if fjb <= frag_b.start_frame + const.MIN_FRAGMENT_LENGTH:
+                        continue
+
+                    pair_key = (fid_b, jnum)
+                    if pair_key in seen_pairs:
+                        continue
+                    seen_pairs.add(pair_key)
+
+                    if fid_b not in to_split:
+                        to_split[fid_b] = fjb
+                        self.split_log.append({
+                            "track_id": frag_b.track_id,
+                            "frame_idx": fjb,
+                            "reason": "jersey_temporal_conflict",
+                            "details": (
+                                f"jersey #{jnum} already owned by {fid_a} "
+                                f"(track {frag_by_id[fid_a].track_id})"
+                            ),
+                        })
+
+        # Apply splits
+        result: List[Fragment] = []
         for frag in fragments:
-            if frag.fragment_id in fragments_to_split:
-                # Find the split point from split log
-                split_frame = None
-                for log_entry in self.split_log:
-                    if (log_entry.get("reason") == "jersey_temporal_conflict" and
-                        log_entry.get("track_id") == frag.original_track_id):
-                        split_frame = log_entry.get("frame_idx")
-                        break
+            if frag.fragment_id not in to_split:
+                result.append(frag)
+                continue
 
-                if split_frame is not None:
-                    # Split fragment at this frame
-                    det_before = []
-                    det_after = []
+            split_frame = to_split[frag.fragment_id]
+            before_dets = [
+                det_by_id[did] for did in frag.detection_ids
+                if det_by_id.get(did) and det_by_id[did].frame_idx < split_frame
+            ]
+            after_dets = [
+                det_by_id[did] for did in frag.detection_ids
+                if det_by_id.get(did) and det_by_id[did].frame_idx >= split_frame
+            ]
 
-                    for det_id in frag.detection_ids:
-                        det = detection_by_id.get(det_id)
-                        if det:
-                            if det.frame_idx < split_frame:
-                                det_before.append(det)
-                            else:
-                                det_after.append(det)
+            if before_dets:
+                result.append(self._make_fragment(
+                    frag.track_id, before_dets,
+                    frag.split_reason, frag.split_trigger_frame,
+                ))
+            if after_dets:
+                result.append(self._make_fragment(
+                    frag.track_id, after_dets,
+                    "jersey_temporal_conflict", split_frame,
+                ))
+            if not before_dets or not after_dets:
+                # Fallback: keep original if split would produce empty fragment
+                result.append(frag)
 
-                    # Create two fragments
-                    if det_before:
-                        new_fragments.append(
-                            self._create_fragment(
-                                frag.original_track_id,
-                                det_before,
-                                frag.split_reason or "initial",
-                                frag.split_trigger_frame,
-                            )
-                        )
+        return result
 
-                    if det_after:
-                        new_fragments.append(
-                            self._create_fragment(
-                                frag.original_track_id,
-                                det_after,
-                                "jersey_temporal_conflict",
-                                split_frame,
-                            )
-                        )
-                else:
-                    # Couldn't find split frame - keep as-is
-                    new_fragments.append(frag)
-            else:
-                # No conflict - keep fragment as-is
-                new_fragments.append(frag)
 
-        return new_fragments
-
-    def _merge_consecutive_short_fragments(
-        self, fragments: List[Fragment]
-    ) -> List[Fragment]:
-        """
-        Merge consecutive short fragments on the same track.
-
-        Per CLAUDE.md and MEMORY.md:
-        - Keep ALL fragments (even <10 frames)
-        - Merge consecutive short fragments on same track
-        - This balances coverage and clustering quality
-
-        Args:
-            fragments: All fragments
-
-        Returns:
-            Merged fragments
-        """
-        # Group by original_track_id
-        track_fragments: Dict[TrackID, List[Fragment]] = {}
-        for frag in fragments:
-            if frag.original_track_id not in track_fragments:
-                track_fragments[frag.original_track_id] = []
-            track_fragments[frag.original_track_id].append(frag)
-
-        # Sort fragments within each track by start_frame
-        for track_id in track_fragments:
-            track_fragments[track_id] = sorted(
-                track_fragments[track_id], key=lambda f: f.start_frame
-            )
-
-        # Merge consecutive short fragments
-        merged = []
-        for track_id, frags in track_fragments.items():
-            merged.extend(self._merge_track_fragments(frags))
-
-        return merged
-
-    def _merge_track_fragments(self, fragments: List[Fragment]) -> List[Fragment]:
-        """
-        Merge consecutive short fragments on a single track.
-
-        Args:
-            fragments: Fragments for one track (sorted by start_frame)
-
-        Returns:
-            Merged fragments
-        """
-        if not fragments:
-            return []
-
-        merged = []
-        current_group = [fragments[0]]
-
-        for i in range(1, len(fragments)):
-            prev_frag = current_group[-1]
-            curr_frag = fragments[i]
-
-            # Check if both are short and consecutive
-            prev_len = prev_frag.end_frame - prev_frag.start_frame + 1
-            curr_len = curr_frag.end_frame - curr_frag.start_frame + 1
-
-            is_consecutive = (curr_frag.start_frame == prev_frag.end_frame + 1)
-            both_short = (prev_len < const.MIN_FRAGMENT_LENGTH and
-                         curr_len < const.MIN_FRAGMENT_LENGTH)
-
-            if is_consecutive and both_short:
-                # Add to current group
-                current_group.append(curr_frag)
-            else:
-                # Save current group and start new one
-                if len(current_group) > 1:
-                    # Merge group
-                    merged_frag = self._merge_fragment_group(current_group)
-                    merged.append(merged_frag)
-                else:
-                    # Keep as-is
-                    merged.append(current_group[0])
-
-                current_group = [curr_frag]
-
-        # Save final group
-        if len(current_group) > 1:
-            merged_frag = self._merge_fragment_group(current_group)
-            merged.append(merged_frag)
-        else:
-            merged.append(current_group[0])
-
-        return merged
-
-    def _merge_fragment_group(self, fragments: List[Fragment]) -> Fragment:
-        """
-        Merge a group of consecutive fragments into one.
-
-        Args:
-            fragments: Fragments to merge (consecutive, same track)
-
-        Returns:
-            Merged fragment
-        """
-        # Combine detection_ids
-        all_detection_ids = []
-        for frag in fragments:
-            all_detection_ids.extend(frag.detection_ids)
-
-        # Create merged fragment
-        merged = Fragment(
-            fragment_id=fragments[0].fragment_id + "_merged",
-            original_track_id=fragments[0].original_track_id,
-            start_frame=min(f.start_frame for f in fragments),
-            end_frame=max(f.end_frame for f in fragments),
-            detection_ids=all_detection_ids,
-            split_reason="merged_short_fragments",
-            split_trigger_frame=fragments[0].start_frame,
-            split_rule_id="MERGE_SHORT_FRAGMENTS",
-            parent_fragment_id=None,
-        )
-
-        self.split_log.append({
-            "action": "merge",
-            "merged_fragment_id": merged.fragment_id,
-            "source_fragments": [f.fragment_id for f in fragments],
-            "track_id": merged.original_track_id,
-            "frame_idx": merged.start_frame,
-            "reason": "merged_short_fragments",
-            "details": "Merged consecutive short fragments on same track",
-        })
-
-        return merged
-
+# ---------------------------------------------------------------------------
+# Module-level API
+# ---------------------------------------------------------------------------
 
 def run_pass2a(
     input_dir: Path,
     output_dir: Optional[Path] = None,
 ) -> Pass2AOutput:
-    """
-    Execute Pass 2A: Mechanical Fragmentation.
-
-    Args:
-        input_dir: Directory containing pass1_raw.json
-        output_dir: Directory to write output (default: same as input_dir)
-
-    Returns:
-        Pass2AOutput
-
-    Raises:
-        FileNotFoundError if pass1_raw.json not found
-        ValidationError if output fails validation
-    """
+    """Execute Pass 2A mechanical fragmentation."""
     if output_dir is None:
         output_dir = input_dir
 
@@ -1252,7 +972,7 @@ def run_pass2a(
     output_path = output_dir / const.PASS2_FRAGMENTS_JSON
 
     if not pass1_path.exists():
-        raise FileNotFoundError(f"Pass 1 output not found: {pass1_path}")
+        raise FileNotFoundError(f"pass1_raw.json not found: {pass1_path}")
 
     fragmenter = Pass2AFragmenter()
     return fragmenter.run(pass1_path, output_path)
@@ -1267,106 +987,69 @@ def render_pass2a_debug_video_from_artifact(
     end_frame: Optional[int] = None,
     pass2c_ghosts_path: Optional[str] = None,
 ) -> None:
-    """
-    Render Pass 2A debug video using pass1_raw + pass2_fragments artifacts.
+    """Render a debug video showing fragment bboxes. Minimal implementation."""
+    import cv2
+    from ..core.data_models import Pass2COutput, ScoredFragment
+    from ..utils.video_io import VideoReader
 
-    If pass2c_ghosts_path provided, also renders ghosts from Pass 2C (dashed boxes).
-    """
     pass1_output = load_json(Path(pass1_output_path), Pass1Output)
     pass2a_output = load_json(Path(pass2a_output_path), Pass2AOutput)
 
-    # Optionally load Pass 2C ghosts
-    from ..core.data_models import Pass2COutput, ScoredFragment
     all_fragments = list(pass2a_output.fragments)
-    ghost_count = 0
+    if pass2c_ghosts_path and Path(pass2c_ghosts_path).exists():
+        pass2c_output = load_json(Path(pass2c_ghosts_path), Pass2COutput)
+        all_fragments = pass2c_output.fragments
 
-    if pass2c_ghosts_path:
-        ghosts_path = Path(pass2c_ghosts_path)
-        if ghosts_path.exists():
-            logger.info(f"Loading Pass 2C ghosts from {ghosts_path}")
-            pass2c_output = load_json(ghosts_path, Pass2COutput)
-            # Extract only ghosts from unified list
-            all_fragments = pass2c_output.fragments
-            ghost_count = sum(1 for f in all_fragments if f.is_ghost)
-            logger.info(f"Rendering {len(all_fragments)} fragments ({ghost_count} ghosts)")
+    det_by_id = {d.detection_id: d for d in pass1_output.detections}
 
-    detection_by_id: Dict[str, Detection] = {det.detection_id: det for det in pass1_output.detections}
-
-    frame_annotations: Dict[int, List[Tuple[Detection, Fragment]]] = {}
-    for fragment in all_fragments:
-        # Real fragments: use detections from Pass 1
-        if not fragment.is_ghost:
-            for detection_id in fragment.detection_ids:
-                det = detection_by_id.get(detection_id)
-                if det is None:
-                    continue
-                frame_annotations.setdefault(det.frame_idx, []).append((det, fragment))
+    # frame → [(det, fragment)]
+    frame_annot: Dict[int, list] = defaultdict(list)
+    for frag in all_fragments:
+        if not frag.is_ghost:
+            for did in frag.detection_ids:
+                det = det_by_id.get(did)
+                if det:
+                    frame_annot[det.frame_idx].append((det, frag))
         else:
-            # Ghosts: create synthetic "detection" from ghost position
-            if fragment.ghost_last_known_bbox and fragment.ghost_last_known_centroid:
-                for frame_idx in range(fragment.start_frame, fragment.end_frame + 1):
-                    # Create a minimal Detection-like object for rendering
-                    from ..core.types import BBox, Centroid
-                    ghost_det = type('obj', (object,), {
-                        'bbox': fragment.ghost_last_known_bbox,
-                        'centroid': fragment.ghost_last_known_centroid,
-                        'frame_idx': frame_idx,
-                        'detection_id': f"ghost_{fragment.fragment_id}_{frame_idx}",
-                    })()
-                    frame_annotations.setdefault(frame_idx, []).append((ghost_det, fragment))
+            if hasattr(frag, "ghost_last_known_bbox") and frag.ghost_last_known_bbox:
+                for fidx in range(frag.start_frame, frag.end_frame + 1):
+                    frame_annot[fidx].append((None, frag))
 
     reader = VideoReader(video_path)
-    writer = None
+    fourcc_fn = getattr(cv2, "VideoWriter_fourcc", cv2.VideoWriter.fourcc)
+    writer = cv2.VideoWriter(
+        debug_video_path,
+        fourcc_fn(*"mp4v"),
+        float(reader.fps),
+        (int(reader.width), int(reader.height)),
+    )
 
     try:
-        fourcc_fn = getattr(cv2, "VideoWriter_fourcc", None)
-        if fourcc_fn is None:
-            fourcc_fn = cv2.VideoWriter.fourcc
+        art_start = pass1_output.processed_start_frame
+        art_end = pass1_output.processed_end_frame_exclusive or pass1_output.total_frames
+        render_start = max(start_frame, art_start)
+        render_end = art_end if end_frame is None else min(end_frame, art_end)
 
-        writer = cv2.VideoWriter(
-            debug_video_path,
-            fourcc_fn(*"mp4v"),
-            float(reader.fps),
-            (int(reader.width), int(reader.height)),
-        )
-        if not writer.isOpened():
-            raise RuntimeError(f"Failed to open Pass 2A debug video writer: {debug_video_path}")
+        import hashlib
+        def _frag_color(fid: str):
+            d = hashlib.md5(fid.encode()).digest()
+            return (60 + d[0] % 170, 60 + d[1] % 170, 60 + d[2] % 170)
 
-        artifact_start = pass1_output.processed_start_frame
-        artifact_end_exclusive = pass1_output.processed_end_frame_exclusive
-        if artifact_end_exclusive is None:
-            artifact_end_exclusive = pass1_output.total_frames
-
-        render_start = max(start_frame, artifact_start)
-        requested_end = artifact_end_exclusive if end_frame is None else end_frame
-        render_end_exclusive = min(requested_end, artifact_end_exclusive)
-
-        if render_end_exclusive <= render_start:
-            raise ValueError(
-                f"Invalid render window: start={render_start}, end={render_end_exclusive}. "
-                f"Artifact range is [{artifact_start}, {artifact_end_exclusive})."
-            )
-
-        total_render_frames = render_end_exclusive - render_start
-
-        with tqdm(total=total_render_frames, desc="Pass 2A debug render", unit="frame") as pbar:
-            for frame_idx, frame in reader.iter_frames():
-                if frame_idx < render_start:
+        for frame_idx, frame in reader.iter_frames():
+            if frame_idx < render_start:
+                continue
+            if frame_idx >= render_end:
+                break
+            for det, frag in frame_annot.get(frame_idx, []):
+                if det is None:
                     continue
-                if frame_idx >= render_end_exclusive:
-                    break
-
-                annotations = frame_annotations.get(frame_idx, [])
-                debug_frame = _draw_pass2a_debug_overlay_frame(
-                    frame,
-                    frame_idx,
-                    annotations,
-                    split_log_count=len(pass2a_output.split_log),
-                    ghost_count=ghost_count,
-                )
-                writer.write(debug_frame)
-                pbar.update(1)
+                x1, y1, x2, y2 = [int(round(v)) for v in det.bbox]
+                color = _frag_color(frag.fragment_id)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                label = f"{frag.fragment_id} T{frag.track_id}"
+                cv2.putText(frame, label, (x1, max(14, y1 - 4)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA)
+            writer.write(frame)
     finally:
-        if writer is not None:
-            writer.release()
+        writer.release()
         reader.close()
