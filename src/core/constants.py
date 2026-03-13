@@ -79,7 +79,7 @@ PLAYER_TRACKER_CONFIG = "config/bytetrack_fast.yaml"  # Disable GMC for faster t
 # ============================================================================
 
 MIN_FRAGMENT_LENGTH = 15  # Frames - but keep shorter ones, mark as low_quality
-MAX_FRAGMENT_GAP = 60     # Ghost MAX_GAP from memory (2 seconds at 30 FPS)
+MAX_FRAGMENT_GAP = 60     # Legacy gap constant (not used for Pass 2C ghost duration)
 MERGE_CONSECUTIVE_SHORT = False  # Fragments must never merge (CLAUDE.md Section 8)
 
 # ============================================================================

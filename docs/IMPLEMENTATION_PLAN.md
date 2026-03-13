@@ -77,16 +77,15 @@ with the new CLAUDE.md contract.
 **Input**: `pass1_raw.json` + `pass2b_scored_fragments.json`
 **Output**: `pass2_ghosts.json` (real fragments + ghost fragments, with `is_ghost` flag)
 
-- [ ] Build frame-by-frame `present_count` from Pass 1 detections
-- [ ] Initialise `level` = max player count across first 10 frames
-- [ ] Dynamic level: for each frame, if `present_count > level`, set `level = min(12, present_count)` — never decreases
-- [ ] For each frame: `missing_count = level - present_count`
-- [ ] For each missing player slot: create or extend a ghost fragment
-  - [ ] Track by `original_track_id` (most recently seen track for that slot), NOT by fragment_id
-  - [ ] Ghost max duration: 60 frames
-  - [ ] If still absent after 60 frames: chain a new ghost fragment
-  - [ ] Ghost terminates when player track reappears OR clip ends
-- [ ] Tag ghosts: `is_ghost = True`, `quality = "GHOST"`, `exclude_from_clustering = True`
+- [x] Build frame-by-frame `present_count` from Pass 1 detections
+- [x] Initialise `level` = max player count across first 10 frames
+- [x] Dynamic level: for each frame, if `present_count > level`, set `level = min(12, present_count)` — never decreases
+- [x] For each frame: `missing_count = level - present_count`
+- [x] For each missing player slot: create or extend a ghost fragment
+  - [x] Track by `original_track_id` (most recently seen track for that slot), NOT by fragment_id
+  - [x] No fixed max duration in Pass 2C (ghost persists until same-track reappearance or clip end)
+  - [x] Ghost terminates when player track reappears OR clip ends
+- [x] Tag ghosts: `is_ghost = True`, `quality = "GHOST"`, `exclude_from_clustering = True`
 
 ---
 
@@ -193,7 +192,7 @@ with the new CLAUDE.md contract.
 
 - [x] `Fragment` — Pass 2A output fields listed above
 - [x] `ScoredFragment` — extends Fragment with quality scores
-- [ ] `GhostFragment` — adds `is_ghost`, `exclude_from_clustering`, `original_track_id`
+- [x] `GhostFragment` — adds `is_ghost`, `exclude_from_clustering`, `original_track_id`
 - [ ] `CandidateEdge` — fragment_a_id, fragment_b_id, all score fields, overall_candidate_score
 - [ ] `Constraint` — type (MUST_SAME | CANNOT_SAME | SOFT_SAME), fragment_a_id, fragment_b_id
 - [ ] `CommittedIdentity` — identity_id, team_id, jersey_number, fragments[], is_ghost
@@ -216,7 +215,7 @@ with the new CLAUDE.md contract.
 - [ ] `TRACK_CONTINUITY_GAP = 120`
 - [ ] `MIN_CANDIDATE_SCORE = 0.35`
 - [ ] `MUST_SAME_THRESHOLD = 0.85`
-- [ ] `GHOST_MAX_DURATION = 60`
+- [x] No fixed Pass 2C ghost duration constant (duration cap removed)
 
 ---
 
@@ -236,7 +235,7 @@ After each pass, test on clip7:
 
 - [x] `pass2_fragments.json`: 20–30 fragments, 100% detection coverage, no overlapping ranges
 - [x] `pass2b_scored_fragments.json`: quality tiers (HIGH/MEDIUM/LOW) present on all fragments
-- [ ] `pass2_ghosts.json`: `is_ghost` flags correct, level tracks high-water mark
+- [x] `pass2_ghosts.json`: `is_ghost` flags correct, level tracks high-water mark
 - [ ] `pass3a_candidates.json`: same-track pairs always have a candidate edge
 - [ ] `pass3b_constraints.json`: no contradictions, MUST/CANNOT/SOFT edges present
 - [ ] `pass3_identity_commit.json`: 0 unknown teams, jersey exclusivity holds, correct player count

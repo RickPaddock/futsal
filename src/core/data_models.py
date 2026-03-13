@@ -251,6 +251,7 @@ class ScoredFragment(Fragment):
 
     # Ghost-specific fields (Pass 2C)
     is_ghost: bool = False
+    exclude_from_clustering: bool = False
     ghost_last_known_bbox: Optional[BBox] = None
     ghost_last_known_centroid: Optional[Centroid] = None
     ghost_reason: Optional[str] = None
@@ -308,6 +309,7 @@ class GhostFragment(ScoredFragment):
     """
     quality: FragmentQuality = FragmentQuality.GHOST  # Always GHOST
     is_ghost: bool = True
+    exclude_from_clustering: bool = True
     ghost_reason: str  # "occlusion", "off_screen", etc.
     estimated_position: BBox  # Last known position (held, no interpolation)
     estimated_centroid: Centroid  # Last known centroid

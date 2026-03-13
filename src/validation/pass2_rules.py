@@ -748,6 +748,8 @@ def validate_pass2c_ghosts(
     Returns:
         List of violations (empty if valid)
     """
+    from ..core import constants as const
+
     violations = []
 
     # Filter ghosts from unified list
@@ -781,6 +783,23 @@ def validate_pass2c_ghosts(
                     message=f"Ghost {ghost.fragment_id} has is_ghost=False",
                     fragment_id=ghost.fragment_id,
                     details={"fragment_id": ghost.fragment_id},
+                )
+            )
+
+        # Ghosts must be excluded from clustering inputs in later passes.
+        if not bool(getattr(ghost, "exclude_from_clustering", False)):
+            violations.append(
+                ValidationViolation(
+                    rule="PASS2C_GHOST_CLUSTER_FLAG",
+                    severity="error",
+                    message=(
+                        f"Ghost {ghost.fragment_id} missing exclude_from_clustering=True"
+                    ),
+                    fragment_id=ghost.fragment_id,
+                    details={
+                        "fragment_id": ghost.fragment_id,
+                        "exclude_from_clustering": getattr(ghost, "exclude_from_clustering", None),
+                    },
                 )
             )
 
@@ -928,8 +947,6 @@ def validate_pass2c_ghosts(
     # Pass 2C validation semantics (identity-agnostic):
     # - BLOCKING: Presence completeness and chain continuity (R4 presence layer)
     # - NON-BLOCKING: >12 concurrent presence (identity collision signal for Pass 3)
-    from ..core import constants as const
-
     if end_frame >= start_frame:
         init_end = min(end_frame, start_frame + const.INITIAL_LEVEL_FRAMES - 1)
         level = 0

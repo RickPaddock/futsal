@@ -11,7 +11,7 @@ Per CLAUDE.md Rule R4 (Player Continuity):
 - Track players by original_track_id (NOT fragment_id)
 - Create ghosts when tracked_count < level
 - Ghost position: HOLD last known position (no interpolation)
-- Ghost duration: until reappearance or MAX_GAP (60 frames)
+- Ghost duration: until reappearance or clip end (no fixed cap in Pass 2C)
 - Mark ghosts: is_ghost=True, quality="ghost"
 - Exclude ghosts from K-means clustering (Pass 3C responsibility)
 
@@ -502,7 +502,7 @@ class Pass2CGhostGenerator:
 
         Per CLAUDE.md R4:
         - Ghost position: HOLD last known position (no interpolation)
-        - Ghost duration: until reappearance or MAX_GAP frames
+        - Ghost duration: until reappearance or clip end
         - Mark: is_ghost=True, quality="ghost"
 
         Args:
@@ -528,9 +528,8 @@ class Pass2CGhostGenerator:
         if reappearance_frame is not None:
             ghost_end = reappearance_frame - 1  # Ghost ends just before reappearance
         else:
-            # No reappearance - ghost continues for MAX_GAP or until end of clip
-            gap_limit = current_frame + const.MAX_FRAGMENT_GAP - 1
-            ghost_end = min(gap_limit, end_frame)
+            # No reappearance - ghost persists until clip end.
+            ghost_end = end_frame
 
         # Don't create ghost if duration is too short
         if ghost_end < current_frame:
@@ -551,6 +550,7 @@ class Pass2CGhostGenerator:
             split_rule_id=None,
             parent_fragment_id=player_state.get("fragment_id"),
             is_ghost=True,
+            exclude_from_clustering=True,
             quality=FragmentQuality.GHOST,
             quality_score=0.0,  # Ghosts have no quality score
             quality_reasons=["ghost_fragment"],

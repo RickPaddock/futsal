@@ -1132,6 +1132,35 @@ def render_pass2a_debug_video_from_artifact(
             d = hashlib.md5(fid.encode()).digest()
             return (60 + d[0] % 170, 60 + d[1] % 170, 60 + d[2] % 170)
 
+        def _draw_dotted_rect(img, x1, y1, x2, y2, color, spacing=8, radius=1):
+            # Draw a dotted rectangle by placing small circles along each edge.
+            for x in range(x1, x2 + 1, spacing):
+                cv2.circle(img, (x, y1), radius, color, -1)
+                cv2.circle(img, (x, y2), radius, color, -1)
+            for y in range(y1, y2 + 1, spacing):
+                cv2.circle(img, (x1, y), radius, color, -1)
+                cv2.circle(img, (x2, y), radius, color, -1)
+
+        def _draw_label_with_banner(img, text, x, y_top, text_color):
+            """Draw larger label text on a local black banner for readability."""
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            scale = 0.62
+            thickness = 2
+            pad_x = 5
+            pad_y = 4
+
+            (text_w, text_h), baseline = cv2.getTextSize(text, font, scale, thickness)
+            box_w = text_w + 2 * pad_x
+            box_h = text_h + baseline + 2 * pad_y
+
+            h, w = img.shape[:2]
+            x = max(0, min(int(x), max(0, w - box_w - 1)))
+            y_top = max(0, min(int(y_top), max(0, h - box_h - 1)))
+
+            cv2.rectangle(img, (x, y_top), (x + box_w, y_top + box_h), (0, 0, 0), -1)
+            text_org = (x + pad_x, y_top + pad_y + text_h)
+            cv2.putText(img, text, text_org, font, scale, text_color, thickness, cv2.LINE_AA)
+
         for frame_idx, frame in reader.iter_frames():
             if frame_idx < render_start:
                 continue
@@ -1139,13 +1168,21 @@ def render_pass2a_debug_video_from_artifact(
                 break
             for det, frag in frame_annot.get(frame_idx, []):
                 if det is None:
+                    ghost_bbox = getattr(frag, "ghost_last_known_bbox", None)
+                    if not ghost_bbox:
+                        continue
+                    x1, y1, x2, y2 = [int(round(v)) for v in ghost_bbox]
+                    color = (160, 160, 160)
+                    _draw_dotted_rect(frame, x1, y1, x2, y2, color)
+                    label = f"GHOST {frag.fragment_id} T{frag.track_id}"
+                    _draw_label_with_banner(frame, label, x1, y1 - 30, color)
                     continue
+
                 x1, y1, x2, y2 = [int(round(v)) for v in det.bbox]
                 color = _frag_color(frag.fragment_id)
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                 label = f"{frag.fragment_id} T{frag.track_id}"
-                cv2.putText(frame, label, (x1, max(14, y1 - 4)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA)
+                _draw_label_with_banner(frame, label, x1, y1 - 30, color)
             writer.write(frame)
     finally:
         writer.release()
