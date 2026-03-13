@@ -263,10 +263,11 @@ def validate_r3_jersey_temporal_exclusivity(
     fragments: List[ScoredFragment],
 ) -> List[ValidationViolation]:
     """
-    R3: Jersey temporal exclusivity (one jersey = one player at any time).
+    R3: Jersey temporal exclusivity within each team.
 
-    Per CLAUDE.md R3:
-    - Same jersey number cannot appear on different players simultaneously
+        Per implementation contract for Pass 3C:
+        - Same jersey number cannot appear on different players simultaneously
+            within the same team.
     - Temporal overlap detection: if two fragments with same jersey overlap in time → violation
     - Ghosts inherit jersey from source, so exclusivity applies to them too
 
@@ -282,8 +283,9 @@ def validate_r3_jersey_temporal_exclusivity(
     # Build identity map
     identity_map = {i.fragment_id: i for i in identities}
 
-    # Group fragments by jersey number
-    jersey_fragments: Dict[int, List[Tuple[str, int, int, str]]] = {}  # jersey -> [(fragment_id, start, end, player_id)]
+    # Group fragments by (team, jersey)
+    jersey_fragments: Dict[Tuple[str, int], List[Tuple[str, int, int, str]]] = {}
+    # key -> [(fragment_id, start, end, player_id)]
 
     for fragment in fragments:
         fragment_id = fragment.fragment_id
@@ -294,22 +296,27 @@ def validate_r3_jersey_temporal_exclusivity(
         identity = identity_map[fragment_id]
         jersey = identity.jersey_number
         player_id = identity.player_id
+        team = identity.team.value if hasattr(identity.team, "value") else str(identity.team)
 
         if jersey is None:
             continue
 
-        if jersey not in jersey_fragments:
-            jersey_fragments[jersey] = []
+        if team == "unknown":
+            continue
 
-        jersey_fragments[jersey].append((
+        key = (team, int(jersey))
+        if key not in jersey_fragments:
+            jersey_fragments[key] = []
+
+        jersey_fragments[key].append((
             fragment_id,
             fragment.start_frame,
             fragment.end_frame,
             player_id,
         ))
 
-    # Check for temporal overlaps within each jersey
-    for jersey, frags in jersey_fragments.items():
+    # Check for temporal overlaps within each (team, jersey)
+    for (team, jersey), frags in jersey_fragments.items():
         # Sort by start frame
         frags = sorted(frags, key=lambda x: x[1])
 
@@ -334,6 +341,7 @@ def validate_r3_jersey_temporal_exclusivity(
                             message=(
                                 f"Jersey #{jersey} temporal conflict: "
                                 f"{player_a} ({frag_a_id}) and {player_b} ({frag_b_id}) "
+                                f"on team {team} "
                                 f"overlap in frames {overlap_start}-{overlap_end}"
                             ),
                             frame_idx=overlap_start,

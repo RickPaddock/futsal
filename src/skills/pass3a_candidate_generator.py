@@ -42,8 +42,8 @@ from ..utils.logging_utils import get_logger
 
 logger = get_logger("pass3a_candidate_generator")
 ALLOWED_JERSEY_NUMBERS = set(const.JERSEY_NUMBERS)
-# Prefer shared constant when available; default matches contract typical value.
 TRACK_CONTINUITY_GAP = int(getattr(const, "TRACK_CONTINUITY_GAP", 120))
+MIN_CANDIDATE_SCORE = float(getattr(const, "MIN_CANDIDATE_SCORE", 0.35))
 
 
 def _clamp01(value: float) -> float:
@@ -109,6 +109,8 @@ class Pass3ACandidateGenerator:
 			"candidate_edges_rejected_gap": 0,
 			"candidate_edges_rejected_distance": 0,
 			"candidate_edges_rejected_ghost": 0,
+			"candidate_edges_rejected_jersey_conflict": 0,
+			"candidate_edges_rejected_score": 0,
 		}
 
 	def generate(self) -> Pass3AEdgesOutput:
@@ -140,6 +142,13 @@ class Pass3ACandidateGenerator:
 					self.debug_metrics["candidate_edges_rejected_gap"] += 1
 					continue
 
+				jersey_a = self._dominant_jersey(fragment_a)
+				jersey_b = self._dominant_jersey(fragment_b)
+				if jersey_a is not None and jersey_b is not None and jersey_a != jersey_b:
+					# Hard jersey conflict gate: this edge is impossible by contract.
+					self.debug_metrics["candidate_edges_rejected_jersey_conflict"] += 1
+					continue
+
 				track_continuity_score = 0.0
 				if (
 					int(fragment_a.original_track_id) == int(fragment_b.original_track_id)
@@ -167,14 +176,20 @@ class Pass3ACandidateGenerator:
 					start_centroid_b,
 				)
 				appearance_similarity = self._appearance_similarity(fragment_a, fragment_b)
-				jersey_similarity = self._jersey_similarity(fragment_a, fragment_b)
+				jersey_similarity = self._jersey_similarity(fragment_a, fragment_b, jersey_a=jersey_a, jersey_b=jersey_b)
+				temporal_gap_score = self._temporal_gap_score(temporal_gap)
 
 				overall_candidate_score = _clamp01(
 					0.5 * track_continuity_score
 					+ 0.2 * velocity_consistency_score
-					+ 0.2 * appearance_similarity
+					+ 0.15 * appearance_similarity
 					+ 0.1 * jersey_similarity
+					+ 0.05 * temporal_gap_score
 				)
+
+				if overall_candidate_score < MIN_CANDIDATE_SCORE:
+					self.debug_metrics["candidate_edges_rejected_score"] += 1
+					continue
 
 				candidates.append(
 					IdentityCandidateEdge(
@@ -182,9 +197,11 @@ class Pass3ACandidateGenerator:
 						fragment_b=fragment_b.fragment_id,
 						temporal_gap=temporal_gap,
 						spatial_distance=float(spatial_distance),
+						track_continuity_score=float(track_continuity_score),
 						velocity_consistency_score=float(velocity_consistency_score),
 						appearance_similarity=float(appearance_similarity),
 						jersey_similarity=float(jersey_similarity),
+						temporal_gap_score=float(temporal_gap_score),
 						overall_candidate_score=float(overall_candidate_score),
 					)
 				)
@@ -309,6 +326,11 @@ class Pass3ACandidateGenerator:
 		max_error = max(1.0, const.MAX_PLAYER_SPEED * float(max(1, temporal_gap)))
 		return _clamp01(1.0 - (prediction_error / max_error))
 
+	def _temporal_gap_score(self, temporal_gap: int) -> float:
+		if const.MAX_IDENTITY_GAP <= 0:
+			return 0.0
+		return _clamp01(1.0 - (float(temporal_gap) / float(const.MAX_IDENTITY_GAP)))
+
 	def _appearance_similarity(self, fragment_a: ScoredFragment, fragment_b: ScoredFragment) -> float:
 		embedding_a = getattr(fragment_a, "appearance_embedding", None)
 		embedding_b = getattr(fragment_b, "appearance_embedding", None)
@@ -417,9 +439,17 @@ class Pass3ACandidateGenerator:
 			)
 		)
 
-	def _jersey_similarity(self, fragment_a: ScoredFragment, fragment_b: ScoredFragment) -> float:
-		jersey_a = self._dominant_jersey(fragment_a)
-		jersey_b = self._dominant_jersey(fragment_b)
+	def _jersey_similarity(
+		self,
+		fragment_a: ScoredFragment,
+		fragment_b: ScoredFragment,
+		jersey_a: Optional[int] = None,
+		jersey_b: Optional[int] = None,
+	) -> float:
+		if jersey_a is None:
+			jersey_a = self._dominant_jersey(fragment_a)
+		if jersey_b is None:
+			jersey_b = self._dominant_jersey(fragment_b)
 
 		if jersey_a is None or jersey_b is None:
 			return 0.5
@@ -478,6 +508,40 @@ def _validate_candidate_edges(pass3a_edges_output: Pass3AEdgesOutput) -> List[Va
 						"fragment_a": candidate.fragment_a,
 						"fragment_b": candidate.fragment_b,
 						"overall_candidate_score": candidate.overall_candidate_score,
+					},
+				)
+			)
+
+		if not (0.0 <= candidate.track_continuity_score <= 1.0):
+			violations.append(
+				ValidationViolation(
+					rule="PASS3A_EDGE_INVALID_TRACK_SCORE",
+					severity="error",
+					message=(
+						f"Invalid track continuity score for {candidate.fragment_a} -> {candidate.fragment_b}: "
+						f"track_continuity_score={candidate.track_continuity_score}"
+					),
+					details={
+						"fragment_a": candidate.fragment_a,
+						"fragment_b": candidate.fragment_b,
+						"track_continuity_score": candidate.track_continuity_score,
+					},
+				)
+			)
+
+		if not (0.0 <= candidate.temporal_gap_score <= 1.0):
+			violations.append(
+				ValidationViolation(
+					rule="PASS3A_EDGE_INVALID_TEMPORAL_SCORE",
+					severity="error",
+					message=(
+						f"Invalid temporal gap score for {candidate.fragment_a} -> {candidate.fragment_b}: "
+						f"temporal_gap_score={candidate.temporal_gap_score}"
+					),
+					details={
+						"fragment_a": candidate.fragment_a,
+						"fragment_b": candidate.fragment_b,
+						"temporal_gap_score": candidate.temporal_gap_score,
 					},
 				)
 			)

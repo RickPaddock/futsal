@@ -127,6 +127,7 @@ class Pass2AFragmenter:
         self.split_log: List[Dict] = []
         self._cluster_centroids: Optional[np.ndarray] = None  # shape (k, 512)
         self._cluster_to_team: Dict[int, int] = {}
+        self._team_to_clusters: Dict[int, List[int]] = {}
         self._all_dets_by_frame: Dict[int, List[Detection]] = {}
 
     # ------------------------------------------------------------------
@@ -146,8 +147,12 @@ class Pass2AFragmenter:
         self._cluster_centroids = self._build_color_clusters(pass1.detections)
         if self._cluster_centroids is not None:
             self._cluster_to_team = self._build_team_cluster_map(self._cluster_centroids)
+            self._team_to_clusters = defaultdict(list)
+            for cluster_idx, team_id in self._cluster_to_team.items():
+                self._team_to_clusters[int(team_id)].append(int(cluster_idx))
             logger.info(f"  K-means: {len(self._cluster_centroids)} colour clusters")
             logger.info(f"  Team cluster map: {self._cluster_to_team}")
+            logger.info(f"  Team subclusters: {dict(self._team_to_clusters)}")
         else:
             logger.warning("  K-means skipped (insufficient valid HSV data) — T4 disabled")
 
@@ -393,18 +398,11 @@ class Pass2AFragmenter:
         if self._cluster_centroids is None:
             return []
 
-        # Build HSV sample list: (frame_idx, histogram, nearest_cluster, crop_quality)
-        hsv_samples: List[Tuple[int, np.ndarray, int, float]] = sorted(
+        # Build HSV sample list:
+        # (frame_idx, histogram, nearest_cluster, crop_quality, nearest_team, team_margin)
+        hsv_samples: List[Tuple[int, np.ndarray, int, float, int, float]] = sorted(
             [
-                (
-                    d.frame_idx,
-                    np.array(d.hsv_histogram_jersey, dtype=np.float32),
-                    _nearest_cluster(
-                        np.array(d.hsv_histogram_jersey, dtype=np.float32),
-                        self._cluster_centroids,
-                    ),
-                    float(d.jersey_crop_quality or 0.0),
-                )
+                self._build_t4_sample(d)
                 for d in dets
                 if d.jersey_roi_valid and d.hsv_histogram_jersey
             ],
@@ -414,10 +412,23 @@ class Pass2AFragmenter:
             return []
 
         # Index for fast range queries
-        frames_arr = np.array([f for f, _, _, _ in hsv_samples])
-        hsvs_arr = np.stack([h for _, h, _, _ in hsv_samples])
-        cluster_arr = np.array([c for _, _, c, _ in hsv_samples], dtype=np.int32)
-        quality_arr = np.array([q for _, _, _, q in hsv_samples], dtype=np.float32)
+        frames_arr = np.array([f for f, _, _, _, _, _ in hsv_samples])
+        hsvs_arr = np.stack([h for _, h, _, _, _, _ in hsv_samples])
+        cluster_arr = np.array([c for _, _, c, _, _, _ in hsv_samples], dtype=np.int32)
+        quality_arr = np.array([q for _, _, _, q, _, _ in hsv_samples], dtype=np.float32)
+        team_arr = np.array([tm for _, _, _, _, tm, _ in hsv_samples], dtype=np.int32)
+        margin_arr = np.array([m for _, _, _, _, _, m in hsv_samples], dtype=np.float32)
+
+        has_two_team_evidence = self._track_has_two_team_evidence(
+            team_arr,
+            margin_arr,
+            quality_arr,
+        )
+
+        candidate_scan_frames = self._local_track_team_transition_frames(
+            frames_arr=frames_arr,
+            hsvs_arr=hsvs_arr,
+        )
 
         det_frames = sorted(d.frame_idx for d in dets)
         if not det_frames:
@@ -429,18 +440,27 @@ class Pass2AFragmenter:
         last_split_frame = -W * 2
         det_by_frame: Dict[int, Detection] = {d.frame_idx: d for d in dets}
 
-        scan_start = det_frames[0] + W + const.TEAM_SWITCH_EDGE_MARGIN
-        scan_end = det_frames[-1] - W - const.TEAM_SWITCH_EDGE_MARGIN
-        if scan_end < scan_start:
+        track_start = det_frames[0]
+        track_end = det_frames[-1]
+        if track_end <= track_start:
             return []
 
-        for t in range(scan_start, scan_end + 1, step):
+        # Always include edge candidates: if less than W frames exist on either side,
+        # evaluate with truncated windows rather than skipping the boundary region.
+        full_scan_frames = list(range(track_start + 1, track_end, step))
+        candidate_scan_frames = sorted(set(candidate_scan_frames + full_scan_frames))
+
+        for t in candidate_scan_frames:
+            if t <= track_start or t >= track_end:
+                continue
             if t - last_split_frame < W:
                 continue  # Cooldown
 
             # Indices in window
-            before_mask = (frames_arr >= t - W) & (frames_arr < t)
-            after_mask = (frames_arr > t) & (frames_arr <= t + W)
+            left = max(track_start, t - W)
+            right = min(track_end, t + W)
+            before_mask = (frames_arr >= left) & (frames_arr < t)
+            after_mask = (frames_arr > t) & (frames_arr <= right)
 
             n_before = before_mask.sum()
             n_after = after_mask.sum()
@@ -451,20 +471,39 @@ class Pass2AFragmenter:
 
             before_clusters = cluster_arr[before_mask]
             after_clusters = cluster_arr[after_mask]
+            before_teams = team_arr[before_mask]
+            after_teams = team_arr[after_mask]
 
-            # Dominant cluster + confidence on each side of split candidate.
             c_before, c_before_count = Counter(before_clusters.tolist()).most_common(1)[0]
             c_after, c_after_count = Counter(after_clusters.tolist()).most_common(1)[0]
             conf_before = c_before_count / float(n_before)
             conf_after = c_after_count / float(n_after)
 
+            # Team vote is weighted by margin and crop quality so weak assignments
+            # do not dominate window decisions.
+            team_before, team_before_conf = self._dominant_team_vote(
+                before_teams, margin_arr[before_mask], quality_arr[before_mask]
+            )
+            team_after, team_after_conf = self._dominant_team_vote(
+                after_teams, margin_arr[after_mask], quality_arr[after_mask]
+            )
+
             if conf_before < const.TEAM_SWITCH_CONFIDENCE:
                 continue
             if conf_after < const.TEAM_SWITCH_CONFIDENCE:
                 continue
+            if team_before_conf < const.TEAM_SWITCH_CONFIDENCE:
+                continue
+            if team_after_conf < const.TEAM_SWITCH_CONFIDENCE:
+                continue
 
-            team_before = self._cluster_to_team.get(int(c_before), int(c_before))
-            team_after = self._cluster_to_team.get(int(c_after), int(c_after))
+            # Keep strict two-team gate for full-window checks, but allow edge-truncated
+            # windows to proceed even when global track-level evidence is sparse.
+            full_before = (t - W) >= track_start
+            full_after = (t + W) <= track_end
+            if not has_two_team_evidence and full_before and full_after:
+                continue
+
             if team_before == team_after:
                 continue  # Team-level cluster unchanged → no team switch
 
@@ -491,7 +530,11 @@ class Pass2AFragmenter:
             curr_det = det_by_frame.get(split_frame)
             if curr_det is None:
                 continue
-            if not self._has_nearby_crossing(track_id, split_frame, curr_det):
+            if not self._has_crossing_near_split(
+                track_id=track_id,
+                split_frame=split_frame,
+                det_by_frame=det_by_frame,
+            ):
                 continue
 
             splits.append((split_frame, "team_switch"))
@@ -502,24 +545,16 @@ class Pass2AFragmenter:
                 "details": (
                     f"cluster {c_before}→{c_after}, "
                     f"team {team_before}→{team_after}, "
-                    f"conf={conf_before:.2f}/{conf_after:.2f}, "
+                    f"cconf={conf_before:.2f}/{conf_after:.2f}, "
+                    f"tconf={team_before_conf:.2f}/{team_after_conf:.2f}, "
                     f"q={q_before:.2f}/{q_after:.2f}, "
                     f"dist={dist:.3f} (>{const.TEAM_SWITCH_HSV_THRESHOLD}), "
                     f"before_n={int(n_before)} after_n={int(n_after)}, "
+                    f"edge_trunc={int(not (full_before and full_after))}, "
                     f"scan_t={t}"
                 ),
             })
             last_split_frame = t
-
-        # Edge rescue for short tracks: allows partial windows near boundaries
-        # with stricter confidence/proximity requirements.
-        edge_splits = self._detect_t4_edge_rescue(
-            track_id=track_id,
-            dets=dets,
-            existing_split_frames={f for f, _ in splits},
-            last_split_scan_t=last_split_frame,
-        )
-        splits.extend(edge_splits)
 
         return splits
 
@@ -529,6 +564,98 @@ class Pass2AFragmenter:
         if not det_frames:
             return t
         return min(det_frames, key=lambda f: abs(f - t))
+
+    def _build_t4_sample(self, det: Detection) -> Tuple[int, np.ndarray, int, float, int, float]:
+        hist = np.array(det.hsv_histogram_jersey, dtype=np.float32)
+        cluster_id = _nearest_cluster(hist, self._cluster_centroids)
+        team_id, margin = self._nearest_team_with_margin(hist)
+        return (
+            int(det.frame_idx),
+            hist,
+            int(cluster_id),
+            float(det.jersey_crop_quality or 0.0),
+            int(team_id),
+            float(margin),
+        )
+
+    def _nearest_team_with_margin(self, hist: np.ndarray) -> Tuple[int, float]:
+        # Uses nearest subcluster for each team, preserving non-bib subcluster detail.
+        if not self._team_to_clusters:
+            nearest_cluster = _nearest_cluster(hist, self._cluster_centroids)
+            team_id = int(self._cluster_to_team.get(int(nearest_cluster), int(nearest_cluster)))
+            return team_id, 1.0
+
+        team_dists: Dict[int, float] = {}
+        for team_id, cluster_ids in self._team_to_clusters.items():
+            if not cluster_ids:
+                continue
+            min_dist = min(float(np.linalg.norm(hist - self._cluster_centroids[cid])) for cid in cluster_ids)
+            team_dists[int(team_id)] = float(min_dist)
+
+        if not team_dists:
+            nearest_cluster = _nearest_cluster(hist, self._cluster_centroids)
+            team_id = int(self._cluster_to_team.get(int(nearest_cluster), int(nearest_cluster)))
+            return team_id, 1.0
+
+        ordered = sorted(team_dists.items(), key=lambda kv: kv[1])
+        best_team, best_dist = ordered[0]
+        if len(ordered) == 1:
+            return int(best_team), 1.0
+        second_dist = ordered[1][1]
+        margin = max(0.0, (second_dist - best_dist) / max(second_dist, 1e-6))
+        return int(best_team), float(margin)
+
+    def _track_has_two_team_evidence(
+        self,
+        team_arr: np.ndarray,
+        margin_arr: np.ndarray,
+        quality_arr: np.ndarray,
+    ) -> bool:
+        if team_arr.size == 0:
+            return False
+
+        weights = np.maximum(margin_arr, const.TEAM_SWITCH_MIN_TEAM_MARGIN) * np.maximum(quality_arr, 1e-3)
+        weighted_by_team: Dict[int, float] = defaultdict(float)
+        count_by_team: Dict[int, int] = defaultdict(int)
+        for team_id, w in zip(team_arr.tolist(), weights.tolist()):
+            weighted_by_team[int(team_id)] += float(w)
+            if w >= const.TEAM_SWITCH_MIN_TEAM_MARGIN:
+                count_by_team[int(team_id)] += 1
+
+        if len(weighted_by_team) < 2:
+            return False
+
+        ordered = sorted(weighted_by_team.items(), key=lambda kv: kv[1], reverse=True)
+        minority_team, minority_weight = ordered[-1]
+        total_weight = sum(weighted_by_team.values())
+        if total_weight <= 1e-6:
+            return False
+
+        minority_ratio = minority_weight / total_weight
+        minority_samples = int(count_by_team.get(int(minority_team), 0))
+        return (
+            minority_ratio >= const.TEAM_SWITCH_TRACK_MINORITY_RATIO
+            and minority_samples >= const.TEAM_SWITCH_TRACK_MINORITY_SAMPLES
+        )
+
+    def _dominant_team_vote(
+        self,
+        teams: np.ndarray,
+        margins: np.ndarray,
+        qualities: np.ndarray,
+    ) -> Tuple[int, float]:
+        weighted_by_team: Dict[int, float] = defaultdict(float)
+        weights = np.maximum(margins, const.TEAM_SWITCH_MIN_TEAM_MARGIN) * np.maximum(qualities, 1e-3)
+        for team_id, w in zip(teams.tolist(), weights.tolist()):
+            weighted_by_team[int(team_id)] += float(w)
+
+        if not weighted_by_team:
+            return 0, 0.0
+
+        dominant_team, dominant_weight = max(weighted_by_team.items(), key=lambda kv: kv[1])
+        total = sum(weighted_by_team.values())
+        conf = dominant_weight / max(total, 1e-6)
+        return int(dominant_team), float(conf)
 
     def _has_nearby_crossing(
         self,
@@ -553,6 +680,91 @@ class Pass2AFragmenter:
             if centroid_distance(det.centroid, other.centroid) <= max_dist:
                 return True
         return False
+
+    def _has_crossing_near_split(
+        self,
+        track_id: TrackID,
+        split_frame: int,
+        det_by_frame: Dict[int, Detection],
+    ) -> bool:
+        tolerance = int(const.TEAM_SWITCH_CROSSING_FRAME_TOLERANCE)
+        for frame_idx in range(split_frame - tolerance, split_frame + tolerance + 1):
+            det = det_by_frame.get(frame_idx)
+            if det is None:
+                continue
+            if self._has_nearby_crossing(track_id, frame_idx, det):
+                return True
+        return False
+
+    def _local_track_team_transition_frames(
+        self,
+        frames_arr: np.ndarray,
+        hsvs_arr: np.ndarray,
+    ) -> List[int]:
+        """
+        Build candidate split scan frames using local track colour clustering.
+
+        A track contributes candidates only when its two local colour modes map to
+        different global teams (via nearest team subcluster).
+        """
+        n = int(frames_arr.size)
+        if n < 2 * const.TEAM_SWITCH_MIN_SAMPLES:
+            return []
+
+        local_centroids = _kmeans_fit(
+            hsvs_arr,
+            k=2,
+            n_init=8,
+            max_iter=100,
+            random_state=42,
+        )
+        local_labels = np.array(
+            [_nearest_cluster(h, local_centroids) for h in hsvs_arr],
+            dtype=np.int32,
+        )
+
+        counts = Counter(local_labels.tolist())
+        if len(counts) < 2:
+            return []
+        if min(counts.values()) < const.TEAM_SWITCH_MIN_SAMPLES:
+            return []
+
+        local_to_team: Dict[int, int] = {}
+        for local_idx in range(2):
+            mapped_team, _ = self._nearest_team_with_margin(local_centroids[local_idx])
+            local_to_team[int(local_idx)] = int(mapped_team)
+
+        if local_to_team[0] == local_to_team[1]:
+            return []
+
+        p = int(const.TEAM_SWITCH_MIN_SAMPLES)
+        step = max(1, int(const.TEAM_SWITCH_SCAN_STEP // 2))
+        candidates: List[int] = []
+        last_candidate = -10_000
+
+        for idx in range(p, n - p, step):
+            before = local_labels[idx - p:idx]
+            after = local_labels[idx:idx + p]
+
+            b_label, b_count = Counter(before.tolist()).most_common(1)[0]
+            a_label, a_count = Counter(after.tolist()).most_common(1)[0]
+            b_conf = b_count / float(len(before))
+            a_conf = a_count / float(len(after))
+
+            if b_conf < const.TEAM_SWITCH_CONFIDENCE:
+                continue
+            if a_conf < const.TEAM_SWITCH_CONFIDENCE:
+                continue
+            if local_to_team[int(b_label)] == local_to_team[int(a_label)]:
+                continue
+
+            t = int(frames_arr[idx])
+            if t - last_candidate < const.TEAM_SWITCH_WINDOW:
+                continue
+            candidates.append(t)
+            last_candidate = t
+
+        return candidates
 
     def _detect_t4_edge_rescue(
         self,
@@ -579,17 +791,9 @@ class Pass2AFragmenter:
         if self._cluster_centroids is None:
             return []
 
-        hsv_samples: List[Tuple[int, np.ndarray, int, float]] = sorted(
+        hsv_samples: List[Tuple[int, np.ndarray, int, float, int, float]] = sorted(
             [
-                (
-                    d.frame_idx,
-                    np.array(d.hsv_histogram_jersey, dtype=np.float32),
-                    _nearest_cluster(
-                        np.array(d.hsv_histogram_jersey, dtype=np.float32),
-                        self._cluster_centroids,
-                    ),
-                    float(d.jersey_crop_quality or 0.0),
-                )
+                self._build_t4_sample(d)
                 for d in dets
                 if d.jersey_roi_valid and d.hsv_histogram_jersey
             ],
@@ -599,10 +803,20 @@ class Pass2AFragmenter:
         if len(hsv_samples) < 2 * const.TEAM_SWITCH_MIN_SAMPLES:
             return []
 
-        frames_arr = np.array([f for f, _, _, _ in hsv_samples])
-        hsvs_arr = np.stack([h for _, h, _, _ in hsv_samples])
-        cluster_arr = np.array([c for _, _, c, _ in hsv_samples], dtype=np.int32)
-        quality_arr = np.array([q for _, _, _, q in hsv_samples], dtype=np.float32)
+        frames_arr = np.array([f for f, _, _, _, _, _ in hsv_samples])
+        hsvs_arr = np.stack([h for _, h, _, _, _, _ in hsv_samples])
+        cluster_arr = np.array([c for _, _, c, _, _, _ in hsv_samples], dtype=np.int32)
+        quality_arr = np.array([q for _, _, _, q, _, _ in hsv_samples], dtype=np.float32)
+        team_arr = np.array([tm for _, _, _, _, tm, _ in hsv_samples], dtype=np.int32)
+        margin_arr = np.array([m for _, _, _, _, _, m in hsv_samples], dtype=np.float32)
+
+        if not self._track_has_two_team_evidence(team_arr, margin_arr, quality_arr):
+            return []
+
+        candidate_scan_frames = self._local_track_team_transition_frames(
+            frames_arr=frames_arr,
+            hsvs_arr=hsvs_arr,
+        )
         det_frames = sorted(d.frame_idx for d in dets)
         det_by_frame: Dict[int, Detection] = {d.frame_idx: d for d in dets}
 
@@ -611,7 +825,12 @@ class Pass2AFragmenter:
         splits: List[Tuple[int, str]] = []
         last_scan_t = last_split_scan_t
 
-        for t in range(track_start + 1, track_end, step):
+        full_scan_frames = list(range(track_start + 1, track_end, step))
+        candidate_scan_frames = sorted(set(candidate_scan_frames + full_scan_frames))
+
+        for t in candidate_scan_frames:
+            if t < track_start + 1 or t >= track_end:
+                continue
             if t - last_scan_t < W:
                 continue
 
@@ -640,8 +859,16 @@ class Pass2AFragmenter:
             if conf_after < const.TEAM_SWITCH_CONFIDENCE:
                 continue
 
-            team_before = self._cluster_to_team.get(int(c_before), int(c_before))
-            team_after = self._cluster_to_team.get(int(c_after), int(c_after))
+            team_before, team_before_conf = self._dominant_team_vote(
+                team_arr[before_mask], margin_arr[before_mask], quality_arr[before_mask]
+            )
+            team_after, team_after_conf = self._dominant_team_vote(
+                team_arr[after_mask], margin_arr[after_mask], quality_arr[after_mask]
+            )
+            if team_before_conf < const.TEAM_SWITCH_EDGE_RESCUE_MIN_MAIN_CONF:
+                continue
+            if team_after_conf < const.TEAM_SWITCH_CONFIDENCE:
+                continue
             if team_before == team_after:
                 continue
 
@@ -664,11 +891,10 @@ class Pass2AFragmenter:
             curr_det = det_by_frame.get(split_frame)
             if curr_det is None:
                 continue
-            if not self._has_nearby_crossing(
+            if not self._has_crossing_near_split(
                 track_id=track_id,
-                frame_idx=split_frame,
-                det=curr_det,
-                max_bbox_widths=const.TEAM_SWITCH_EDGE_RESCUE_PROXIMITY_BBOX_WIDTHS,
+                split_frame=split_frame,
+                det_by_frame=det_by_frame,
             ):
                 continue
 
@@ -680,7 +906,8 @@ class Pass2AFragmenter:
                 "details": (
                     f"edge_rescue=1, cluster {c_before}→{c_after}, "
                     f"team {team_before}→{team_after}, "
-                    f"conf={conf_before:.2f}/{conf_after:.2f}, "
+                    f"cconf={conf_before:.2f}/{conf_after:.2f}, "
+                    f"tconf={team_before_conf:.2f}/{team_after_conf:.2f}, "
                     f"q={q_before:.2f}/{q_after:.2f}, "
                     f"dist={dist:.3f} (>{const.TEAM_SWITCH_HSV_THRESHOLD}), "
                     f"before_n={n_before} after_n={n_after}, scan_t={t}"

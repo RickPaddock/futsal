@@ -275,9 +275,11 @@ IDENTITY_CANDIDATE_EDGE_SCHEMA = {
         "fragment_b",
         "temporal_gap",
         "spatial_distance",
+        "track_continuity_score",
         "velocity_consistency_score",
         "appearance_similarity",
         "jersey_similarity",
+        "temporal_gap_score",
         "overall_candidate_score",
     ],
     "properties": {
@@ -285,9 +287,11 @@ IDENTITY_CANDIDATE_EDGE_SCHEMA = {
         "fragment_b": {"type": "string", "pattern": "^F\\d{6}$"},
         "temporal_gap": {"type": "integer", "minimum": 1},
         "spatial_distance": {"type": "number", "minimum": 0},
+        "track_continuity_score": {"type": "number", "minimum": 0, "maximum": 1},
         "velocity_consistency_score": {"type": "number", "minimum": 0, "maximum": 1},
         "appearance_similarity": {"type": "number", "minimum": 0, "maximum": 1},
         "jersey_similarity": {"type": "number", "minimum": 0, "maximum": 1},
+        "temporal_gap_score": {"type": "number", "minimum": 0, "maximum": 1},
         "overall_candidate_score": {"type": "number", "minimum": 0, "maximum": 1},
     },
 }

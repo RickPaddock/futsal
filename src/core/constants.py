@@ -107,6 +107,12 @@ KMEANS_MIN_HSV_CONSISTENCY = 0.35
 # Pass 3A candidate-edge eligibility constraints.
 MAX_IDENTITY_GAP = 300  # Maximum temporal gap (frames) for identity continuation edges
 MAX_PLAYER_SPEED = 50.0  # Max plausible player speed (px/frame) for Pass 3 spatial feasibility gate
+TRACK_CONTINUITY_GAP = 120  # Max gap for same-track continuity candidate edges
+MIN_CANDIDATE_SCORE = 0.35  # Minimum overall score required to keep a Pass 3A edge
+
+# Pass 3B score thresholds for hard/soft constraints.
+PASS3B_SOFT_THRESHOLD = 0.35
+PASS3B_MUST_SAME_THRESHOLD = 0.85
 
 # Minimum support required to emit jersey evidence for a fragment.
 # Fragments below either threshold produce no jersey candidate — classifier noise suppressed.
@@ -237,7 +243,7 @@ JERSEY_CHANGE_PERSISTENCE_FRAMES = 15
 
 # T4: Team Assignment Discontinuity (windowed HSV + K-means clustering)
 TEAM_SWITCH_WINDOW = 30           # Frames before/after split candidate
-TEAM_SWITCH_HSV_THRESHOLD = 0.35  # Min 1-correlation between window means to fire.
+TEAM_SWITCH_HSV_THRESHOLD = 0.25  # Min 1-correlation between window means to fire.
 TEAM_SWITCH_MIN_SAMPLES = 3       # Min valid HSV samples required in each window
 TEAM_SWITCH_CONFIDENCE = 0.60     # Min dominant-cluster ratio required on both windows
 TEAM_SWITCH_MIN_CROP_QUALITY = 0.55  # Min mean jersey-crop quality in each window
@@ -245,9 +251,13 @@ TEAM_SWITCH_SCAN_STEP = 10        # Scan a split candidate every N frames
 TEAM_SWITCH_EDGE_MARGIN = 30      # Do not evaluate T4 too close to track start/end
 TEAM_SWITCH_TEAM_CLUSTERS = 2     # Collapse colour clusters into 2 team-level groups
 TEAM_SWITCH_PROXIMITY_BBOX_WIDTHS = 1.8  # Require nearby-player crossing evidence
+TEAM_SWITCH_CROSSING_FRAME_TOLERANCE = 10  # Nearby crossing may occur a few frames around split.
 TEAM_SWITCH_EDGE_RESCUE_MAX_TRACK_FRAMES = 300  # Only run edge rescue on short tracks.
 TEAM_SWITCH_EDGE_RESCUE_MIN_MAIN_CONF = 0.95    # Strong dominant cluster before split.
 TEAM_SWITCH_EDGE_RESCUE_PROXIMITY_BBOX_WIDTHS = 0.90  # Stricter crossing gate at edges.
+TEAM_SWITCH_TRACK_MINORITY_RATIO = 0.15  # Track must show meaningful support for both teams.
+TEAM_SWITCH_TRACK_MINORITY_SAMPLES = 6   # Minimum observations supporting the minority team.
+TEAM_SWITCH_MIN_TEAM_MARGIN = 0.05       # Minimum per-observation team-separation margin.
 
 # T5: Impossible Motion Spike
 PASS2_MAX_PLAYER_SPEED = 150      # Max pixels/frame for single-frame centroid jump (Pass 2A T5)

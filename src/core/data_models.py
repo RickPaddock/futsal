@@ -381,9 +381,11 @@ class IdentityCandidateEdge(BaseModel):
     fragment_b: FragmentID
     temporal_gap: int
     spatial_distance: float
+    track_continuity_score: float = 0.0
     velocity_consistency_score: float
     appearance_similarity: float
     jersey_similarity: float
+    temporal_gap_score: float = 0.0
     overall_candidate_score: float
 
 

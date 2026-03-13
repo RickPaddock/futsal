@@ -26,6 +26,7 @@ from ..core.data_models import (
     Pass3BOutput,
     ScoredFragment,
     ValidationResult,
+    ValidationViolation,
 )
 from ..core.types import ConstraintType
 from ..utils.file_utils import load_json, save_json
@@ -74,10 +75,13 @@ class Pass3BConstraintBuilder:
     def build(self) -> Pass3BOutput:
         self._add_must_same_track_adjacency()
         self._add_must_same_ghost_continuity()
-        self._add_cannot_same_jersey_conflicts()
+        self._add_cannot_same_temporal_overlap()
+        self._add_cannot_same_conflicting_jerseys()
+        self._add_cannot_same_spatial_impossibility()
         self._add_must_same_edge_constraints()
         self._add_soft_same_edge_constraints()
         self._add_soft_same_track_preferences()
+        self._validate_must_cannot_invariants()
 
         graph = self._build_constraint_graph()
         return Pass3BOutput(constraints=self._constraints, constraint_graph=graph)
@@ -99,6 +103,18 @@ class Pass3BConstraintBuilder:
             return
 
         normalized_pair = tuple(sorted((frag_a, frag_b)))
+
+        if constraint_type == ConstraintType.MUST_SAME and self._has_constraint(ConstraintType.CANNOT_SAME, normalized_pair):
+            raise ValueError(
+                "Pass 3B contradiction (fail-fast): refusing MUST_SAME insertion because "
+                f"CANNOT_SAME already exists for pair {normalized_pair}"
+            )
+        if constraint_type == ConstraintType.CANNOT_SAME and self._has_constraint(ConstraintType.MUST_SAME, normalized_pair):
+            raise ValueError(
+                "Pass 3B contradiction (fail-fast): refusing CANNOT_SAME insertion because "
+                f"MUST_SAME already exists for pair {normalized_pair}"
+            )
+
         for existing in self._constraints:
             if existing.constraint_type != constraint_type:
                 continue
@@ -185,26 +201,93 @@ class Pass3BConstraintBuilder:
                     value={"kind": "ghost_continuity", "track_id": track_id},
                 )
 
-    def _add_cannot_same_jersey_conflicts(self) -> None:
+    def _add_cannot_same_temporal_overlap(self) -> None:
         for left, right in combinations(self.pass2c_output.fragments, 2):
             if not self._time_overlaps(left, right):
                 continue
 
+            # Same-track continuity (especially ghost handoffs) may overlap briefly
+            # by construction and should not be converted into CANNOT_SAME.
+            if int(left.original_track_id) == int(right.original_track_id):
+                continue
+
+            self._add_constraint(
+                constraint_type=ConstraintType.CANNOT_SAME,
+                fragment_ids=(left.fragment_id, right.fragment_id),
+                reason="Temporal overlap between fragments",
+                value={"kind": "temporal_overlap"},
+            )
+
+    def _add_cannot_same_conflicting_jerseys(self) -> None:
+        for left, right in combinations(self.pass2c_output.fragments, 2):
             jersey_left = self._candidate_jersey(left.fragment_id)
             jersey_right = self._candidate_jersey(right.fragment_id)
             if jersey_left is None or jersey_right is None:
                 continue
-            if jersey_left != jersey_right:
+            if int(jersey_left) == int(jersey_right):
                 continue
 
             self._add_constraint(
                 constraint_type=ConstraintType.CANNOT_SAME,
                 fragment_ids=(left.fragment_id, right.fragment_id),
                 reason=(
-                    f"Temporal jersey exclusivity conflict: jersey {jersey_left} overlaps in time"
+                    f"Hard jersey conflict: {jersey_left} vs {jersey_right}"
                 ),
-                value={"jersey": jersey_left},
+                value={
+                    "kind": "jersey_conflict",
+                    "jersey_left": int(jersey_left),
+                    "jersey_right": int(jersey_right),
+                },
             )
+
+    def _add_cannot_same_spatial_impossibility(self) -> None:
+        ordered = sorted(
+            self.pass2c_output.fragments,
+            key=lambda fragment: (fragment.start_frame, fragment.end_frame, fragment.fragment_id),
+        )
+
+        for index, left in enumerate(ordered):
+            for right in ordered[index + 1:]:
+                if self._time_overlaps(left, right):
+                    continue
+
+                if left.end_frame < right.start_frame:
+                    first, second = left, right
+                elif right.end_frame < left.start_frame:
+                    first, second = right, left
+                else:
+                    continue
+
+                gap = int(second.start_frame - first.end_frame)
+                if gap <= 0 or gap > const.MAX_IDENTITY_GAP:
+                    continue
+
+                centroid_first = self._fragment_reference_centroid(first)
+                centroid_second = self._fragment_reference_centroid(second)
+                if centroid_first is None or centroid_second is None:
+                    continue
+
+                dx = centroid_second[0] - centroid_first[0]
+                dy = centroid_second[1] - centroid_first[1]
+                distance = float((dx * dx + dy * dy) ** 0.5)
+                max_distance = float(const.MAX_PLAYER_SPEED * gap)
+                if distance <= max_distance:
+                    continue
+
+                self._add_constraint(
+                    constraint_type=ConstraintType.CANNOT_SAME,
+                    fragment_ids=(first.fragment_id, second.fragment_id),
+                    reason=(
+                        "Spatial impossibility: required speed exceeds MAX_PLAYER_SPEED "
+                        f"(distance={distance:.2f}, max={max_distance:.2f}, gap={gap})"
+                    ),
+                    value={
+                        "kind": "spatial_impossibility",
+                        "distance": distance,
+                        "max_distance": max_distance,
+                        "gap": gap,
+                    },
+                )
 
     def _add_soft_same_track_preferences(self) -> None:
         fragments_by_track: Dict[int, List[ScoredFragment]] = defaultdict(list)
@@ -274,7 +357,10 @@ class Pass3BConstraintBuilder:
             if edge.overall_candidate_score < PASS3B_MUST_SAME_THRESHOLD:
                 continue
             if self._has_constraint(ConstraintType.CANNOT_SAME, pair):
-                continue
+                raise ValueError(
+                    "Pass 3B contradiction (fail-fast): MUST_SAME threshold edge conflicts with "
+                    f"existing CANNOT_SAME for pair {pair} (score={edge.overall_candidate_score:.3f})"
+                )
 
             left, right = pair
             if left not in parent or right not in parent:
@@ -291,7 +377,19 @@ class Pass3BConstraintBuilder:
                 for fragment_right in members[root_right]
             )
             if has_transitive_conflict:
-                continue
+                conflicting_pair = next(
+                    (
+                        tuple(sorted((fragment_left, fragment_right)))
+                        for fragment_left in members[root_left]
+                        for fragment_right in members[root_right]
+                        if tuple(sorted((fragment_left, fragment_right))) in cannot_pairs
+                    ),
+                    None,
+                )
+                raise ValueError(
+                    "Pass 3B contradiction (fail-fast): transitive MUST merge would violate CANNOT_SAME "
+                    f"between {conflicting_pair} while evaluating edge {pair}"
+                )
 
             self._add_constraint(
                 constraint_type=ConstraintType.MUST_SAME,
@@ -379,6 +477,49 @@ class Pass3BConstraintBuilder:
 
         return best
 
+    @staticmethod
+    def _fragment_reference_centroid(fragment: ScoredFragment) -> Optional[Tuple[float, float]]:
+        centroid = getattr(fragment, "estimated_centroid", None)
+        if centroid is None:
+            centroid = getattr(fragment, "ghost_last_known_centroid", None)
+        if centroid is not None and len(centroid) >= 2:
+            return float(centroid[0]), float(centroid[1])
+
+        bbox = getattr(fragment, "estimated_bbox", None)
+        if bbox is None:
+            bbox = getattr(fragment, "ghost_last_known_bbox", None)
+        if bbox is not None and len(bbox) >= 4:
+            x1, y1, x2, y2 = [float(value) for value in bbox[:4]]
+            return ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
+
+        return None
+
+    def _validate_must_cannot_invariants(self) -> None:
+        must_neighbors: Dict[str, set] = defaultdict(set)
+        cannot_pairs = {
+            tuple(sorted((constraint.fragment_ids[0], constraint.fragment_ids[1])))
+            for constraint in self._constraints
+            if constraint.constraint_type == ConstraintType.CANNOT_SAME and len(constraint.fragment_ids) >= 2
+        }
+
+        for constraint in self._constraints:
+            if constraint.constraint_type != ConstraintType.MUST_SAME or len(constraint.fragment_ids) < 2:
+                continue
+            left, right = constraint.fragment_ids[0], constraint.fragment_ids[1]
+            must_neighbors[left].add(right)
+            must_neighbors[right].add(left)
+
+        for pivot, neighbors in must_neighbors.items():
+            ordered_neighbors = sorted(neighbors)
+            for i in range(len(ordered_neighbors)):
+                for j in range(i + 1, len(ordered_neighbors)):
+                    pair = tuple(sorted((ordered_neighbors[i], ordered_neighbors[j])))
+                    if pair in cannot_pairs:
+                        raise ValueError(
+                            "Pass 3B invariant violation (fail-fast): fragment "
+                            f"{pivot} MUST_SAME-links {pair[0]} and {pair[1]} but they are CANNOT_SAME"
+                        )
+
 
 def run_pass3b(
     input_dir: Path,
@@ -410,7 +551,24 @@ def run_pass3b(
         pass2c_output=pass2c_output,
         pass3a_legacy_output=pass3a_legacy_output,
     )
-    pass3b_output = builder.build()
+    try:
+        pass3b_output = builder.build()
+    except ValueError as exc:
+        validation_result = ValidationResult(
+            passed=False,
+            violations=[
+                ValidationViolation(
+                    rule="PASS3B_CONTRADICTION_FAIL_FAST",
+                    severity="error",
+                    message=str(exc),
+                )
+            ],
+            warnings=[],
+            timestamp=datetime.utcnow().isoformat() + "Z",
+            pass_name="pass3b",
+        )
+        save_json(validation_result.model_dump(), str(validation_path))
+        raise
 
     violations = validate_pass3b_constraints(pass3b_output)
     errors = [violation for violation in violations if violation.severity == "error"]
