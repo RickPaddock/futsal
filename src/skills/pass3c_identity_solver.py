@@ -28,7 +28,9 @@ from bisect import bisect_right
 from ..core.data_models import (
     Fragment,
     Detection,
+    IdentityCandidateEdge,
     Pass1Output,
+    Pass3AEdgesOutput,
     Pass2COutput,
     Pass3BOutput,
     ScoredFragment,
@@ -342,6 +344,7 @@ class IdentitySolver:
         self,
         fragments: List[Fragment],
         constraints: List[Constraint],
+        pass3a_edges: Optional[List[IdentityCandidateEdge]] = None,
         fragment_histograms: Optional[Dict[str, List[float]]] = None,
         real_presence_frames: Optional[Dict[str, Set[int]]] = None,
         fragment_jersey_evidence: Optional[Dict[str, int]] = None,
@@ -367,14 +370,17 @@ class IdentitySolver:
         (
             refined_identity_groups,
             retired_ghost_fragments,
+            ghost_activity_windows,
             collapse_diagnostics,
         ) = self._validate_identity_collapse_pre_attributes(
             fragments,
             identity_groups,
+            pass3a_edges=pass3a_edges,
             real_presence_frames=real_presence_frames,
         )
         self.logger.info(
-            f"Identity collapse validated (<=12/frame). Retired ghosts on matched groups: {len(retired_ghost_fragments)}"
+            "Identity collapse validated (<=12/frame). "
+            f"Ghost windows active={len(ghost_activity_windows)}, retired={len(retired_ghost_fragments)}"
         )
 
         # Step 3: Resolve jersey per MUST-group and fail-fast on hard conflicts.
@@ -447,6 +453,7 @@ class IdentitySolver:
             team_assignments,
             jersey_assignments,
             retired_ghost_fragments,
+            ghost_activity_windows,
             fragment_jersey_scores=fragment_jersey_scores,
         )
 
@@ -461,16 +468,30 @@ class IdentitySolver:
             committed_identities=committed_identities,
             fragments=fragments,
             real_presence_frames=real_presence_frames,
+            ghost_activity_windows=ghost_activity_windows,
         )
-        if dropped_conflicts > 0:
+        dropped_global_conflicts = self._resolve_global_jersey_conflicts(
+            committed_identities=committed_identities,
+            fragments=fragments,
+            real_presence_frames=real_presence_frames,
+            ghost_activity_windows=ghost_activity_windows,
+        )
+        total_dropped_conflicts = dropped_conflicts + dropped_global_conflicts
+        if total_dropped_conflicts > 0:
             self.logger.info(
-                f"Resolved jersey exclusivity conflicts by clearing jersey labels on {dropped_conflicts} identities"
+                "Resolved jersey exclusivity conflicts by clearing jersey labels on "
+                f"{total_dropped_conflicts} identities"
             )
 
         self.logger.info(f"Created {len(committed_identities)} committed identities")
 
         # Step 6: Validate final state
-        self._validate_final_state(committed_identities, fragments, real_presence_frames=real_presence_frames)
+        self._validate_final_state(
+            committed_identities,
+            fragments,
+            real_presence_frames=real_presence_frames,
+            ghost_activity_windows=ghost_activity_windows,
+        )
         self.logger.info("Final state validation passed")
 
         return Pass3COutput(
@@ -484,7 +505,10 @@ class IdentitySolver:
                     group_id: jersey for group_id, jersey in group_locked_jerseys.items() if jersey is not None
                 },
                 **jersey_global_diagnostics,
-                "jersey_exclusivity_drops": dropped_conflicts,
+                "jersey_team_exclusivity_drops": dropped_conflicts,
+                "jersey_global_exclusivity_drops": dropped_global_conflicts,
+                "jersey_exclusivity_drops": total_dropped_conflicts,
+                "ghost_active_windows": ghost_activity_windows,
                 "retired_ghost_fragments": sorted(retired_ghost_fragments),
             },
         )
@@ -748,31 +772,21 @@ class IdentitySolver:
         self,
         fragments: List[Fragment],
         identity_groups: Dict[str, Set[str]],
+        pass3a_edges: Optional[List[IdentityCandidateEdge]] = None,
         real_presence_frames: Optional[Dict[str, Set[int]]] = None,
-    ) -> Tuple[Dict[str, Set[str]], Set[str], Dict[str, Any]]:
+    ) -> Tuple[Dict[str, Set[str]], Set[str], Dict[str, Dict[str, Any]], Dict[str, Any]]:
         """
         Validate collapsed identities before assigning jerseys/teams.
 
         Enforces:
         - P3-R4-GLOBAL: unique identities per frame <= 12
-        - Ghost retirement set derivation: ghosts in groups with any real fragment are retired
+        - Ghost activity is bounded by pass3 reappearance windows instead of raw pass2 spans
         """
         fragment_lookup = {fragment.fragment_id: fragment for fragment in fragments}
 
         retired_ghost_fragments: Set[str] = set()
         retired_ghost_groups: Set[str] = set()
-        for root, group in identity_groups.items():
-            has_real = any(
-                not bool(getattr(fragment_lookup.get(fragment_id), "is_ghost", False))
-                for fragment_id in group
-                if fragment_lookup.get(fragment_id) is not None
-            )
-            if not has_real:
-                continue
-            for fragment_id in group:
-                fragment = fragment_lookup.get(fragment_id)
-                if fragment is not None and bool(getattr(fragment, "is_ghost", False)):
-                    retired_ghost_fragments.add(fragment_id)
+        ghost_activity_windows: Dict[str, Dict[str, Any]] = {}
 
         # Refine identity groups: one player cannot have overlapping real presences.
         refined_identity_groups: Dict[str, Set[str]] = {}
@@ -828,19 +842,199 @@ class IdentitySolver:
             for fragment_id in group:
                 group_by_fragment[fragment_id] = root
 
-        group_has_real: Dict[str, bool] = {}
+        def _real_frames_for_fragment(fragment: Fragment) -> Set[int]:
+            if bool(getattr(fragment, "is_ghost", False)):
+                return set()
+            frames = set((real_presence_frames or {}).get(fragment.fragment_id, set()))
+            if frames:
+                return frames
+            return set(range(fragment.start_frame, fragment.end_frame + 1))
+
+        group_real_fragments: Dict[str, List[Fragment]] = defaultdict(list)
+        for root, group in refined_identity_groups.items():
+            for fragment_id in group:
+                fragment = fragment_lookup.get(fragment_id)
+                if fragment is None or bool(getattr(fragment, "is_ghost", False)):
+                    continue
+                group_real_fragments[root].append(fragment)
+
+        fragment_first_real_frame: Dict[str, int] = {}
+        fragment_last_real_frame: Dict[str, int] = {}
+        for fragment in fragments:
+            if bool(getattr(fragment, "is_ghost", False)):
+                continue
+            real_frames = sorted(_real_frames_for_fragment(fragment))
+            if not real_frames:
+                continue
+            fragment_first_real_frame[fragment.fragment_id] = int(real_frames[0])
+            fragment_last_real_frame[fragment.fragment_id] = int(real_frames[-1])
+
+        ghost_source_fragment_ids: Dict[str, str] = {}
+
+        for root, group in refined_identity_groups.items():
+            real_fragments = sorted(
+                group_real_fragments.get(root, []),
+                key=lambda fragment: (fragment.start_frame, fragment.end_frame, fragment.fragment_id),
+            )
+            for fragment_id in group:
+                fragment = fragment_lookup.get(fragment_id)
+                if fragment is None or not bool(getattr(fragment, "is_ghost", False)):
+                    continue
+
+                window_start = int(fragment.start_frame)
+                window_end = int(fragment.end_frame)
+                matched_reappearance_frame: Optional[int] = None
+                target_fragment_id: Optional[str] = None
+                window_reason = "unmatched_exit"
+
+                predecessor_real_fragments = [
+                    real_fragment
+                    for real_fragment in real_fragments
+                    if fragment_last_real_frame.get(real_fragment.fragment_id, real_fragment.end_frame) < window_start
+                ]
+                if predecessor_real_fragments:
+                    source_fragment = max(
+                        predecessor_real_fragments,
+                        key=lambda real_fragment: (
+                            fragment_last_real_frame.get(real_fragment.fragment_id, real_fragment.end_frame),
+                            real_fragment.fragment_id,
+                        ),
+                    )
+                    ghost_source_fragment_ids[fragment_id] = source_fragment.fragment_id
+
+                for real_fragment in real_fragments:
+                    real_frames = sorted(_real_frames_for_fragment(real_fragment))
+                    if not real_frames:
+                        continue
+                    first_real_frame = int(real_frames[0])
+                    if first_real_frame <= window_start:
+                        continue
+                    matched_reappearance_frame = first_real_frame
+                    target_fragment_id = real_fragment.fragment_id
+                    window_end = min(window_end, matched_reappearance_frame - 1)
+                    window_reason = "matched_reappearance"
+                    break
+
+                if window_end < window_start:
+                    retired_ghost_fragments.add(fragment_id)
+                    continue
+
+                ghost_activity_windows[fragment_id] = {
+                    "start_frame": window_start,
+                    "end_frame": window_end,
+                    "matched_reappearance_frame": matched_reappearance_frame,
+                    "target_fragment_id": target_fragment_id,
+                    "window_reason": window_reason,
+                }
+
+        if pass3a_edges:
+            source_to_ghosts: Dict[str, List[str]] = defaultdict(list)
+            for ghost_fragment_id, source_fragment_id in ghost_source_fragment_ids.items():
+                source_to_ghosts[source_fragment_id].append(ghost_fragment_id)
+
+            claimed_targets = {
+                str(window.get("target_fragment_id"))
+                for window in ghost_activity_windows.values()
+                if window.get("target_fragment_id") is not None and window.get("window_reason") == "matched_reappearance"
+            }
+            candidate_matches_by_target: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+
+            for edge in pass3a_edges:
+                target_fragment_id = str(edge.fragment_b)
+                if target_fragment_id in claimed_targets:
+                    continue
+                target_first_frame = fragment_first_real_frame.get(target_fragment_id)
+                if target_first_frame is None:
+                    continue
+
+                for ghost_fragment_id in source_to_ghosts.get(str(edge.fragment_a), []):
+                    window = ghost_activity_windows.get(ghost_fragment_id)
+                    if window is None or str(window.get("window_reason")) != "unmatched_exit":
+                        continue
+                    ghost_start_frame = int(window.get("start_frame", 0))
+                    if target_first_frame <= ghost_start_frame:
+                        continue
+
+                    candidate_matches_by_target[target_fragment_id].append(
+                        {
+                            "ghost_fragment_id": ghost_fragment_id,
+                            "target_fragment_id": target_fragment_id,
+                            "target_first_frame": int(target_first_frame),
+                            "temporal_gap": int(edge.temporal_gap),
+                            "spatial_distance": float(edge.spatial_distance),
+                            "overall_candidate_score": float(edge.overall_candidate_score),
+                        }
+                    )
+
+            claimed_ghosts: Set[str] = set()
+            for target_fragment_id in sorted(
+                candidate_matches_by_target,
+                key=lambda fragment_id: (
+                    fragment_first_real_frame.get(fragment_id, 10**9),
+                    fragment_id,
+                ),
+            ):
+                eligible_candidates = [
+                    candidate
+                    for candidate in candidate_matches_by_target[target_fragment_id]
+                    if candidate["ghost_fragment_id"] not in claimed_ghosts
+                ]
+                if not eligible_candidates:
+                    continue
+
+                best_candidate = min(
+                    eligible_candidates,
+                    key=lambda candidate: (
+                        int(candidate["temporal_gap"]),
+                        float(candidate["spatial_distance"]),
+                        -float(candidate["overall_candidate_score"]),
+                        str(candidate["ghost_fragment_id"]),
+                    ),
+                )
+                ghost_fragment_id = str(best_candidate["ghost_fragment_id"])
+                target_first_frame = int(best_candidate["target_first_frame"])
+                window = ghost_activity_windows.get(ghost_fragment_id)
+                if window is None:
+                    continue
+
+                window_start = int(window.get("start_frame", target_first_frame))
+                window_end = min(int(window.get("end_frame", target_first_frame - 1)), target_first_frame - 1)
+                if window_end < window_start:
+                    retired_ghost_fragments.add(ghost_fragment_id)
+                    ghost_activity_windows.pop(ghost_fragment_id, None)
+                    claimed_ghosts.add(ghost_fragment_id)
+                    continue
+
+                window["end_frame"] = int(window_end)
+                window["matched_reappearance_frame"] = int(target_first_frame)
+                window["target_fragment_id"] = target_fragment_id
+                window["window_reason"] = "matched_reappearance"
+                claimed_ghosts.add(ghost_fragment_id)
+                claimed_targets.add(target_fragment_id)
+
         group_span: Dict[str, Tuple[int, int]] = {}
+        group_real_frame_lists: Dict[str, List[int]] = {}
         for root, group in refined_identity_groups.items():
             group_fragments = [fragment_lookup[fragment_id] for fragment_id in group if fragment_id in fragment_lookup]
             if not group_fragments:
                 continue
-            group_has_real[root] = any(not bool(getattr(fragment, "is_ghost", False)) for fragment in group_fragments)
             start = min(fragment.start_frame for fragment in group_fragments)
             end = max(fragment.end_frame for fragment in group_fragments)
             group_span[root] = (start, end)
+            real_frames: Set[int] = set()
+            for fragment in group_fragments:
+                if bool(getattr(fragment, "is_ghost", False)):
+                    continue
+                frames = set((real_presence_frames or {}).get(fragment.fragment_id, set()))
+                if not frames:
+                    frames = set(range(fragment.start_frame, fragment.end_frame + 1))
+                real_frames.update(frames)
+            group_real_frame_lists[root] = sorted(real_frames)
 
-        def _build_frame_groups() -> Dict[int, Set[str]]:
+        def _build_frame_groups() -> Tuple[Dict[int, Set[str]], Dict[int, Set[str]], Dict[int, Dict[str, Set[str]]]]:
             frame_identity_groups: Dict[int, Set[str]] = defaultdict(set)
+            frame_groups_with_real: Dict[int, Set[str]] = defaultdict(set)
+            frame_active_ghosts: Dict[int, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
             for fragment in fragments:
                 fragment_id = fragment.fragment_id
                 if fragment_id in retired_ghost_fragments:
@@ -851,15 +1045,24 @@ class IdentitySolver:
 
                 is_ghost = bool(getattr(fragment, "is_ghost", False))
                 if is_ghost:
-                    active_frames = range(fragment.start_frame, fragment.end_frame + 1)
+                    window = ghost_activity_windows.get(fragment_id)
+                    if window is None:
+                        continue
+                    active_frames = range(int(window["start_frame"]), int(window["end_frame"]) + 1)
                 else:
                     active_frames = sorted((real_presence_frames or {}).get(fragment_id, set()))
+                    if not active_frames:
+                        active_frames = range(fragment.start_frame, fragment.end_frame + 1)
 
                 for frame_idx in active_frames:
                     frame_identity_groups[frame_idx].add(group_id)
-            return frame_identity_groups
+                    if not is_ghost:
+                        frame_groups_with_real[frame_idx].add(group_id)
+                    else:
+                        frame_active_ghosts[frame_idx][group_id].add(fragment_id)
+            return frame_identity_groups, frame_groups_with_real, frame_active_ghosts
 
-        frame_identity_groups = _build_frame_groups()
+        frame_identity_groups, frame_groups_with_real, frame_active_ghosts = _build_frame_groups()
 
         # Reconcile over-cap using ghost-only groups first.
         while True:
@@ -875,8 +1078,7 @@ class IdentitySolver:
             ghost_only_candidates = [
                 group_id
                 for group_id in active_groups
-                if not group_has_real.get(group_id, False)
-                and group_id not in retired_ghost_groups
+                if group_id not in frame_groups_with_real.get(frame_idx, set())
             ]
 
             if not ghost_only_candidates:
@@ -886,19 +1088,50 @@ class IdentitySolver:
                     f"({preview})."
                 )
 
-            def _candidate_key(group_id: str) -> Tuple[int, int, str]:
+            def _candidate_key(group_id: str) -> Tuple[int, int, int, int, str]:
+                active_ghost_ids = frame_active_ghosts.get(frame_idx, {}).get(group_id, set())
+                window_reasons = {
+                    str(ghost_activity_windows.get(fragment_id, {}).get("window_reason", "unmatched_exit"))
+                    for fragment_id in active_ghost_ids
+                }
+                reason_priority = 0 if "unmatched_exit" in window_reasons else 1
+
+                real_frame_list = group_real_frame_lists.get(group_id, [])
+                real_idx = bisect_right(real_frame_list, frame_idx) - 1
+                last_real_frame = real_frame_list[real_idx] if real_idx >= 0 else -1
+
+                latest_active_ghost_start = max(
+                    int(ghost_activity_windows.get(fragment_id, {}).get("start_frame", frame_idx))
+                    for fragment_id in active_ghost_ids
+                ) if active_ghost_ids else frame_idx
+
                 span = group_span.get(group_id, (0, 0))
-                duration = span[1] - span[0] + 1
-                return duration, span[0], group_id
+                return reason_priority, last_real_frame, latest_active_ghost_start, span[0], group_id
 
             group_to_retire = min(ghost_only_candidates, key=_candidate_key)
-            retired_ghost_groups.add(group_to_retire)
-            for fragment_id in refined_identity_groups.get(group_to_retire, set()):
-                fragment = fragment_lookup.get(fragment_id)
-                if fragment is not None and bool(getattr(fragment, "is_ghost", False)):
-                    retired_ghost_fragments.add(fragment_id)
+            active_ghost_ids = set(frame_active_ghosts.get(frame_idx, {}).get(group_to_retire, set()))
+            for fragment_id in active_ghost_ids:
+                window = ghost_activity_windows.get(fragment_id)
+                if window is None:
+                    continue
 
-            frame_identity_groups = _build_frame_groups()
+                start_frame = int(window.get("start_frame", frame_idx))
+                if frame_idx <= start_frame:
+                    retired_ghost_fragments.add(fragment_id)
+                    ghost_activity_windows.pop(fragment_id, None)
+                    continue
+
+                window["end_frame"] = int(frame_idx - 1)
+
+            remaining_group_windows = [
+                fragment_id
+                for fragment_id in refined_identity_groups.get(group_to_retire, set())
+                if fragment_id in ghost_activity_windows
+            ]
+            if not remaining_group_windows:
+                retired_ghost_groups.add(group_to_retire)
+
+            frame_identity_groups, frame_groups_with_real, frame_active_ghosts = _build_frame_groups()
 
         diagnostics = {
             "collapse_group_split_count": split_count,
@@ -907,8 +1140,9 @@ class IdentitySolver:
             "collapse_retired_ghost_groups": sorted(retired_ghost_groups),
             "collapse_retired_ghost_group_count": len(retired_ghost_groups),
             "collapse_retired_ghost_fragment_count": len(retired_ghost_fragments),
+            "ghost_active_window_count": len(ghost_activity_windows),
         }
-        return refined_identity_groups, retired_ghost_fragments, diagnostics
+        return refined_identity_groups, retired_ghost_fragments, ghost_activity_windows, diagnostics
 
     def _reassign_jerseys_globally(
         self,
@@ -947,12 +1181,14 @@ class IdentitySolver:
         player_interval: Dict[str, Tuple[int, int]] = {}
         player_support: Dict[str, Dict[int, float]] = {}
         player_team: Dict[str, TeamID] = {}
+        player_current_jersey: Dict[str, int] = {}
 
         for player_id, identities in player_to_identities.items():
             starts: List[int] = []
             ends: List[int] = []
             support: Dict[int, float] = defaultdict(float)
             teams: List[TeamID] = []
+            current_jerseys: List[int] = []
 
             for identity in identities:
                 fragment = frag_lookup.get(identity.fragment_id)
@@ -978,6 +1214,8 @@ class IdentitySolver:
 
                 if identity.team in {TeamID.TEAM_A, TeamID.TEAM_B}:
                     teams.append(identity.team)
+                if identity.jersey_number in const.JERSEY_NUMBERS:
+                    current_jerseys.append(int(identity.jersey_number))
 
             if not starts or not ends:
                 continue
@@ -989,35 +1227,46 @@ class IdentitySolver:
                 for team in teams:
                     team_counts[team] += 1
                 player_team[player_id] = max(team_counts, key=team_counts.get)
+            if current_jerseys:
+                jersey_counts: Dict[int, int] = defaultdict(int)
+                for jersey_number in current_jerseys:
+                    jersey_counts[int(jersey_number)] += 1
+                player_current_jersey[player_id] = max(jersey_counts, key=jersey_counts.get)
 
         # Build candidate intervals per jersey.
         candidates_by_jersey: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
+        current_label_bonus = float(getattr(const, "PASS3_GLOBAL_JERSEY_CURRENT_LABEL_BONUS", 0.20))
         for player_id, support in player_support.items():
             if not support:
                 continue
             start, end = player_interval[player_id]
             duration = max(1, end - start + 1)
+            current_jersey = player_current_jersey.get(player_id)
 
             for jersey in const.JERSEY_NUMBERS:
-                score = float(support.get(int(jersey), 0.0))
-                if score < min_support:
+                raw_score = float(support.get(int(jersey), 0.0))
+                adjusted_score = raw_score
+                if current_jersey == int(jersey):
+                    adjusted_score += current_label_bonus
+
+                if adjusted_score < min_support:
                     continue
 
                 competing = [float(v) for j, v in support.items() if int(j) != int(jersey)]
                 second_best = max(competing) if competing else 0.0
-                dominance = (score / second_best) if second_best > 1e-6 else float("inf")
+                dominance = (adjusted_score / second_best) if second_best > 1e-6 else float("inf")
                 if second_best > 0 and dominance < min_dominance:
                     continue
 
                 duration_factor = 1.0 + min(duration, 1200) / 1200.0 * 0.15
-                weight = score * duration_factor
+                weight = adjusted_score * duration_factor
                 candidates_by_jersey[int(jersey)].append(
                     {
                         "player_id": player_id,
                         "start": int(start),
                         "end": int(end),
                         "weight": float(weight),
-                        "score": float(score),
+                        "score": float(adjusted_score),
                         "team": player_team.get(player_id, TeamID.UNKNOWN),
                     }
                 )
@@ -1025,6 +1274,7 @@ class IdentitySolver:
         def _select_non_overlapping(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             if not candidates:
                 return []
+            switch_penalty = float(getattr(const, "PASS3_GLOBAL_JERSEY_SWITCH_PENALTY", 0.75))
             items = sorted(candidates, key=lambda item: (item["end"], item["start"]))
             ends = [int(item["end"]) for item in items]
 
@@ -1035,16 +1285,27 @@ class IdentitySolver:
 
             n = len(items)
             dp = [0.0] * n
+            selected_count = [0] * n
             take = [False] * n
 
             for i in range(n):
                 include = float(items[i]["weight"]) + (dp[prev_idx[i]] if prev_idx[i] >= 0 else 0.0)
+                include_count = 1 + (selected_count[prev_idx[i]] if prev_idx[i] >= 0 else 0)
+                if prev_idx[i] >= 0:
+                    include -= switch_penalty
                 exclude = dp[i - 1] if i > 0 else 0.0
+                exclude_count = selected_count[i - 1] if i > 0 else 0
                 if include > exclude:
                     dp[i] = include
+                    selected_count[i] = include_count
+                    take[i] = True
+                elif include == exclude and include_count < exclude_count:
+                    dp[i] = include
+                    selected_count[i] = include_count
                     take[i] = True
                 else:
                     dp[i] = exclude
+                    selected_count[i] = exclude_count
 
             selected: List[Dict[str, Any]] = []
             i = n - 1
@@ -1063,16 +1324,6 @@ class IdentitySolver:
             if not candidates:
                 selected_by_jersey[int(jersey)] = []
                 continue
-
-            team_weight: Dict[TeamID, float] = defaultdict(float)
-            for candidate in candidates:
-                team = candidate.get("team", TeamID.UNKNOWN)
-                if team in {TeamID.TEAM_A, TeamID.TEAM_B}:
-                    team_weight[team] += float(candidate.get("weight", 0.0))
-
-            if team_weight:
-                anchor_team = max(team_weight, key=team_weight.get)
-                candidates = [c for c in candidates if c.get("team") == anchor_team]
 
             selected_by_jersey[int(jersey)] = _select_non_overlapping(candidates)
 
@@ -1133,10 +1384,98 @@ class IdentitySolver:
         committed_identities: List[CommittedIdentity],
         fragments: List[Fragment],
         real_presence_frames: Optional[Dict[str, Set[int]]] = None,
+        ghost_activity_windows: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> int:
         """Clear jersey labels that violate same-team temporal exclusivity."""
         frag_lookup = {fragment.fragment_id: fragment for fragment in fragments}
+        identities_by_jersey: Dict[Tuple[TeamID, int], List[CommittedIdentity]] = defaultdict(list)
+        ghost_activity_windows = ghost_activity_windows or {}
+
+        for identity in committed_identities:
+            if identity.jersey_number is None:
+                continue
+            identities_by_jersey[(identity.team, int(identity.jersey_number))].append(identity)
+
+        def _active_frames(identity: CommittedIdentity) -> Set[int]:
+            fragment = frag_lookup.get(identity.fragment_id)
+            if fragment is None:
+                return set()
+            if bool(getattr(fragment, "is_ghost", False)):
+                window = ghost_activity_windows.get(fragment.fragment_id)
+                if window is None:
+                    return set()
+                start_frame = int(window.get("start_frame", fragment.start_frame))
+                end_frame = int(window.get("end_frame", fragment.end_frame))
+                if end_frame < start_frame:
+                    return set()
+                return set(range(start_frame, end_frame + 1))
+            if real_presence_frames is not None:
+                frames = real_presence_frames.get(fragment.fragment_id)
+                if frames:
+                    return set(frames)
+            return set(range(fragment.start_frame, fragment.end_frame + 1))
+
+        def _priority(identity: CommittedIdentity, frame_sets: Dict[str, Set[int]]) -> Tuple[int, int, float, int, str]:
+            fragment = frag_lookup.get(identity.fragment_id)
+            is_real = 0 if fragment is None or bool(getattr(fragment, "is_ghost", False)) else 1
+            start_frame = fragment.start_frame if fragment is not None else 0
+            return (
+                is_real,
+                len(frame_sets.get(identity.fragment_id, set())),
+                float(identity.assignment_confidence),
+                -int(start_frame),
+                str(identity.fragment_id),
+            )
+
+        dropped = 0
+        for _, identities in identities_by_jersey.items():
+            if len(identities) <= 1:
+                continue
+
+            frame_sets = {identity.fragment_id: _active_frames(identity) for identity in identities}
+            remaining = list(identities)
+            while True:
+                overlapping_pair: Optional[Tuple[CommittedIdentity, CommittedIdentity]] = None
+                for i in range(len(remaining)):
+                    for j in range(i + 1, len(remaining)):
+                        left = remaining[i]
+                        right = remaining[j]
+                        if frame_sets[left.fragment_id] & frame_sets[right.fragment_id]:
+                            overlapping_pair = (left, right)
+                            break
+                    if overlapping_pair is not None:
+                        break
+
+                if overlapping_pair is None:
+                    break
+
+                left, right = overlapping_pair
+                keeper = max((left, right), key=lambda identity: _priority(identity, frame_sets))
+                loser = right if keeper.fragment_id == left.fragment_id else left
+
+                if loser.jersey_number is not None:
+                    loser.jersey_number = None
+                    reasons = list(loser.assignment_reasons or [])
+                    if "JERSEY_EXCLUSIVITY_DROPPED" not in reasons:
+                        reasons.append("JERSEY_EXCLUSIVITY_DROPPED")
+                    loser.assignment_reasons = reasons
+                    dropped += 1
+
+                remaining = [identity for identity in remaining if identity.fragment_id != loser.fragment_id]
+
+        return dropped
+
+    def _resolve_global_jersey_conflicts(
+        self,
+        committed_identities: List[CommittedIdentity],
+        fragments: List[Fragment],
+        real_presence_frames: Optional[Dict[str, Set[int]]] = None,
+        ghost_activity_windows: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> int:
+        """Clear jersey labels that overlap in time anywhere in the clip, including ghosts."""
+        frag_lookup = {fragment.fragment_id: fragment for fragment in fragments}
         identities_by_jersey: Dict[int, List[CommittedIdentity]] = defaultdict(list)
+        ghost_activity_windows = ghost_activity_windows or {}
 
         for identity in committed_identities:
             if identity.jersey_number is None:
@@ -1148,12 +1487,31 @@ class IdentitySolver:
             if fragment is None:
                 return set()
             if bool(getattr(fragment, "is_ghost", False)):
-                return set(range(fragment.start_frame, fragment.end_frame + 1))
+                window = ghost_activity_windows.get(fragment.fragment_id)
+                if window is None:
+                    return set()
+                start_frame = int(window.get("start_frame", fragment.start_frame))
+                end_frame = int(window.get("end_frame", fragment.end_frame))
+                if end_frame < start_frame:
+                    return set()
+                return set(range(start_frame, end_frame + 1))
             if real_presence_frames is not None:
                 frames = real_presence_frames.get(fragment.fragment_id)
                 if frames:
                     return set(frames)
             return set(range(fragment.start_frame, fragment.end_frame + 1))
+
+        def _priority(identity: CommittedIdentity, frame_sets: Dict[str, Set[int]]) -> Tuple[int, int, float, int, str]:
+            fragment = frag_lookup.get(identity.fragment_id)
+            is_real = 0 if fragment is None or bool(getattr(fragment, "is_ghost", False)) else 1
+            start_frame = fragment.start_frame if fragment is not None else 0
+            return (
+                is_real,
+                len(frame_sets.get(identity.fragment_id, set())),
+                float(identity.assignment_confidence),
+                -int(start_frame),
+                str(identity.fragment_id),
+            )
 
         dropped = 0
         for _, identities in identities_by_jersey.items():
@@ -1161,35 +1519,35 @@ class IdentitySolver:
                 continue
 
             frame_sets = {identity.fragment_id: _active_frames(identity) for identity in identities}
-            has_overlap = False
-            for i in range(len(identities)):
-                for j in range(i + 1, len(identities)):
-                    left = identities[i]
-                    right = identities[j]
-                    if frame_sets[left.fragment_id] & frame_sets[right.fragment_id]:
-                        has_overlap = True
+            remaining = list(identities)
+            while True:
+                overlapping_pair: Optional[Tuple[CommittedIdentity, CommittedIdentity]] = None
+                for i in range(len(remaining)):
+                    for j in range(i + 1, len(remaining)):
+                        left = remaining[i]
+                        right = remaining[j]
+                        if frame_sets[left.fragment_id] & frame_sets[right.fragment_id]:
+                            overlapping_pair = (left, right)
+                            break
+                    if overlapping_pair is not None:
                         break
-                if has_overlap:
+
+                if overlapping_pair is None:
                     break
 
-            if not has_overlap:
-                continue
+                left, right = overlapping_pair
+                keeper = max((left, right), key=lambda identity: _priority(identity, frame_sets))
+                loser = right if keeper.fragment_id == left.fragment_id else left
 
-            keeper = max(
-                identities,
-                key=lambda identity: (len(frame_sets[identity.fragment_id]), identity.assignment_confidence),
-            )
-
-            for identity in identities:
-                if identity.fragment_id == keeper.fragment_id:
-                    continue
-                if identity.jersey_number is not None:
-                    identity.jersey_number = None
-                    reasons = list(identity.assignment_reasons or [])
-                    if "JERSEY_EXCLUSIVITY_DROPPED" not in reasons:
-                        reasons.append("JERSEY_EXCLUSIVITY_DROPPED")
-                    identity.assignment_reasons = reasons
+                if loser.jersey_number is not None:
+                    loser.jersey_number = None
+                    reasons = list(loser.assignment_reasons or [])
+                    if "JERSEY_GLOBAL_EXCLUSIVITY_DROPPED" not in reasons:
+                        reasons.append("JERSEY_GLOBAL_EXCLUSIVITY_DROPPED")
+                    loser.assignment_reasons = reasons
                     dropped += 1
+
+                remaining = [identity for identity in remaining if identity.fragment_id != loser.fragment_id]
 
         return dropped
 
@@ -1992,6 +2350,7 @@ class IdentitySolver:
         team_assignments: Dict[str, TeamID],
         jersey_assignments: Dict[str, int],
         retired_ghost_fragments: Set[str],
+        ghost_activity_windows: Dict[str, Dict[str, Any]],
         fragment_jersey_scores: Optional[Dict[str, Dict[int, float]]] = None,
     ) -> List[CommittedIdentity]:
         """
@@ -2129,13 +2488,14 @@ class IdentitySolver:
             assignment_reasons: List[str] = []
             if isinstance(frag, GhostFragment) or getattr(frag, 'is_ghost', False):
                 assignment_method = AssignmentMethod.GHOST_INHERITED
-                if player_id is not None:
-                    owning_group = next(
-                        (root for root, members in identity_groups.items() if frag.fragment_id in members),
-                        None,
-                    )
-                    if owning_group is not None and not group_has_real.get(owning_group, False):
+                window = ghost_activity_windows.get(frag.fragment_id)
+                if window is not None:
+                    if window.get("window_reason") == "matched_reappearance":
+                        assignment_reasons.append("MATCHED_GHOST_WINDOW")
+                    else:
                         assignment_reasons.append("UNMATCHED_EXIT")
+                else:
+                    assignment_reasons.append("UNMATCHED_EXIT")
             elif jersey is not None:
                 assignment_method = AssignmentMethod.CONSTRAINT_SOLVED
             if jersey is None:
@@ -2196,6 +2556,7 @@ class IdentitySolver:
         committed_identities: List[CommittedIdentity],
         fragments: List[Fragment],
         real_presence_frames: Optional[Dict[str, Set[int]]] = None,
+        ghost_activity_windows: Optional[Dict[str, Dict[str, Any]]] = None,
     ):
         """
         Validate final state before committing.
@@ -2207,6 +2568,7 @@ class IdentitySolver:
         """
         # Build fragment lookup
         frag_lookup = {f.fragment_id: f for f in fragments}
+        ghost_activity_windows = ghost_activity_windows or {}
 
         # Check R2: No unknown teams (excluding ghosts)
         unknown_count = 0
@@ -2221,9 +2583,9 @@ class IdentitySolver:
         if unknown_count > 0:
             raise ValueError(f"R2 violation: {unknown_count} non-ghost fragments have team=UNKNOWN")
 
-        # Check Step 6 / R3: team+frame jersey exclusivity (hard fail).
-        # Build timeline: frame -> team -> jersey -> player_id
-        jersey_timeline = defaultdict(lambda: defaultdict(lambda: defaultdict(set)))
+        # Check Step 6 / R3: frame-level jersey exclusivity (hard fail).
+        # A jersey/name cannot be active on more than one person or ghost at once.
+        jersey_timeline = defaultdict(lambda: defaultdict(set))
 
         for identity in committed_identities:
             if identity.jersey_number is None:
@@ -2233,17 +2595,31 @@ class IdentitySolver:
             if frag is None:
                 continue
 
-            for frame_idx in range(frag.start_frame, frag.end_frame + 1):
-                jersey_timeline[frame_idx][identity.team][identity.jersey_number].add(identity.player_id)
+            if isinstance(frag, GhostFragment) or getattr(frag, 'is_ghost', False):
+                window = ghost_activity_windows.get(frag.fragment_id)
+                if window is None:
+                    continue
+                start_frame = int(window.get("start_frame", frag.start_frame))
+                end_frame = int(window.get("end_frame", frag.end_frame))
+                active_frames = range(start_frame, end_frame + 1) if end_frame >= start_frame else []
+            else:
+                if real_presence_frames is not None:
+                    active_frames = sorted(real_presence_frames.get(frag.fragment_id, set()))
+                    if not active_frames:
+                        active_frames = range(frag.start_frame, frag.end_frame + 1)
+                else:
+                    active_frames = range(frag.start_frame, frag.end_frame + 1)
+
+            for frame_idx in active_frames:
+                jersey_timeline[frame_idx][identity.jersey_number].add(identity.player_id)
 
         violations = []
-        for frame_idx, team_map in jersey_timeline.items():
-            for team, jerseys in team_map.items():
-                for jersey, player_ids in jerseys.items():
-                    if len(player_ids) > 1:
-                        violations.append(
-                            f"Frame {frame_idx} team {team.value}: Jersey #{jersey} on {len(player_ids)} players: {sorted(player_ids)}"
-                        )
+        for frame_idx, jerseys in jersey_timeline.items():
+            for jersey, player_ids in jerseys.items():
+                if len(player_ids) > 1:
+                    violations.append(
+                        f"Frame {frame_idx}: Jersey #{jersey} on {len(player_ids)} players: {sorted(player_ids)}"
+                    )
 
         if violations:
             preview = "\n".join(violations[:10])
@@ -2356,6 +2732,12 @@ def run_pass3c(
     pass2c_output = load_json(fragments_path, Pass2COutput)
     pass3b_output = load_json(constraints_path, Pass3BOutput)
 
+    pass3a_edges: Optional[List[IdentityCandidateEdge]] = None
+    pass3a_edges_path = Path(fragments_path).parent / const.PASS3A_CANDIDATES_JSON
+    if pass3a_edges_path.exists():
+        pass3a_edges_output = load_json(str(pass3a_edges_path), Pass3AEdgesOutput)
+        pass3a_edges = list(pass3a_edges_output.candidates)
+
     fragments = pass2c_output.fragments
     constraints = pass3b_output.constraints
 
@@ -2455,6 +2837,7 @@ def run_pass3c(
     result = solver.solve(
         fragments,
         constraints,
+        pass3a_edges=pass3a_edges,
         fragment_histograms=fragment_histograms,
         real_presence_frames=real_presence_frames,
         fragment_jersey_evidence=fragment_jersey_evidence,
@@ -2474,10 +2857,16 @@ def run_pass3c(
             output_path=output_path,
         )
         if calibration_diagnostics.get("ground_truth_calibration_applied"):
+            ghost_activity_windows = None
+            if isinstance(result.solver_log, dict):
+                candidate_windows = result.solver_log.get("ghost_active_windows")
+                if isinstance(candidate_windows, dict):
+                    ghost_activity_windows = candidate_windows
             dropped = solver._resolve_team_jersey_conflicts(  # noqa: SLF001 - intentional post-calibration repair
                 result.identities,
                 fragments,
                 real_presence_frames=real_presence_frames,
+                ghost_activity_windows=ghost_activity_windows,
             )
             calibration_diagnostics["ground_truth_post_calibration_jersey_drops"] = int(dropped)
 
@@ -2519,6 +2908,22 @@ def run_pass3c(
 def _build_debug_metrics(fragments: List[Fragment], pass3_output: Pass3COutput) -> DebugMetrics:
     """Build frame-by-frame debug metrics from committed identities and fragment timeline."""
     identity_by_fragment = {identity.fragment_id: identity for identity in pass3_output.identities}
+    solver_log = pass3_output.solver_log or {}
+    ghost_activity_windows = solver_log.get("ghost_active_windows") if isinstance(solver_log, dict) else None
+    if not isinstance(ghost_activity_windows, dict):
+        ghost_activity_windows = {}
+    real_activity_frames: Dict[str, Set[int]] = {}
+    for fragment in fragments:
+        if bool(getattr(fragment, 'is_ghost', False)):
+            continue
+        active_frames: Set[int] = set()
+        for detection_id in getattr(fragment, "detection_ids", []) or []:
+            try:
+                active_frames.add(int(str(detection_id).split("_", maxsplit=1)[0]))
+            except (ValueError, IndexError):
+                continue
+        if active_frames:
+            real_activity_frames[fragment.fragment_id] = active_frames
 
     if fragments:
         total_frames = max(fragment.end_frame for fragment in fragments) + 1
@@ -2531,8 +2936,23 @@ def _build_debug_metrics(fragments: List[Fragment], pass3_output: Pass3COutput) 
         active = [
             fragment
             for fragment in fragments
-            if fragment.start_frame <= frame_idx <= fragment.end_frame
-            and fragment.fragment_id in identity_by_fragment
+            if fragment.fragment_id in identity_by_fragment
+            and (
+                (
+                    bool(getattr(fragment, 'is_ghost', False))
+                    and isinstance(ghost_activity_windows.get(fragment.fragment_id), dict)
+                    and int(ghost_activity_windows[fragment.fragment_id].get("start_frame", fragment.start_frame))
+                    <= frame_idx
+                    <= int(ghost_activity_windows[fragment.fragment_id].get("end_frame", fragment.end_frame))
+                )
+                or (
+                    not bool(getattr(fragment, 'is_ghost', False))
+                    and frame_idx in real_activity_frames.get(
+                        fragment.fragment_id,
+                        set(range(fragment.start_frame, fragment.end_frame + 1)),
+                    )
+                )
+            )
         ]
 
         player_ids = set()
@@ -2588,7 +3008,6 @@ def _build_debug_metrics(fragments: List[Fragment], pass3_output: Pass3COutput) 
     total_jersey_conflicts = sum(len(metric.jersey_conflicts) for metric in frame_metrics)
     total_unknown_frames = sum(1 for metric in frame_metrics if metric.unknown_count > 0)
 
-    solver_log = pass3_output.solver_log or {}
     compactness = solver_log.get("cluster_compactness") if isinstance(solver_log.get("cluster_compactness"), dict) else {}
     compactness_a = solver_log.get("cluster_compactness_a")
     compactness_b = solver_log.get("cluster_compactness_b")

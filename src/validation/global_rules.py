@@ -11,7 +11,7 @@ Per CLAUDE.md Section 2 (Non-Negotiable Rules):
 These are HARD constraints. Violation = pipeline failure.
 """
 
-from typing import List, Dict, Any, Set, Tuple
+from typing import List, Dict, Any, Set, Tuple, Optional
 from ..core.data_models import (
     Detection,
     Pass1Output,
@@ -268,6 +268,7 @@ def validate_r2_no_unknown_teams(
 def validate_r3_jersey_temporal_exclusivity(
     identities: List[CommittedIdentity],
     fragments: List[ScoredFragment],
+    ghost_activity_windows: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> List[ValidationViolation]:
     """
     R3: Jersey temporal exclusivity within each team.
@@ -287,82 +288,114 @@ def validate_r3_jersey_temporal_exclusivity(
     """
     violations = []
 
-    # Build identity map
     identity_map = {i.fragment_id: i for i in identities}
+    ghost_activity_windows = ghost_activity_windows or {}
+    frame_owners: Dict[Tuple[str, int, int], Set[Tuple[str, str]]] = {}
 
-    # Group fragments by (team, jersey)
-    jersey_fragments: Dict[Tuple[str, int], List[Tuple[str, int, int, str]]] = {}
-    # key -> [(fragment_id, start, end, player_id)]
+    def _active_frames(fragment: ScoredFragment) -> Set[int]:
+        if getattr(fragment, 'is_ghost', False):
+            window = ghost_activity_windows.get(fragment.fragment_id)
+            if window is None:
+                return set()
+            start_frame = int(window.get("start_frame", fragment.start_frame))
+            end_frame = int(window.get("end_frame", fragment.end_frame))
+            if end_frame < start_frame:
+                return set()
+            return set(range(start_frame, end_frame + 1))
+
+        frames: Set[int] = set()
+        for detection_id in getattr(fragment, "detection_ids", []) or []:
+            try:
+                frames.add(int(str(detection_id).split("_", maxsplit=1)[0]))
+            except (ValueError, IndexError):
+                continue
+        if frames:
+            return frames
+        return set(range(fragment.start_frame, fragment.end_frame + 1))
 
     for fragment in fragments:
-        fragment_id = fragment.fragment_id
-
-        if fragment_id not in identity_map:
-            continue  # No identity assigned
-
-        identity = identity_map[fragment_id]
-        jersey = identity.jersey_number
-        player_id = identity.player_id
-        team = identity.team.value if hasattr(identity.team, "value") else str(identity.team)
-
-        if jersey is None:
+        identity = identity_map.get(fragment.fragment_id)
+        if identity is None or identity.jersey_number is None:
             continue
 
+        team = identity.team.value if hasattr(identity.team, "value") else str(identity.team)
         if team == "unknown":
             continue
 
-        key = (team, int(jersey))
-        if key not in jersey_fragments:
-            jersey_fragments[key] = []
+        for frame_idx in _active_frames(fragment):
+            frame_owners.setdefault((team, int(identity.jersey_number), frame_idx), set()).add(
+                (identity.player_id, fragment.fragment_id)
+            )
 
-        jersey_fragments[key].append((
-            fragment_id,
-            fragment.start_frame,
-            fragment.end_frame,
-            player_id,
-        ))
-
-    # Check for temporal overlaps within each (team, jersey)
-    for (team, jersey), frags in jersey_fragments.items():
-        # Sort by start frame
-        frags = sorted(frags, key=lambda x: x[1])
-
-        for i in range(len(frags)):
-            for j in range(i + 1, len(frags)):
-                frag_a_id, start_a, end_a, player_a = frags[i]
-                frag_b_id, start_b, end_b, player_b = frags[j]
-
-                # Check if different players
+    pair_conflicts: Dict[Tuple[str, int, str, str, str, str], List[int]] = {}
+    for (team, jersey, frame_idx), owners in frame_owners.items():
+        distinct_owners = sorted(owners)
+        if len({player_id for player_id, _ in distinct_owners}) <= 1:
+            continue
+        for i in range(len(distinct_owners)):
+            for j in range(i + 1, len(distinct_owners)):
+                player_a, frag_a_id = distinct_owners[i]
+                player_b, frag_b_id = distinct_owners[j]
                 if player_a == player_b:
-                    continue  # Same player - OK
+                    continue
+                key = (team, jersey, player_a, frag_a_id, player_b, frag_b_id)
+                pair_conflicts.setdefault(key, []).append(frame_idx)
 
-                # Check temporal overlap
-                if start_b <= end_a:  # Overlap detected
-                    overlap_start = max(start_a, start_b)
-                    overlap_end = min(end_a, end_b)
+    for (team, jersey, player_a, frag_a_id, player_b, frag_b_id), frames in pair_conflicts.items():
+        frames = sorted(set(frames))
+        if not frames:
+            continue
+        run_start = frames[0]
+        run_end = frames[0]
+        for frame_idx in frames[1:]:
+            if frame_idx == run_end + 1:
+                run_end = frame_idx
+                continue
+            violations.append(
+                ValidationViolation(
+                    rule="R3",
+                    severity="error",
+                    message=(
+                        f"Jersey #{jersey} temporal conflict: "
+                        f"{player_a} ({frag_a_id}) and {player_b} ({frag_b_id}) "
+                        f"on team {team} overlap in frames {run_start}-{run_end}"
+                    ),
+                    frame_idx=run_start,
+                    details={
+                        "jersey_number": jersey,
+                        "player_a": player_a,
+                        "fragment_a": frag_a_id,
+                        "player_b": player_b,
+                        "fragment_b": frag_b_id,
+                        "overlap_start": run_start,
+                        "overlap_end": run_end,
+                    },
+                )
+            )
+            run_start = frame_idx
+            run_end = frame_idx
 
-                    violations.append(
-                        ValidationViolation(
-                            rule="R3",
-                            severity="error",
-                            message=(
-                                f"Jersey #{jersey} temporal conflict: "
-                                f"{player_a} ({frag_a_id}) and {player_b} ({frag_b_id}) "
-                                f"on team {team} "
-                                f"overlap in frames {overlap_start}-{overlap_end}"
-                            ),
-                            frame_idx=overlap_start,
-                            details={
-                                "jersey_number": jersey,
-                                "player_a": player_a,
-                                "fragment_a": frag_a_id,
-                                "player_b": player_b,
-                                "fragment_b": frag_b_id,
-                                "overlap_start": overlap_start,
-                                "overlap_end": overlap_end,
-                            },
-                        )
-                    )
+        violations.append(
+            ValidationViolation(
+                rule="R3",
+                severity="error",
+                message=(
+                    f"Jersey #{jersey} temporal conflict: "
+                    f"{player_a} ({frag_a_id}) and {player_b} ({frag_b_id}) "
+                    f"on team {team} overlap in frames {run_start}-{run_end}"
+                ),
+                frame_idx=run_start,
+                details={
+                    "jersey_number": jersey,
+                    "player_a": player_a,
+                    "fragment_a": frag_a_id,
+                    "player_b": player_b,
+                    "fragment_b": frag_b_id,
+                    "overlap_start": run_start,
+                    "overlap_end": run_end,
+                },
+            )
+        )
 
     return violations
 

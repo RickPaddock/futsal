@@ -297,7 +297,16 @@ def validate_pass3c_identity_commit(
 
     # R3: Jersey temporal exclusivity (secondary after identity feasibility)
     from .global_rules import validate_r3_jersey_temporal_exclusivity
-    jersey_violations = validate_r3_jersey_temporal_exclusivity(pass3c_output.identities, fragments)
+    ghost_activity_windows = None
+    if isinstance(pass3c_output.solver_log, dict):
+        candidate_windows = pass3c_output.solver_log.get("ghost_active_windows")
+        if isinstance(candidate_windows, dict):
+            ghost_activity_windows = candidate_windows
+    jersey_violations = validate_r3_jersey_temporal_exclusivity(
+        pass3c_output.identities,
+        fragments,
+        ghost_activity_windows=ghost_activity_windows,
+    )
     violations.extend(jersey_violations)
 
     # Compactness-aware team validation (contract extension)
@@ -450,6 +459,13 @@ def validate_pass3c_identity_commit(
         real_presence_frames[fragment.fragment_id] = frames
 
     frame_player_sources: Dict[int, Dict[str, List[Dict[str, object]]]] = {}
+    ghost_activity_windows = None
+    if isinstance(pass3c_output.solver_log, dict):
+        candidate_windows = pass3c_output.solver_log.get("ghost_active_windows")
+        if isinstance(candidate_windows, dict):
+            ghost_activity_windows = candidate_windows
+    if ghost_activity_windows is None:
+        ghost_activity_windows = {}
 
     for fragment_id, identity in identity_by_fragment.items():
         fragment = frag_lookup.get(fragment_id)
@@ -461,9 +477,18 @@ def validate_pass3c_identity_commit(
 
         is_ghost = bool(getattr(fragment, "is_ghost", False))
         if is_ghost:
-            active_frames = range(fragment.start_frame, fragment.end_frame + 1)
+            window = ghost_activity_windows.get(fragment_id)
+            if not isinstance(window, dict):
+                continue
+            start_frame = int(window.get("start_frame", fragment.start_frame))
+            end_frame = int(window.get("end_frame", fragment.end_frame))
+            if end_frame < start_frame:
+                continue
+            active_frames = range(start_frame, end_frame + 1)
         else:
             active_frames = sorted(real_presence_frames.get(fragment_id, set()))
+            if not active_frames:
+                active_frames = range(fragment.start_frame, fragment.end_frame + 1)
 
         for frame_idx in active_frames:
             if frame_idx not in frame_player_sources:
@@ -556,19 +581,20 @@ def validate_pass3c_identity_commit(
                 )
             )
 
-    # P3-NO-GHOSTS: surviving ghosts must be explicitly marked UNMATCHED_EXIT.
+    # Surviving ghosts must be explicitly marked as either unmatched exits
+    # or bounded matched windows retained before the real reappearance.
     for identity in pass3c_output.identities:
         fragment = frag_lookup.get(identity.fragment_id)
         if fragment is None or not bool(getattr(fragment, "is_ghost", False)):
             continue
         reasons = set(identity.assignment_reasons or [])
-        if "UNMATCHED_EXIT" not in reasons:
+        if not ({"UNMATCHED_EXIT", "MATCHED_GHOST_WINDOW"} & reasons):
             violations.append(
                 ValidationViolation(
                     rule="P3_NO_GHOSTS",
                     severity="error",
                     message=(
-                        f"Ghost fragment {identity.fragment_id} survived commit without UNMATCHED_EXIT marker."
+                        f"Ghost fragment {identity.fragment_id} survived commit without a valid ghost-window marker."
                     ),
                     fragment_id=identity.fragment_id,
                     details={"assignment_reasons": sorted(reasons)},

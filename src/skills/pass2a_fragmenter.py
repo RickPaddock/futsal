@@ -488,30 +488,33 @@ class Pass2AFragmenter:
                 after_teams, margin_arr[after_mask], quality_arr[after_mask]
             )
 
-            if conf_before < const.TEAM_SWITCH_CONFIDENCE:
-                continue
-            if conf_after < const.TEAM_SWITCH_CONFIDENCE:
-                continue
-            if team_before_conf < const.TEAM_SWITCH_CONFIDENCE:
-                continue
-            if team_after_conf < const.TEAM_SWITCH_CONFIDENCE:
-                continue
+            strong_local_team_flip = (
+                team_before != team_after
+                and min(conf_before, conf_after) >= float(const.TEAM_SWITCH_EDGE_RELAX_MIN_CLUSTER_CONF)
+                and min(team_before_conf, team_after_conf) >= float(const.TEAM_SWITCH_EDGE_RELAX_MIN_TEAM_CONF)
+            )
 
-            # Keep strict two-team gate for full-window checks, but allow near-edge
-            # exceptions when both windows are strongly confident. This catches
-            # brief initial ownership before a clean handoff (e.g. track steals).
+            if conf_before < const.TEAM_SWITCH_CONFIDENCE:
+                if not strong_local_team_flip:
+                    continue
+            if conf_after < const.TEAM_SWITCH_CONFIDENCE:
+                if not strong_local_team_flip:
+                    continue
+            if team_before_conf < const.TEAM_SWITCH_CONFIDENCE:
+                if not strong_local_team_flip:
+                    continue
+            if team_after_conf < const.TEAM_SWITCH_CONFIDENCE:
+                if not strong_local_team_flip:
+                    continue
+
+            # Keep the track-wide two-team gate by default, but allow strong local
+            # bilateral flips to pass when both windows are confidently different.
+            # This rescues true swaps where one player dominates most of the long
+            # track and the minority evidence never reaches the global threshold.
             full_before = (t - W) >= track_start
             full_after = (t + W) <= track_end
-            near_edge = (
-                (t - track_start) <= int(const.TEAM_SWITCH_EDGE_RELAX_FRAMES)
-                or (track_end - t) <= int(const.TEAM_SWITCH_EDGE_RELAX_FRAMES)
-            )
             if not has_two_team_evidence and full_before and full_after:
-                if not near_edge:
-                    continue
-                if min(team_before_conf, team_after_conf) < float(const.TEAM_SWITCH_EDGE_RELAX_MIN_TEAM_CONF):
-                    continue
-                if min(conf_before, conf_after) < float(const.TEAM_SWITCH_EDGE_RELAX_MIN_CLUSTER_CONF):
+                if not strong_local_team_flip:
                     continue
 
             if team_before == team_after:

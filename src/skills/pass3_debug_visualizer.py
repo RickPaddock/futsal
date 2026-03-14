@@ -6,15 +6,21 @@ Renders a confirmation-layer video from committed Pass 3 identities.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import cv2
 import numpy as np
 from tqdm import tqdm
 
 from ..core import constants as const
-from ..core.data_models import Detection, Pass1Output, Pass2COutput, Pass3COutput, CommittedIdentity
+from ..core.data_models import (
+    CommittedIdentity,
+    Detection,
+    Pass1Output,
+    Pass2COutput,
+    Pass3COutput,
+    ScoredFragment,
+)
 from ..core.types import TeamID
 from ..utils.file_utils import load_json
 from ..utils.logging_utils import get_logger
@@ -148,10 +154,77 @@ def _identity_label(identity: CommittedIdentity) -> str:
     return identity.player_id
 
 
+def _coerce_int(value: object, fallback: int) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return fallback
+    return fallback
+
+
+def _interpolate_bbox(
+    start_bbox: List[float],
+    end_bbox: List[float],
+    alpha: float,
+) -> List[float]:
+    alpha = max(0.0, min(1.0, float(alpha)))
+    return [
+        float(start_bbox[idx]) + (float(end_bbox[idx]) - float(start_bbox[idx])) * alpha
+        for idx in range(4)
+    ]
+
+
+def _first_detection_bbox(fragment, detections_by_id: Dict[str, Detection]) -> Optional[List[float]]:
+    for detection_id in getattr(fragment, "detection_ids", []) or []:
+        detection = detections_by_id.get(detection_id)
+        if detection is not None:
+            return list(detection.bbox)
+    return None
+
+
+def _ghost_bbox_for_frame(
+    fragment: ScoredFragment,
+    frame_idx: int,
+    ghost_window: Dict[str, Any],
+    fragment_by_id: Dict[str, ScoredFragment],
+    detections_by_id: Dict[str, Detection],
+) -> Optional[List[float]]:
+    start_bbox = cast(
+        Optional[List[float]],
+        getattr(fragment, "ghost_last_known_bbox", None) or getattr(fragment, "estimated_position", None),
+    )
+    if start_bbox is None:
+        return None
+
+    matched_reappearance_frame = ghost_window.get("matched_reappearance_frame")
+    target_fragment_id = ghost_window.get("target_fragment_id")
+    if matched_reappearance_frame is None or target_fragment_id is None:
+        return list(start_bbox)
+
+    target_fragment = fragment_by_id.get(str(target_fragment_id))
+    if target_fragment is None:
+        return list(start_bbox)
+
+    target_bbox = _first_detection_bbox(target_fragment, detections_by_id)
+    if target_bbox is None:
+        return list(start_bbox)
+
+    start_frame = _coerce_int(ghost_window.get("start_frame"), fragment.start_frame)
+    matched_frame = _coerce_int(matched_reappearance_frame, start_frame)
+    duration = max(1, matched_frame - start_frame)
+    alpha = float(frame_idx - start_frame + 1) / float(duration)
+    return _interpolate_bbox(list(start_bbox), target_bbox, alpha)
+
+
 def _draw_pass3_overlay_frame(
     frame: np.ndarray,
     frame_idx: int,
-    annotations: List[Dict[str, object]],
+    annotations: List[Dict[str, Any]],
     team_palette: Dict[TeamID, Tuple[int, int, int]],
     palette_line: str,
 ) -> np.ndarray:
@@ -163,10 +236,10 @@ def _draw_pass3_overlay_frame(
     real_player_count = 0
 
     for ann in annotations:
-        bbox = ann["bbox"]
+        bbox = cast(List[float], ann["bbox"])
         x1, y1, x2, y2 = [int(round(v)) for v in bbox]
-        team = ann["team"]
-        color = ann.get("color", team_palette.get(team, (0, 0, 0)))
+        team = cast(TeamID, ann["team"])
+        color = cast(Tuple[int, int, int], ann.get("color") or team_palette.get(team, (0, 0, 0)))
         is_ghost = bool(ann["is_ghost"])
         is_retired_ghost = bool(ann.get("retired_ghost", False))
 
@@ -185,10 +258,10 @@ def _draw_pass3_overlay_frame(
         else:
             cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 2)
 
-        label = ann["label"]
-        jersey_number = ann.get("jersey_number")
+        label = str(ann["label"])
+        jersey_number = ann.get("jersey_number") if isinstance(ann.get("jersey_number"), int) else None
         track_id = ann.get("track_id")
-        fragment_id = ann.get("fragment_id")
+        fragment_id = str(ann.get("fragment_id", ""))
         if is_ghost:
             label = f"GHOST {label}"
 
@@ -267,9 +340,9 @@ def render_pass3_debug_video_from_artifact(
     start_frame: int = 0,
     end_frame: Optional[int] = None,
 ) -> None:
-    pass1_output = load_json(Path(pass1_output_path), Pass1Output)
-    pass2c_output = load_json(Path(pass2c_output_path), Pass2COutput)
-    pass3_output = load_json(Path(pass3_output_path), Pass3COutput)
+    pass1_output = load_json(pass1_output_path, Pass1Output)
+    pass2c_output = load_json(pass2c_output_path, Pass2COutput)
+    pass3_output = load_json(pass3_output_path, Pass3COutput)
     team_palette, bibbed_team, random_team, palette_source = _resolve_team_palette(pass3_output)
     palette_line = (
         f"bibbed={bibbed_team.value}(ORANGE), random={random_team.value}(BLACK), source={palette_source}"
@@ -281,8 +354,14 @@ def render_pass3_debug_video_from_artifact(
     identity_by_fragment: Dict[str, CommittedIdentity] = {
         identity.fragment_id: identity for identity in pass3_output.identities
     }
+    fragment_by_id: Dict[str, ScoredFragment] = {
+        fragment.fragment_id: fragment for fragment in pass2c_output.fragments
+    }
+    ghost_activity_windows = pass3_output.solver_log.get("ghost_active_windows") if isinstance(pass3_output.solver_log, dict) else None
+    if not isinstance(ghost_activity_windows, dict):
+        ghost_activity_windows = {}
 
-    frame_annotations: Dict[int, List[Dict[str, object]]] = {}
+    frame_annotations: Dict[int, List[Dict[str, Any]]] = {}
 
     for fragment in pass2c_output.fragments:
         identity = identity_by_fragment.get(fragment.fragment_id)
@@ -294,10 +373,23 @@ def render_pass3_debug_video_from_artifact(
         label = _identity_label(identity)
 
         if is_ghost:
-            bbox = getattr(fragment, "ghost_last_known_bbox", None)
-            if bbox is None:
+            ghost_window = ghost_activity_windows.get(fragment.fragment_id)
+            if not isinstance(ghost_window, dict):
                 continue
-            for frame_idx in range(fragment.start_frame, fragment.end_frame + 1):
+            ghost_start_frame = _coerce_int(ghost_window.get("start_frame"), fragment.start_frame)
+            ghost_end_frame = _coerce_int(ghost_window.get("end_frame"), fragment.end_frame)
+            if ghost_end_frame < ghost_start_frame:
+                continue
+            for frame_idx in range(ghost_start_frame, ghost_end_frame + 1):
+                bbox = _ghost_bbox_for_frame(
+                    fragment,
+                    frame_idx,
+                    ghost_window,
+                    fragment_by_id,
+                    detections_by_id,
+                )
+                if bbox is None:
+                    continue
                 frame_annotations.setdefault(frame_idx, []).append(
                     {
                         "bbox": bbox,

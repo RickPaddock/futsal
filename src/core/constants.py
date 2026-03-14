@@ -140,6 +140,9 @@ PASS3_JERSEY_PROB_FALLBACK_MARGIN = 0.20
 PASS3_GLOBAL_JERSEY_MIN_SUPPORT = 0.55
 PASS3_GLOBAL_JERSEY_MIN_DOMINANCE = 1.20
 PASS3_GLOBAL_JERSEY_CURRENT_LABEL_BONUS = 0.20
+PASS3_GLOBAL_JERSEY_SWITCH_PENALTY = 0.95
+# Penalize assigning the same jersey to multiple player_ids across one clip unless
+# the evidence gain clearly beats a single continuous owner.
 # Raised evidence quality gate for Pass 3A legacy candidates.
 # Prevents low-confidence jersey bleed-through from contaminating downstream constraints.
 
