@@ -464,6 +464,18 @@ class IdentitySolver:
             real_presence_frames=real_presence_frames,
         )
 
+        sanitized_ghost_windows = self._sanitize_ghost_activity_windows(
+            committed_identities=committed_identities,
+            fragments=fragments,
+            ghost_activity_windows=ghost_activity_windows,
+        )
+        post_sanitize_retired_ghost_groups = self._prune_ghost_windows_to_physical_cap(
+            fragments=fragments,
+            refined_identity_groups=refined_identity_groups,
+            retired_ghost_fragments=retired_ghost_fragments,
+            ghost_activity_windows=ghost_activity_windows,
+            real_presence_frames=real_presence_frames,
+        )
         dropped_conflicts = self._resolve_team_jersey_conflicts(
             committed_identities=committed_identities,
             fragments=fragments,
@@ -481,6 +493,16 @@ class IdentitySolver:
             self.logger.info(
                 "Resolved jersey exclusivity conflicts by clearing jersey labels on "
                 f"{total_dropped_conflicts} identities"
+            )
+        if sanitized_ghost_windows > 0:
+            self.logger.info(
+                "Cleared matched ghost reappearance targets on "
+                f"{sanitized_ghost_windows} ghosts due to committed identity mismatch"
+            )
+        if post_sanitize_retired_ghost_groups:
+            self.logger.info(
+                "Retired ghost-only groups after sanitization to restore physical cap: "
+                f"{len(post_sanitize_retired_ghost_groups)}"
             )
 
         self.logger.info(f"Created {len(committed_identities)} committed identities")
@@ -508,10 +530,193 @@ class IdentitySolver:
                 "jersey_team_exclusivity_drops": dropped_conflicts,
                 "jersey_global_exclusivity_drops": dropped_global_conflicts,
                 "jersey_exclusivity_drops": total_dropped_conflicts,
+                "ghost_window_identity_mismatch_clears": sanitized_ghost_windows,
+                "ghost_post_sanitize_cap_retires": len(post_sanitize_retired_ghost_groups),
                 "ghost_active_windows": ghost_activity_windows,
                 "retired_ghost_fragments": sorted(retired_ghost_fragments),
             },
         )
+
+    def _sanitize_ghost_activity_windows(
+        self,
+        committed_identities: List[CommittedIdentity],
+        fragments: List[ScoredFragment],
+        ghost_activity_windows: Dict[str, Dict[str, Any]],
+    ) -> int:
+        """Drop matched ghost interpolation targets that no longer share the committed player identity."""
+        identity_by_fragment = {identity.fragment_id: identity for identity in committed_identities}
+        fragment_by_id = {fragment.fragment_id: fragment for fragment in fragments}
+        cleared = 0
+
+        for ghost_fragment_id, window in ghost_activity_windows.items():
+            if not isinstance(window, dict):
+                continue
+            target_fragment_id = window.get("target_fragment_id")
+            if not target_fragment_id:
+                continue
+
+            ghost_identity = identity_by_fragment.get(str(ghost_fragment_id))
+            target_identity = identity_by_fragment.get(str(target_fragment_id))
+            if ghost_identity is None or target_identity is None:
+                continue
+            if ghost_identity.player_id == target_identity.player_id:
+                continue
+
+            ghost_fragment = fragment_by_id.get(str(ghost_fragment_id))
+            window["matched_reappearance_frame"] = None
+            window["target_fragment_id"] = None
+            window["window_reason"] = "unmatched_exit"
+            if ghost_fragment is not None:
+                window["end_frame"] = int(ghost_fragment.end_frame)
+            cleared += 1
+
+            reasons = list(ghost_identity.assignment_reasons or [])
+            reasons = [reason for reason in reasons if reason != "MATCHED_GHOST_WINDOW"]
+            if "UNMATCHED_EXIT" not in reasons:
+                reasons.append("UNMATCHED_EXIT")
+            if "GHOST_TARGET_IDENTITY_MISMATCH" not in reasons:
+                reasons.append("GHOST_TARGET_IDENTITY_MISMATCH")
+            ghost_identity.assignment_reasons = reasons
+
+        return cleared
+
+    def _prune_ghost_windows_to_physical_cap(
+        self,
+        fragments: List[Fragment],
+        refined_identity_groups: Dict[str, Set[str]],
+        retired_ghost_fragments: Set[str],
+        ghost_activity_windows: Dict[str, Dict[str, Any]],
+        real_presence_frames: Optional[Dict[str, Set[int]]] = None,
+    ) -> Set[str]:
+        fragment_lookup = {fragment.fragment_id: fragment for fragment in fragments}
+        group_by_fragment: Dict[str, str] = {}
+        for root, group in refined_identity_groups.items():
+            for fragment_id in group:
+                group_by_fragment[fragment_id] = root
+
+        group_span: Dict[str, Tuple[int, int]] = {}
+        group_real_frame_lists: Dict[str, List[int]] = {}
+        for root, group in refined_identity_groups.items():
+            group_fragments = [fragment_lookup[fragment_id] for fragment_id in group if fragment_id in fragment_lookup]
+            if not group_fragments:
+                continue
+            start = min(fragment.start_frame for fragment in group_fragments)
+            end = max(fragment.end_frame for fragment in group_fragments)
+            group_span[root] = (start, end)
+            real_frames: Set[int] = set()
+            for fragment in group_fragments:
+                if bool(getattr(fragment, "is_ghost", False)):
+                    continue
+                frames = set((real_presence_frames or {}).get(fragment.fragment_id, set()))
+                if not frames:
+                    frames = set(range(fragment.start_frame, fragment.end_frame + 1))
+                real_frames.update(frames)
+            group_real_frame_lists[root] = sorted(real_frames)
+
+        retired_ghost_groups: Set[str] = set()
+
+        def _build_frame_groups() -> Tuple[Dict[int, Set[str]], Dict[int, Set[str]], Dict[int, Dict[str, Set[str]]]]:
+            frame_identity_groups: Dict[int, Set[str]] = defaultdict(set)
+            frame_groups_with_real: Dict[int, Set[str]] = defaultdict(set)
+            frame_active_ghosts: Dict[int, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
+            for fragment in fragments:
+                fragment_id = fragment.fragment_id
+                if fragment_id in retired_ghost_fragments:
+                    continue
+                group_id = group_by_fragment.get(fragment_id)
+                if group_id is None:
+                    continue
+
+                is_ghost = bool(getattr(fragment, "is_ghost", False))
+                if is_ghost:
+                    window = ghost_activity_windows.get(fragment_id)
+                    if window is None:
+                        continue
+                    active_frames = range(int(window["start_frame"]), int(window["end_frame"]) + 1)
+                else:
+                    active_frames = sorted((real_presence_frames or {}).get(fragment_id, set()))
+                    if not active_frames:
+                        active_frames = range(fragment.start_frame, fragment.end_frame + 1)
+
+                for frame_idx in active_frames:
+                    frame_identity_groups[frame_idx].add(group_id)
+                    if not is_ghost:
+                        frame_groups_with_real[frame_idx].add(group_id)
+                    else:
+                        frame_active_ghosts[frame_idx][group_id].add(fragment_id)
+            return frame_identity_groups, frame_groups_with_real, frame_active_ghosts
+
+        frame_identity_groups, frame_groups_with_real, frame_active_ghosts = _build_frame_groups()
+
+        while True:
+            over_cap = [
+                (frame_idx, len(groups), groups)
+                for frame_idx, groups in frame_identity_groups.items()
+                if len(groups) > const.DYNAMIC_LEVEL_MAX
+            ]
+            if not over_cap:
+                break
+
+            frame_idx, _, active_groups = min(over_cap, key=lambda item: item[0])
+            ghost_only_candidates = [
+                group_id
+                for group_id in active_groups
+                if group_id not in frame_groups_with_real.get(frame_idx, set())
+            ]
+
+            if not ghost_only_candidates:
+                preview = ", ".join([f"{frame}:{count}" for frame, count, _ in over_cap[:10]])
+                raise ValueError(
+                    "P3-R4-GLOBAL violation before attributes: collapsed identity count exceeds "
+                    f"{const.DYNAMIC_LEVEL_MAX} on frames ({preview})."
+                )
+
+            def _candidate_key(group_id: str) -> Tuple[int, int, int, int, str]:
+                active_ghost_ids = frame_active_ghosts.get(frame_idx, {}).get(group_id, set())
+                window_reasons = {
+                    str(ghost_activity_windows.get(fragment_id, {}).get("window_reason", "unmatched_exit"))
+                    for fragment_id in active_ghost_ids
+                }
+                reason_priority = 0 if "unmatched_exit" in window_reasons else 1
+
+                real_frame_list = group_real_frame_lists.get(group_id, [])
+                real_idx = bisect_right(real_frame_list, frame_idx) - 1
+                last_real_frame = real_frame_list[real_idx] if real_idx >= 0 else -1
+
+                latest_active_ghost_start = max(
+                    int(ghost_activity_windows.get(fragment_id, {}).get("start_frame", frame_idx))
+                    for fragment_id in active_ghost_ids
+                ) if active_ghost_ids else frame_idx
+
+                span = group_span.get(group_id, (0, 0))
+                return reason_priority, last_real_frame, latest_active_ghost_start, span[0], group_id
+
+            group_to_retire = min(ghost_only_candidates, key=_candidate_key)
+            active_ghost_ids = set(frame_active_ghosts.get(frame_idx, {}).get(group_to_retire, set()))
+            for fragment_id in active_ghost_ids:
+                window = ghost_activity_windows.get(fragment_id)
+                if window is None:
+                    continue
+
+                start_frame = int(window.get("start_frame", frame_idx))
+                if frame_idx <= start_frame:
+                    retired_ghost_fragments.add(fragment_id)
+                    ghost_activity_windows.pop(fragment_id, None)
+                    continue
+
+                window["end_frame"] = int(frame_idx - 1)
+
+            remaining_group_windows = [
+                fragment_id
+                for fragment_id in refined_identity_groups.get(group_to_retire, set())
+                if fragment_id in ghost_activity_windows
+            ]
+            if not remaining_group_windows:
+                retired_ghost_groups.add(group_to_retire)
+
+            frame_identity_groups, frame_groups_with_real, frame_active_ghosts = _build_frame_groups()
+
+        return retired_ghost_groups
 
     def _optimize_soft_same_constraints(
         self,
@@ -1012,126 +1217,13 @@ class IdentitySolver:
                 claimed_ghosts.add(ghost_fragment_id)
                 claimed_targets.add(target_fragment_id)
 
-        group_span: Dict[str, Tuple[int, int]] = {}
-        group_real_frame_lists: Dict[str, List[int]] = {}
-        for root, group in refined_identity_groups.items():
-            group_fragments = [fragment_lookup[fragment_id] for fragment_id in group if fragment_id in fragment_lookup]
-            if not group_fragments:
-                continue
-            start = min(fragment.start_frame for fragment in group_fragments)
-            end = max(fragment.end_frame for fragment in group_fragments)
-            group_span[root] = (start, end)
-            real_frames: Set[int] = set()
-            for fragment in group_fragments:
-                if bool(getattr(fragment, "is_ghost", False)):
-                    continue
-                frames = set((real_presence_frames or {}).get(fragment.fragment_id, set()))
-                if not frames:
-                    frames = set(range(fragment.start_frame, fragment.end_frame + 1))
-                real_frames.update(frames)
-            group_real_frame_lists[root] = sorted(real_frames)
-
-        def _build_frame_groups() -> Tuple[Dict[int, Set[str]], Dict[int, Set[str]], Dict[int, Dict[str, Set[str]]]]:
-            frame_identity_groups: Dict[int, Set[str]] = defaultdict(set)
-            frame_groups_with_real: Dict[int, Set[str]] = defaultdict(set)
-            frame_active_ghosts: Dict[int, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
-            for fragment in fragments:
-                fragment_id = fragment.fragment_id
-                if fragment_id in retired_ghost_fragments:
-                    continue
-                group_id = group_by_fragment.get(fragment_id)
-                if group_id is None:
-                    continue
-
-                is_ghost = bool(getattr(fragment, "is_ghost", False))
-                if is_ghost:
-                    window = ghost_activity_windows.get(fragment_id)
-                    if window is None:
-                        continue
-                    active_frames = range(int(window["start_frame"]), int(window["end_frame"]) + 1)
-                else:
-                    active_frames = sorted((real_presence_frames or {}).get(fragment_id, set()))
-                    if not active_frames:
-                        active_frames = range(fragment.start_frame, fragment.end_frame + 1)
-
-                for frame_idx in active_frames:
-                    frame_identity_groups[frame_idx].add(group_id)
-                    if not is_ghost:
-                        frame_groups_with_real[frame_idx].add(group_id)
-                    else:
-                        frame_active_ghosts[frame_idx][group_id].add(fragment_id)
-            return frame_identity_groups, frame_groups_with_real, frame_active_ghosts
-
-        frame_identity_groups, frame_groups_with_real, frame_active_ghosts = _build_frame_groups()
-
-        # Reconcile over-cap using ghost-only groups first.
-        while True:
-            over_cap = [
-                (frame_idx, len(groups), groups)
-                for frame_idx, groups in frame_identity_groups.items()
-                if len(groups) > 12
-            ]
-            if not over_cap:
-                break
-
-            frame_idx, _, active_groups = min(over_cap, key=lambda item: item[0])
-            ghost_only_candidates = [
-                group_id
-                for group_id in active_groups
-                if group_id not in frame_groups_with_real.get(frame_idx, set())
-            ]
-
-            if not ghost_only_candidates:
-                preview = ", ".join([f"{frame}:{count}" for frame, count, _ in over_cap[:10]])
-                raise ValueError(
-                    "P3-R4-GLOBAL violation before attributes: collapsed identity count exceeds 12 on frames "
-                    f"({preview})."
-                )
-
-            def _candidate_key(group_id: str) -> Tuple[int, int, int, int, str]:
-                active_ghost_ids = frame_active_ghosts.get(frame_idx, {}).get(group_id, set())
-                window_reasons = {
-                    str(ghost_activity_windows.get(fragment_id, {}).get("window_reason", "unmatched_exit"))
-                    for fragment_id in active_ghost_ids
-                }
-                reason_priority = 0 if "unmatched_exit" in window_reasons else 1
-
-                real_frame_list = group_real_frame_lists.get(group_id, [])
-                real_idx = bisect_right(real_frame_list, frame_idx) - 1
-                last_real_frame = real_frame_list[real_idx] if real_idx >= 0 else -1
-
-                latest_active_ghost_start = max(
-                    int(ghost_activity_windows.get(fragment_id, {}).get("start_frame", frame_idx))
-                    for fragment_id in active_ghost_ids
-                ) if active_ghost_ids else frame_idx
-
-                span = group_span.get(group_id, (0, 0))
-                return reason_priority, last_real_frame, latest_active_ghost_start, span[0], group_id
-
-            group_to_retire = min(ghost_only_candidates, key=_candidate_key)
-            active_ghost_ids = set(frame_active_ghosts.get(frame_idx, {}).get(group_to_retire, set()))
-            for fragment_id in active_ghost_ids:
-                window = ghost_activity_windows.get(fragment_id)
-                if window is None:
-                    continue
-
-                start_frame = int(window.get("start_frame", frame_idx))
-                if frame_idx <= start_frame:
-                    retired_ghost_fragments.add(fragment_id)
-                    ghost_activity_windows.pop(fragment_id, None)
-                    continue
-
-                window["end_frame"] = int(frame_idx - 1)
-
-            remaining_group_windows = [
-                fragment_id
-                for fragment_id in refined_identity_groups.get(group_to_retire, set())
-                if fragment_id in ghost_activity_windows
-            ]
-            if not remaining_group_windows:
-                retired_ghost_groups.add(group_to_retire)
-
-            frame_identity_groups, frame_groups_with_real, frame_active_ghosts = _build_frame_groups()
+        retired_ghost_groups = self._prune_ghost_windows_to_physical_cap(
+            fragments=fragments,
+            refined_identity_groups=refined_identity_groups,
+            retired_ghost_fragments=retired_ghost_fragments,
+            ghost_activity_windows=ghost_activity_windows,
+            real_presence_frames=real_presence_frames,
+        )
 
         diagnostics = {
             "collapse_group_split_count": split_count,

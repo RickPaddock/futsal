@@ -762,3 +762,196 @@ def test_pass3_global_jersey_reassignment_prefers_disjoint_true_sequence_over_lo
     assert updated_by_player["P13_team_a"].jersey_number is None
     assert updated_by_player["P20_team_a"].jersey_number == 10
     assert updated_by_player["P09_team_b"].jersey_number is None
+
+
+def test_pass3_sanitize_ghost_window_when_target_identity_mismatches():
+    ghost_fragment = ScoredFragment(
+        fragment_id="G000030",
+        track_id=29,
+        start_frame=1090,
+        end_frame=1313,
+        detection_ids=[],
+        quality=FragmentQuality.GHOST,
+        quality_score=0.0,
+        is_ghost=True,
+    )
+    identities = [
+        CommittedIdentity(
+            fragment_id="G000030",
+            player_id="P22_team_a",
+            team=TeamID.TEAM_A,
+            jersey_number=None,
+            assignment_method=AssignmentMethod.GHOST_INHERITED,
+            assignment_confidence=0.80,
+            assignment_reasons=["MATCHED_GHOST_WINDOW"],
+        ),
+        CommittedIdentity(
+            fragment_id="F000026",
+            player_id="P27_team_b",
+            team=TeamID.TEAM_B,
+            jersey_number=None,
+            assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+            assignment_confidence=0.95,
+        ),
+    ]
+
+    ghost_windows = {
+        "G000030": {
+            "start_frame": 1090,
+            "end_frame": 1174,
+            "matched_reappearance_frame": 1175,
+            "target_fragment_id": "F000026",
+            "window_reason": "matched_reappearance",
+        }
+    }
+
+    cleared = IdentitySolver()._sanitize_ghost_activity_windows(
+        committed_identities=identities,
+        fragments=[ghost_fragment],
+        ghost_activity_windows=ghost_windows,
+    )
+
+    assert cleared == 1
+    assert ghost_windows["G000030"]["end_frame"] == 1313
+    assert ghost_windows["G000030"]["matched_reappearance_frame"] is None
+    assert ghost_windows["G000030"]["target_fragment_id"] is None
+    assert ghost_windows["G000030"]["window_reason"] == "unmatched_exit"
+    assert "MATCHED_GHOST_WINDOW" not in (identities[0].assignment_reasons or [])
+    assert "UNMATCHED_EXIT" in (identities[0].assignment_reasons or [])
+    assert "GHOST_TARGET_IDENTITY_MISMATCH" in (identities[0].assignment_reasons or [])
+
+
+def test_pass3_global_jersey_conflicts_after_sanitized_ghost_extension():
+    ghost_fragment = ScoredFragment(
+        fragment_id="G000006",
+        track_id=8,
+        start_frame=301,
+        end_frame=2086,
+        detection_ids=[],
+        quality=FragmentQuality.GHOST,
+        quality_score=0.0,
+        is_ghost=True,
+    )
+    real_fragment = ScoredFragment(
+        fragment_id="F000019",
+        track_id=18,
+        start_frame=311,
+        end_frame=2086,
+        detection_ids=["311_18_a"],
+        quality=FragmentQuality.HIGH,
+        quality_score=0.95,
+    )
+    identities = [
+        CommittedIdentity(
+            fragment_id="G000006",
+            player_id="P13_team_a",
+            team=TeamID.TEAM_A,
+            jersey_number=10,
+            assignment_method=AssignmentMethod.GHOST_INHERITED,
+            assignment_confidence=0.80,
+            assignment_reasons=["MATCHED_GHOST_WINDOW"],
+        ),
+        CommittedIdentity(
+            fragment_id="F000019",
+            player_id="P20_team_a",
+            team=TeamID.TEAM_A,
+            jersey_number=10,
+            assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+            assignment_confidence=0.95,
+        ),
+        CommittedIdentity(
+            fragment_id="F_TARGET",
+            player_id="P27_team_b",
+            team=TeamID.TEAM_B,
+            jersey_number=None,
+            assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+            assignment_confidence=0.95,
+        ),
+    ]
+    ghost_windows = {
+        "G000006": {
+            "start_frame": 301,
+            "end_frame": 310,
+            "matched_reappearance_frame": 311,
+            "target_fragment_id": "F_TARGET",
+            "window_reason": "matched_reappearance",
+        }
+    }
+
+    solver = IdentitySolver()
+    cleared = solver._sanitize_ghost_activity_windows(
+        committed_identities=identities,
+        fragments=[ghost_fragment, real_fragment],
+        ghost_activity_windows=ghost_windows,
+    )
+    dropped = solver._resolve_global_jersey_conflicts(
+        committed_identities=identities,
+        fragments=[ghost_fragment, real_fragment],
+        ghost_activity_windows=ghost_windows,
+    )
+
+    assert cleared == 1
+    assert ghost_windows["G000006"]["end_frame"] == 2086
+    assert dropped == 1
+    assert identities[0].jersey_number is None
+    assert identities[1].jersey_number == 10
+    assert "JERSEY_GLOBAL_EXCLUSIVITY_DROPPED" in (identities[0].assignment_reasons or [])
+
+
+def test_pass3_prunes_sanitized_ghost_windows_back_to_physical_cap():
+    ghost_source = ScoredFragment(
+        fragment_id="F000012",
+        track_id=8,
+        start_frame=191,
+        end_frame=300,
+        detection_ids=["191_8_a"],
+        quality=FragmentQuality.HIGH,
+        quality_score=0.95,
+    )
+    ghost_fragment = ScoredFragment(
+        fragment_id="G000006",
+        track_id=8,
+        start_frame=301,
+        end_frame=2086,
+        detection_ids=[],
+        quality=FragmentQuality.GHOST,
+        quality_score=0.0,
+        is_ghost=True,
+    )
+    real_fragments = [
+        ScoredFragment(
+            fragment_id=f"F_REAL_{idx:02d}",
+            track_id=100 + idx,
+            start_frame=311,
+            end_frame=400,
+            detection_ids=[f"311_{100 + idx}_a"],
+            quality=FragmentQuality.HIGH,
+            quality_score=0.95,
+        )
+        for idx in range(12)
+    ]
+    refined_identity_groups = {
+        "GHOST_GROUP": {"F000012", "G000006"},
+        **{f"REAL_GROUP_{idx:02d}": {fragment.fragment_id} for idx, fragment in enumerate(real_fragments)},
+    }
+    ghost_windows = {
+        "G000006": {
+            "start_frame": 301,
+            "end_frame": 2086,
+            "matched_reappearance_frame": None,
+            "target_fragment_id": None,
+            "window_reason": "unmatched_exit",
+        }
+    }
+    retired_ghost_fragments = set()
+
+    retired_groups = IdentitySolver()._prune_ghost_windows_to_physical_cap(
+        fragments=[ghost_source, ghost_fragment, *real_fragments],
+        refined_identity_groups=refined_identity_groups,
+        retired_ghost_fragments=retired_ghost_fragments,
+        ghost_activity_windows=ghost_windows,
+    )
+
+    assert not retired_ghost_fragments
+    assert ghost_windows["G000006"]["end_frame"] == 310
+    assert retired_groups == set()
