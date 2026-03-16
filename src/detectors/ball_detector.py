@@ -49,6 +49,7 @@ class BallDetector:
         # Slicer will be lazily initialized on first frame (needs frame dimensions)
         self.slicer = None
         self._slicer_initialized = False
+        self._slicer_conf_threshold = BALL_CONF_THRESHOLD
 
         if not self.model_path.exists():
             raise FileNotFoundError(f"Ball model not found: {self.model_path}")
@@ -64,7 +65,12 @@ class BallDetector:
         if self.use_inference_slicer:
             self.logger.info("InferenceSlicer enabled (will init on first frame)")
 
-    def _ensure_slicer(self, frame_width: int, frame_height: int):
+    def _ensure_slicer(
+        self,
+        frame_width: int,
+        frame_height: int,
+        conf_threshold: float = BALL_CONF_THRESHOLD,
+    ):
         """
         Lazily initialize InferenceSlicer with frame dimensions.
 
@@ -75,7 +81,11 @@ class BallDetector:
             frame_width: Frame width in pixels
             frame_height: Frame height in pixels
         """
-        if self._slicer_initialized:
+        if (
+            self._slicer_initialized
+            and self.slicer is not None
+            and abs(self._slicer_conf_threshold - conf_threshold) < 1e-9
+        ):
             return
 
         try:
@@ -90,7 +100,7 @@ class BallDetector:
             """Inference callback for each tile."""
             results = self.model(
                 frame_slice,
-                conf=BALL_CONF_THRESHOLD,
+                conf=conf_threshold,
                 verbose=False,
             )
             if results and len(results) > 0:
@@ -119,10 +129,87 @@ class BallDetector:
             iou_threshold=SLICER_IOU_THRESHOLD,
         )
         self._slicer_initialized = True
+        self._slicer_conf_threshold = conf_threshold
         self.logger.info(
             f"InferenceSlicer initialized: {tile_w}x{tile_h} tiles "
             f"(2x2 grid + {SLICER_OVERLAP_PX}px overlap, IOU={SLICER_IOU_THRESHOLD})"
         )
+
+    def _extract_valid_candidates(
+        self,
+        boxes: np.ndarray,
+        confidences: np.ndarray,
+        frame_width: int,
+        frame_height: int,
+    ) -> List[Tuple[List[float], float]]:
+        candidates: List[Tuple[List[float], float]] = []
+
+        for bbox, conf in zip(boxes, confidences):
+            bbox_list = bbox.tolist()
+
+            if not bbox_is_valid(bbox_list, frame_width, frame_height):
+                self.logger.warning(f"Invalid ball bbox (out of frame): {bbox_list}")
+                continue
+
+            clipped_bbox = clip_bbox_to_frame(bbox_list, frame_width, frame_height)
+            candidates.append((clipped_bbox, float(conf)))
+
+        candidates.sort(key=lambda item: item[1], reverse=True)
+        return candidates
+
+    def detect_all(
+        self,
+        frame: np.ndarray,
+        conf_threshold: float = BALL_CONF_THRESHOLD,
+    ) -> List[Tuple[List[float], float]]:
+        """
+        Detect all ball candidates in a frame.
+
+        Uses the same model path as detect(), but returns every valid candidate
+        sorted by confidence descending. This is intended for diagnostics and
+        audit workflows where low-confidence alternatives matter.
+        """
+        if self.model is None:
+            raise RuntimeError("Model not loaded")
+
+        frame_height, frame_width = frame.shape[:2]
+
+        if self.use_inference_slicer and (
+            not self._slicer_initialized
+            or abs(self._slicer_conf_threshold - conf_threshold) >= 1e-9
+        ):
+            self._ensure_slicer(frame_width, frame_height, conf_threshold)
+
+        if self.use_inference_slicer and self.slicer is not None:
+            try:
+                detections_sv = self.slicer(frame)
+                if len(detections_sv) > 0:
+                    boxes = detections_sv.xyxy
+                    confidences = (
+                        detections_sv.confidence
+                        if detections_sv.confidence is not None
+                        else np.ones(len(boxes))
+                    )
+                    return self._extract_valid_candidates(boxes, confidences, frame_width, frame_height)
+            except Exception as e:
+                self.logger.error(f"InferenceSlicer failed, falling back to full-frame: {e}")
+                self.use_inference_slicer = False
+
+        results = self.model(frame, conf=conf_threshold, verbose=False)
+
+        all_candidates: List[Tuple[List[float], float]] = []
+        for result in results:
+            if result.boxes is None or len(result.boxes) == 0:
+                continue
+
+            boxes = result.boxes.xyxy.cpu().numpy()
+            confidences = result.boxes.conf.cpu().numpy()
+            all_candidates.extend(
+                self._extract_valid_candidates(boxes, confidences, frame_width, frame_height)
+            )
+
+        all_candidates.sort(key=lambda item: item[1], reverse=True)
+        return all_candidates
 
     def detect(
         self,
@@ -143,79 +230,11 @@ class BallDetector:
             (bbox, confidence) tuple if ball detected, else None
             bbox format: [x1, y1, x2, y2]
         """
-        if self.model is None:
-            raise RuntimeError("Model not loaded")
-
-        frame_height, frame_width = frame.shape[:2]
-
-        # Initialize slicer on first frame if enabled
-        if self.use_inference_slicer and not self._slicer_initialized:
-            self._ensure_slicer(frame_width, frame_height)
-
-        best_detection = None
-        best_conf = 0.0
-
-        # Run inference with or without slicer
-        if self.use_inference_slicer and self.slicer is not None:
-            try:
-                import supervision as sv
-
-                # InferenceSlicer handles tiling and NMS automatically
-                detections_sv = self.slicer(frame)
-
-                if len(detections_sv) > 0:
-                    boxes = detections_sv.xyxy
-                    confidences = detections_sv.confidence if detections_sv.confidence is not None else np.ones(len(boxes))
-
-                    for bbox, conf in zip(boxes, confidences):
-                        bbox = bbox.tolist()
-
-                        # Validate bbox
-                        if not bbox_is_valid(bbox, frame_width, frame_height):
-                            self.logger.warning(f"Invalid ball bbox from slicer: {bbox}")
-                            continue
-
-                        # Clip to frame bounds (defensive)
-                        bbox = clip_bbox_to_frame(bbox, frame_width, frame_height)
-
-                        # Keep highest confidence detection
-                        if conf > best_conf:
-                            best_detection = (bbox, float(conf))
-                            best_conf = float(conf)
-            except Exception as e:
-                self.logger.error(f"InferenceSlicer failed, falling back to full-frame: {e}")
-                # Fall through to standard inference below
-                self.use_inference_slicer = False
-
-        # Standard full-frame inference (if slicer not enabled or failed)
-        if not self.use_inference_slicer or self.slicer is None or best_detection is None:
-            results = self.model(frame, conf=conf_threshold, verbose=False)
-
-            for result in results:
-                if result.boxes is None or len(result.boxes) == 0:
-                    continue
-
-                boxes = result.boxes.xyxy.cpu().numpy()  # [x1, y1, x2, y2]
-                confidences = result.boxes.conf.cpu().numpy()
-
-                for bbox, conf in zip(boxes, confidences):
-                    bbox = bbox.tolist()
-
-                    # Validate bbox is within frame
-                    if not bbox_is_valid(bbox, frame_width, frame_height):
-                        self.logger.warning(f"Invalid ball bbox (out of frame): {bbox}")
-                        continue
-
-                    # Clip to frame bounds (defensive)
-                    bbox = clip_bbox_to_frame(bbox, frame_width, frame_height)
-
-                    # Keep highest confidence detection
-                    if conf > best_conf:
-                        best_detection = (bbox, float(conf))
-                        best_conf = float(conf)
+        all_candidates = self.detect_all(frame, conf_threshold=conf_threshold)
+        best_detection = all_candidates[0] if all_candidates else None
 
         if best_detection:
-            self.logger.debug(f"Detected ball with confidence {best_conf:.3f}")
+            self.logger.debug(f"Detected ball with confidence {best_detection[1]:.3f}")
         else:
             self.logger.debug("No ball detected")
 

@@ -1,5 +1,6 @@
-from src.core.data_models import Detection, Pass1Output, Fragment, Pass2AOutput, ScoredFragment, CommittedIdentity, Pass3COutput, IdentityCandidateEdge
-from src.core.types import FragmentQuality, TeamID, AssignmentMethod
+from src.core.data_models import BallDetection, BallInterpolationOutput, BallPosition, Detection, Pass1Output, Fragment, Pass2AOutput, ScoredFragment, CommittedIdentity, Pass3COutput, IdentityCandidateEdge
+from src.core.types import BallState, FragmentQuality, InterpolationMethod, TeamID, AssignmentMethod
+from src.skills.ball_interpolator import build_ball_interpolation_output
 from src.skills.pass3_debug_visualizer import _ghost_bbox_for_frame
 from src.skills.pass3c_identity_solver import IdentitySolver
 from src.validation.validator import Validator
@@ -1738,4 +1739,637 @@ def test_pass3_prunes_sanitized_ghost_windows_back_to_physical_cap():
 
     assert not retired_ghost_fragments
     assert ghost_windows["G000006"]["end_frame"] == 310
+
+
+def test_ball_interpolation_builds_full_timeline_and_interpolates_short_gap():
+    pass1_output = _valid_pass1_output()
+    pass1_output.total_frames = 5
+    pass1_output.processed_end_frame_exclusive = 5
+    pass1_output.ball_detections = [
+        BallDetection(
+            frame_idx=1,
+            bbox=[10, 10, 20, 20],
+            centroid=[15, 15],
+            confidence=0.90,
+        ),
+        BallDetection(
+            frame_idx=3,
+            bbox=[30, 30, 40, 40],
+            centroid=[35, 35],
+            confidence=0.92,
+        ),
+    ]
+
+    output = build_ball_interpolation_output(pass1_output)
+
+    states = [position.state for position in output.ball_positions]
+    assert len(output.ball_positions) == 5
+    assert states == [
+        BallState.UNKNOWN,
+        BallState.REAL,
+        BallState.INTERPOLATED,
+        BallState.REAL,
+        BallState.UNKNOWN,
+    ]
+    assert output.interpolation_method == InterpolationMethod.LINEAR
+    assert output.interpolated_frames == [2]
+    assert output.ball_positions[2].centroid == [25.0, 25.0]
+    assert output.ball_positions[2].bbox is None
+
+    validator = Validator()
+    result = validator.validate_ball_interpolation(output, pass1_output.total_frames)
+    assert result.passed
+
+
+def test_ball_interpolation_marks_long_gap_unknown():
+    pass1_output = _valid_pass1_output()
+    pass1_output.total_frames = 36
+    pass1_output.processed_end_frame_exclusive = 36
+    pass1_output.ball_detections = [
+        BallDetection(
+            frame_idx=0,
+            bbox=[10, 10, 20, 20],
+            centroid=[15, 15],
+            confidence=0.90,
+        ),
+        BallDetection(
+            frame_idx=35,
+            bbox=[70, 70, 80, 80],
+            centroid=[75, 75],
+            confidence=0.94,
+        ),
+    ]
+
+    output = build_ball_interpolation_output(pass1_output)
+
+    assert output.ball_positions[0].state == BallState.REAL
+    assert output.ball_positions[35].state == BallState.REAL
+    assert all(position.state == BallState.UNKNOWN for position in output.ball_positions[1:35])
+
+    validator = Validator()
+    result = validator.validate_ball_interpolation(output, pass1_output.total_frames)
+    assert result.passed
+
+
+def test_ball_interpolation_collapses_duplicate_same_frame_detections():
+    pass1_output = _valid_pass1_output()
+    pass1_output.total_frames = 3
+    pass1_output.processed_end_frame_exclusive = 3
+    pass1_output.ball_detections = [
+        BallDetection(
+            frame_idx=1,
+            bbox=[10, 10, 20, 20],
+            centroid=[15, 15],
+            confidence=0.55,
+        ),
+        BallDetection(
+            frame_idx=1,
+            bbox=[12, 12, 22, 22],
+            centroid=[17, 17],
+            confidence=0.91,
+        ),
+    ]
+
+    output = build_ball_interpolation_output(pass1_output)
+
+    assert output.ball_positions[1].state == BallState.REAL
+    assert output.ball_positions[1].centroid == [17.0, 17.0]
+    assert output.ball_positions[1].bbox == [12.0, 12.0, 22.0, 22.0]
+    assert output.ball_positions[1].confidence == 0.91
+
+
+def test_ball_interpolation_drops_false_capture_outliers_between_supported_detections():
+    pass1_output = _valid_pass1_output()
+    pass1_output.total_frames = 11
+    pass1_output.processed_end_frame_exclusive = 11
+    pass1_output.ball_detections = [
+        BallDetection(
+            frame_idx=0,
+            bbox=[0, 0, 10, 10],
+            centroid=[5, 5],
+            confidence=0.90,
+        ),
+        BallDetection(
+            frame_idx=5,
+            bbox=[50, 0, 60, 10],
+            centroid=[55, 5],
+            confidence=0.88,
+        ),
+        BallDetection(
+            frame_idx=6,
+            bbox=[400, 400, 410, 410],
+            centroid=[405, 405],
+            confidence=0.40,
+        ),
+        BallDetection(
+            frame_idx=7,
+            bbox=[410, 400, 420, 410],
+            centroid=[415, 405],
+            confidence=0.45,
+        ),
+        BallDetection(
+            frame_idx=10,
+            bbox=[100, 0, 110, 10],
+            centroid=[105, 5],
+            confidence=0.91,
+        ),
+    ]
+
+    output = build_ball_interpolation_output(pass1_output)
+
+    assert output.ball_positions[6].state == BallState.INTERPOLATED
+    assert output.ball_positions[7].state == BallState.INTERPOLATED
+    assert output.ball_positions[6].bbox is None
+    assert output.ball_positions[7].bbox is None
+    assert output.ball_positions[6].centroid == [65.0, 5.0]
+    assert output.ball_positions[7].centroid == [75.0, 5.0]
+
+
+def test_ball_interpolation_preserves_stable_consecutive_kick_run_and_rejects_short_side_branch():
+    pass1_output = _valid_pass1_output()
+    pass1_output.total_frames = 15
+    pass1_output.processed_end_frame_exclusive = 15
+    pass1_output.ball_detections = [
+        BallDetection(
+            frame_idx=0,
+            bbox=[900, 590, 910, 600],
+            centroid=[905, 595],
+            confidence=0.90,
+        ),
+        BallDetection(
+            frame_idx=1,
+            bbox=[890, 590, 900, 600],
+            centroid=[895, 595],
+            confidence=0.90,
+        ),
+        BallDetection(
+            frame_idx=2,
+            bbox=[880, 590, 890, 600],
+            centroid=[885, 595],
+            confidence=0.90,
+        ),
+        BallDetection(
+            frame_idx=8,
+            bbox=[480, 730, 490, 740],
+            centroid=[485, 735],
+            confidence=0.74,
+        ),
+        BallDetection(
+            frame_idx=9,
+            bbox=[440, 745, 450, 755],
+            centroid=[445, 750],
+            confidence=0.77,
+        ),
+        BallDetection(
+            frame_idx=10,
+            bbox=[400, 760, 410, 770],
+            centroid=[405, 765],
+            confidence=0.62,
+        ),
+        BallDetection(
+            frame_idx=11,
+            bbox=[360, 775, 370, 785],
+            centroid=[365, 780],
+            confidence=0.86,
+        ),
+        BallDetection(
+            frame_idx=12,
+            bbox=[1360, 615, 1370, 625],
+            centroid=[1365, 620],
+            confidence=0.58,
+        ),
+        BallDetection(
+            frame_idx=13,
+            bbox=[1360, 615, 1370, 625],
+            centroid=[1364, 620],
+            confidence=0.34,
+        ),
+    ]
+
+    output = build_ball_interpolation_output(pass1_output)
+
+    assert output.ball_positions[8].state == BallState.REAL
+    assert output.ball_positions[9].state == BallState.REAL
+    assert output.ball_positions[10].state == BallState.REAL
+    assert output.ball_positions[11].state == BallState.REAL
+    assert output.ball_positions[12].state == BallState.UNKNOWN
+    assert output.ball_positions[13].state == BallState.UNKNOWN
+
+
+def test_ball_interpolation_rejects_detached_short_island_between_stable_regions():
+    pass1_output = _valid_pass1_output()
+    pass1_output.total_frames = 17
+    pass1_output.processed_end_frame_exclusive = 17
+    pass1_output.ball_detections = [
+        BallDetection(
+            frame_idx=0,
+            bbox=[95, 95, 105, 105],
+            centroid=[100, 100],
+            confidence=0.90,
+        ),
+        BallDetection(
+            frame_idx=1,
+            bbox=[96, 97, 106, 107],
+            centroid=[101, 102],
+            confidence=0.90,
+        ),
+        BallDetection(
+            frame_idx=2,
+            bbox=[97, 99, 107, 109],
+            centroid=[102, 104],
+            confidence=0.90,
+        ),
+        BallDetection(
+            frame_idx=3,
+            bbox=[98, 101, 108, 111],
+            centroid=[103, 106],
+            confidence=0.90,
+        ),
+        BallDetection(
+            frame_idx=4,
+            bbox=[99, 103, 109, 113],
+            centroid=[104, 108],
+            confidence=0.90,
+        ),
+        BallDetection(
+            frame_idx=7,
+            bbox=[390, 390, 400, 400],
+            centroid=[395, 395],
+            confidence=0.71,
+        ),
+        BallDetection(
+            frame_idx=8,
+            bbox=[395, 395, 405, 405],
+            centroid=[400, 400],
+            confidence=0.75,
+        ),
+        BallDetection(
+            frame_idx=9,
+            bbox=[400, 400, 410, 410],
+            centroid=[405, 405],
+            confidence=0.69,
+        ),
+        BallDetection(
+            frame_idx=10,
+            bbox=[405, 405, 415, 415],
+            centroid=[410, 410],
+            confidence=0.66,
+        ),
+        BallDetection(
+            frame_idx=13,
+            bbox=[108, 110, 118, 120],
+            centroid=[113, 115],
+            confidence=0.88,
+        ),
+        BallDetection(
+            frame_idx=14,
+            bbox=[109, 112, 119, 122],
+            centroid=[114, 117],
+            confidence=0.88,
+        ),
+        BallDetection(
+            frame_idx=15,
+            bbox=[110, 114, 120, 124],
+            centroid=[115, 119],
+            confidence=0.88,
+        ),
+        BallDetection(
+            frame_idx=16,
+            bbox=[111, 116, 121, 126],
+            centroid=[116, 121],
+            confidence=0.88,
+        ),
+    ]
+
+    output = build_ball_interpolation_output(pass1_output)
+
+    assert output.ball_positions[7].state == BallState.INTERPOLATED
+    assert output.ball_positions[8].state == BallState.INTERPOLATED
+    assert output.ball_positions[9].state == BallState.INTERPOLATED
+    assert output.ball_positions[10].state == BallState.INTERPOLATED
+
+
+def test_ball_interpolation_rejects_detached_longer_island_between_stable_regions():
+    pass1_output = _valid_pass1_output()
+    pass1_output.total_frames = 25
+    pass1_output.processed_end_frame_exclusive = 25
+    pass1_output.ball_detections = [
+        BallDetection(
+            frame_idx=0,
+            bbox=[2395, 695, 2405, 705],
+            centroid=[2400, 700],
+            confidence=0.82,
+        ),
+        BallDetection(
+            frame_idx=1,
+            bbox=[2397, 697, 2407, 707],
+            centroid=[2402, 702],
+            confidence=0.83,
+        ),
+        BallDetection(
+            frame_idx=2,
+            bbox=[2399, 699, 2409, 709],
+            centroid=[2404, 704],
+            confidence=0.84,
+        ),
+        BallDetection(
+            frame_idx=3,
+            bbox=[2401, 701, 2411, 711],
+            centroid=[2406, 706],
+            confidence=0.85,
+        ),
+        BallDetection(
+            frame_idx=4,
+            bbox=[2403, 703, 2413, 713],
+            centroid=[2408, 708],
+            confidence=0.84,
+        ),
+        BallDetection(
+            frame_idx=7,
+            bbox=[1295, 895, 1305, 905],
+            centroid=[1300, 900],
+            confidence=0.51,
+        ),
+        BallDetection(
+            frame_idx=8,
+            bbox=[1297, 897, 1307, 907],
+            centroid=[1302, 902],
+            confidence=0.48,
+        ),
+        BallDetection(
+            frame_idx=9,
+            bbox=[1299, 899, 1309, 909],
+            centroid=[1304, 904],
+            confidence=0.52,
+        ),
+        BallDetection(
+            frame_idx=10,
+            bbox=[1301, 901, 1311, 911],
+            centroid=[1306, 906],
+            confidence=0.63,
+        ),
+        BallDetection(
+            frame_idx=11,
+            bbox=[1303, 903, 1313, 913],
+            centroid=[1308, 908],
+            confidence=0.74,
+        ),
+        BallDetection(
+            frame_idx=12,
+            bbox=[1305, 905, 1315, 915],
+            centroid=[1310, 910],
+            confidence=0.70,
+        ),
+        BallDetection(
+            frame_idx=13,
+            bbox=[1307, 907, 1317, 917],
+            centroid=[1312, 912],
+            confidence=0.44,
+        ),
+        BallDetection(
+            frame_idx=20,
+            bbox=[2411, 711, 2421, 721],
+            centroid=[2416, 716],
+            confidence=0.80,
+        ),
+        BallDetection(
+            frame_idx=21,
+            bbox=[2413, 713, 2423, 723],
+            centroid=[2418, 718],
+            confidence=0.81,
+        ),
+        BallDetection(
+            frame_idx=22,
+            bbox=[2415, 715, 2425, 725],
+            centroid=[2420, 720],
+            confidence=0.83,
+        ),
+        BallDetection(
+            frame_idx=23,
+            bbox=[2417, 717, 2427, 727],
+            centroid=[2422, 722],
+            confidence=0.84,
+        ),
+        BallDetection(
+            frame_idx=24,
+            bbox=[2419, 719, 2429, 729],
+            centroid=[2424, 724],
+            confidence=0.82,
+        ),
+    ]
+
+    output = build_ball_interpolation_output(pass1_output)
+
+    for frame_idx in range(7, 14):
+        assert output.ball_positions[frame_idx].state == BallState.INTERPOLATED
+
+
+def test_ball_interpolation_rejects_short_low_confidence_island_with_plausible_average_edges():
+    pass1_output = _valid_pass1_output()
+    pass1_output.total_frames = 35
+    pass1_output.processed_end_frame_exclusive = 35
+    pass1_output.ball_detections = [
+        BallDetection(
+            frame_idx=0,
+            bbox=[1295, 640, 1305, 650],
+            centroid=[1300, 645],
+            confidence=0.88,
+        ),
+        BallDetection(
+            frame_idx=1,
+            bbox=[1297, 641, 1307, 651],
+            centroid=[1302, 646],
+            confidence=0.88,
+        ),
+        BallDetection(
+            frame_idx=2,
+            bbox=[1299, 642, 1309, 652],
+            centroid=[1304, 647],
+            confidence=0.88,
+        ),
+        BallDetection(
+            frame_idx=20,
+            bbox=[665, 883, 675, 893],
+            centroid=[670, 888],
+            confidence=0.37,
+        ),
+        BallDetection(
+            frame_idx=21,
+            bbox=[666, 884, 676, 894],
+            centroid=[671, 889],
+            confidence=0.40,
+        ),
+        BallDetection(
+            frame_idx=30,
+            bbox=[1509, 619, 1519, 629],
+            centroid=[1514, 624],
+            confidence=0.86,
+        ),
+        BallDetection(
+            frame_idx=31,
+            bbox=[1511, 620, 1521, 630],
+            centroid=[1516, 625],
+            confidence=0.86,
+        ),
+        BallDetection(
+            frame_idx=32,
+            bbox=[1513, 621, 1523, 631],
+            centroid=[1518, 626],
+            confidence=0.86,
+        ),
+    ]
+
+    output = build_ball_interpolation_output(pass1_output)
+
+    assert output.ball_positions[20].state == BallState.INTERPOLATED
+    assert output.ball_positions[21].state == BallState.INTERPOLATED
+
+
+def test_ball_interpolation_keeps_true_streak_when_false_streaks_exist_on_both_sides():
+    pass1_output = _valid_pass1_output()
+    pass1_output.total_frames = 25
+    pass1_output.processed_end_frame_exclusive = 25
+    pass1_output.ball_detections = [
+        BallDetection(frame_idx=0, bbox=[2395, 695, 2405, 705], centroid=[2400, 700], confidence=0.60),
+        BallDetection(frame_idx=1, bbox=[2397, 697, 2407, 707], centroid=[2402, 702], confidence=0.60),
+        BallDetection(frame_idx=2, bbox=[2399, 699, 2409, 709], centroid=[2404, 704], confidence=0.60),
+        BallDetection(frame_idx=3, bbox=[1280, 920, 1290, 930], centroid=[1285, 925], confidence=0.75),
+        BallDetection(frame_idx=4, bbox=[1282, 921, 1292, 931], centroid=[1287, 926], confidence=0.76),
+        BallDetection(frame_idx=5, bbox=[1284, 922, 1294, 932], centroid=[1289, 927], confidence=0.77),
+        BallDetection(frame_idx=8, bbox=[2407, 707, 2417, 717], centroid=[2412, 712], confidence=0.85),
+        BallDetection(frame_idx=9, bbox=[2409, 709, 2419, 719], centroid=[2414, 714], confidence=0.85),
+        BallDetection(frame_idx=10, bbox=[2411, 711, 2421, 721], centroid=[2416, 716], confidence=0.85),
+        BallDetection(frame_idx=11, bbox=[2413, 713, 2423, 723], centroid=[2418, 718], confidence=0.85),
+        BallDetection(frame_idx=12, bbox=[2415, 715, 2425, 725], centroid=[2420, 720], confidence=0.85),
+        BallDetection(frame_idx=15, bbox=[1310, 900, 1320, 910], centroid=[1315, 905], confidence=0.60),
+        BallDetection(frame_idx=16, bbox=[1312, 901, 1322, 911], centroid=[1317, 906], confidence=0.72),
+        BallDetection(frame_idx=17, bbox=[1314, 902, 1324, 912], centroid=[1319, 907], confidence=0.74),
+        BallDetection(frame_idx=20, bbox=[2423, 723, 2433, 733], centroid=[2428, 728], confidence=0.88),
+        BallDetection(frame_idx=21, bbox=[2425, 725, 2435, 735], centroid=[2430, 730], confidence=0.88),
+        BallDetection(frame_idx=22, bbox=[2427, 727, 2437, 737], centroid=[2432, 732], confidence=0.88),
+    ]
+
+    output = build_ball_interpolation_output(pass1_output)
+
+    for frame_idx in range(8, 13):
+        assert output.ball_positions[frame_idx].state == BallState.REAL
+    for frame_idx in range(3, 6):
+        assert output.ball_positions[frame_idx].state == BallState.INTERPOLATED
+    for frame_idx in range(15, 18):
+        assert output.ball_positions[frame_idx].state == BallState.INTERPOLATED
+
+
+def test_ball_interpolation_rejects_one_sided_false_streak_and_keeps_bidirectionally_supported_true_streak():
+    pass1_output = _valid_pass1_output()
+    pass1_output.total_frames = 29
+    pass1_output.processed_end_frame_exclusive = 29
+    pass1_output.ball_detections = [
+        BallDetection(frame_idx=0, bbox=[2395, 695, 2405, 705], centroid=[2400, 700], confidence=0.82),
+        BallDetection(frame_idx=1, bbox=[2397, 697, 2407, 707], centroid=[2402, 702], confidence=0.82),
+        BallDetection(frame_idx=2, bbox=[2399, 699, 2409, 709], centroid=[2404, 704], confidence=0.82),
+        BallDetection(frame_idx=3, bbox=[1280, 920, 1290, 930], centroid=[1285, 925], confidence=0.76),
+        BallDetection(frame_idx=4, bbox=[1282, 921, 1292, 931], centroid=[1287, 926], confidence=0.76),
+        BallDetection(frame_idx=5, bbox=[1284, 922, 1294, 932], centroid=[1289, 927], confidence=0.76),
+        BallDetection(frame_idx=8, bbox=[2407, 707, 2417, 717], centroid=[2412, 712], confidence=0.85),
+        BallDetection(frame_idx=9, bbox=[2409, 709, 2419, 719], centroid=[2414, 714], confidence=0.85),
+        BallDetection(frame_idx=10, bbox=[2411, 711, 2421, 721], centroid=[2416, 716], confidence=0.85),
+        BallDetection(frame_idx=11, bbox=[2413, 713, 2423, 723], centroid=[2418, 718], confidence=0.85),
+        BallDetection(frame_idx=12, bbox=[2415, 715, 2425, 725], centroid=[2420, 720], confidence=0.85),
+        BallDetection(frame_idx=15, bbox=[1295, 895, 1305, 905], centroid=[1300, 900], confidence=0.72),
+        BallDetection(frame_idx=16, bbox=[1297, 897, 1307, 907], centroid=[1302, 902], confidence=0.74),
+        BallDetection(frame_idx=17, bbox=[1299, 899, 1309, 909], centroid=[1304, 904], confidence=0.78),
+        BallDetection(frame_idx=18, bbox=[1301, 901, 1311, 911], centroid=[1306, 906], confidence=0.84),
+        BallDetection(frame_idx=19, bbox=[1303, 903, 1313, 913], centroid=[1308, 908], confidence=0.86),
+        BallDetection(frame_idx=20, bbox=[1305, 905, 1315, 915], centroid=[1310, 910], confidence=0.79),
+        BallDetection(frame_idx=21, bbox=[2419, 719, 2429, 729], centroid=[2424, 724], confidence=0.88),
+        BallDetection(frame_idx=22, bbox=[2421, 721, 2431, 731], centroid=[2426, 726], confidence=0.88),
+        BallDetection(frame_idx=23, bbox=[2423, 723, 2433, 733], centroid=[2428, 728], confidence=0.88),
+        BallDetection(frame_idx=24, bbox=[2425, 725, 2435, 735], centroid=[2430, 730], confidence=0.88),
+        BallDetection(frame_idx=25, bbox=[2427, 727, 2437, 737], centroid=[2432, 732], confidence=0.88),
+        BallDetection(frame_idx=26, bbox=[2429, 729, 2439, 739], centroid=[2434, 734], confidence=0.88),
+        BallDetection(frame_idx=27, bbox=[2431, 731, 2441, 741], centroid=[2436, 736], confidence=0.88),
+        BallDetection(frame_idx=28, bbox=[2433, 733, 2443, 743], centroid=[2438, 738], confidence=0.88),
+    ]
+
+    output = build_ball_interpolation_output(pass1_output)
+
+    for frame_idx in range(8, 13):
+        assert output.ball_positions[frame_idx].state == BallState.REAL
+    for frame_idx in range(15, 21):
+        assert output.ball_positions[frame_idx].state == BallState.INTERPOLATED
+
+
+def test_ball_interpolation_rejects_short_jump_out_and_back_branch():
+    pass1_output = _valid_pass1_output()
+    pass1_output.total_frames = 24
+    pass1_output.processed_end_frame_exclusive = 24
+    pass1_output.ball_detections = [
+        BallDetection(frame_idx=0, bbox=[2395, 695, 2405, 705], centroid=[2400, 700], confidence=0.84),
+        BallDetection(frame_idx=1, bbox=[2397, 697, 2407, 707], centroid=[2402, 702], confidence=0.84),
+        BallDetection(frame_idx=2, bbox=[2399, 699, 2409, 709], centroid=[2404, 704], confidence=0.84),
+        BallDetection(frame_idx=3, bbox=[2401, 701, 2411, 711], centroid=[2406, 706], confidence=0.84),
+        BallDetection(frame_idx=4, bbox=[2403, 703, 2413, 713], centroid=[2408, 708], confidence=0.84),
+        BallDetection(frame_idx=5, bbox=[2405, 705, 2415, 715], centroid=[2410, 710], confidence=0.84),
+        BallDetection(frame_idx=6, bbox=[2407, 707, 2417, 717], centroid=[2412, 712], confidence=0.84),
+        BallDetection(frame_idx=8, bbox=[1575, 975, 1585, 985], centroid=[1580, 980], confidence=0.51),
+        BallDetection(frame_idx=9, bbox=[1505, 945, 1515, 955], centroid=[1510, 950], confidence=0.71),
+        BallDetection(frame_idx=10, bbox=[1480, 940, 1490, 950], centroid=[1485, 945], confidence=0.72),
+        BallDetection(frame_idx=11, bbox=[1515, 955, 1525, 965], centroid=[1520, 960], confidence=0.30),
+        BallDetection(frame_idx=14, bbox=[2411, 711, 2421, 721], centroid=[2416, 716], confidence=0.32),
+        BallDetection(frame_idx=15, bbox=[2413, 713, 2423, 723], centroid=[2418, 718], confidence=0.39),
+        BallDetection(frame_idx=16, bbox=[2415, 715, 2425, 725], centroid=[2420, 720], confidence=0.58),
+        BallDetection(frame_idx=17, bbox=[2417, 717, 2427, 727], centroid=[2422, 722], confidence=0.47),
+        BallDetection(frame_idx=20, bbox=[2421, 721, 2431, 731], centroid=[2426, 726], confidence=0.82),
+        BallDetection(frame_idx=21, bbox=[2423, 723, 2433, 733], centroid=[2428, 728], confidence=0.82),
+        BallDetection(frame_idx=22, bbox=[2425, 725, 2435, 735], centroid=[2430, 730], confidence=0.82),
+        BallDetection(frame_idx=23, bbox=[2427, 727, 2437, 737], centroid=[2432, 732], confidence=0.82),
+    ]
+
+    output = build_ball_interpolation_output(pass1_output)
+
+    for frame_idx in range(8, 12):
+        assert output.ball_positions[frame_idx].state == BallState.INTERPOLATED
+    for frame_idx in range(14, 18):
+        assert output.ball_positions[frame_idx].state == BallState.REAL
+
+
+
+def test_ball_interpolation_defaults_to_all_unknown_when_no_detections():
+    pass1_output = _valid_pass1_output()
+    pass1_output.total_frames = 4
+    pass1_output.processed_end_frame_exclusive = 4
+    pass1_output.ball_detections = []
+
+    output = build_ball_interpolation_output(pass1_output)
+
+    assert len(output.ball_positions) == 4
+    assert all(position.state == BallState.UNKNOWN for position in output.ball_positions)
+
+    validator = Validator()
+    result = validator.validate_ball_interpolation(output, pass1_output.total_frames)
+    assert result.passed
+
+
+def test_ball_validation_fails_when_interpolated_state_has_no_centroid():
+    output = BallInterpolationOutput(
+        ball_positions=[
+            BallPosition(
+                frame_idx=0,
+                state=BallState.INTERPOLATED,
+                centroid=None,
+                bbox=None,
+                confidence=0.5,
+            )
+        ],
+        interpolation_method=InterpolationMethod.LINEAR,
+        total_frames=1,
+        interpolated_frames=[0],
+    )
+
+    validator = Validator()
+    result = validator.validate_ball_interpolation(output, total_frames=1)
+
+    assert not result.passed
+    rules = {violation.rule for violation in result.violations}
+    assert "BALL_INTERPOLATED_NO_CENTROID" in rules
     assert retired_groups == set()

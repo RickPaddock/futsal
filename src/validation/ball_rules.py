@@ -4,13 +4,13 @@ Ball interpolation validation rules.
 Per CLAUDE.md Section 8 (Ball Interpolation):
 - R5: Ball state exists at every frame
 - Gaps <= 30 frames: interpolated
-- Gaps > 30 frames: out_of_play
+- Gaps > 30 frames: unknown
 - Interpolation speed limits (physical constraints)
 """
 
 from typing import List, Optional
 from ..core.data_models import BallPosition, BallInterpolationOutput, ValidationViolation
-from ..core.types import BallState
+from ..core.types import BallState, normalize_ball_state_value
 from ..core.constants import MAX_BALL_GAP_FRAMES
 
 
@@ -25,7 +25,7 @@ def validate_ball_interpolation(
     - R5: Ball state exists at every frame
     - Interpolation gaps <= MAX_BALL_GAP_FRAMES
     - Interpolation speed is physically plausible
-    - State consistency (real has bbox, out_of_play has no position)
+    - State consistency (real has bbox, unknown has no position)
 
     Args:
         ball_output: Ball interpolation output
@@ -56,7 +56,7 @@ def validate_ball_interpolation(
             gap = real_frames[i + 1] - real_frames[i] - 1
 
             if gap > 0:
-                # Check if gap is filled with interpolation or out_of_play
+                # Check if gap is filled with interpolation or unknown
                 gap_start = real_frames[i] + 1
                 gap_end = real_frames[i + 1] - 1
 
@@ -66,7 +66,7 @@ def validate_ball_interpolation(
                             ValidationViolation(
                                 rule="BALL_GAP_UNFILLED",
                                 severity="error",
-                                message=f"Frame {frame_idx}: Ball gap not filled (no interpolation or out_of_play state)",
+                                message=f"Frame {frame_idx}: Ball gap not filled (no interpolation or unknown state)",
                                 frame_idx=frame_idx,
                                 details={
                                     "frame_idx": frame_idx,
@@ -78,7 +78,7 @@ def validate_ball_interpolation(
                         continue
 
                     bp = ball_map[frame_idx]
-                    state_value = bp.state.value if isinstance(bp.state, BallState) else bp.state
+                    state_value = normalize_ball_state_value(bp.state)
 
                     # Gap <= threshold: should be interpolated
                     if gap <= MAX_BALL_GAP_FRAMES:
@@ -98,14 +98,14 @@ def validate_ball_interpolation(
                                 )
                             )
 
-                    # Gap > threshold: should be out_of_play
+                    # Gap > threshold: should be unknown
                     else:
-                        if state_value != "out_of_play":
+                        if state_value != "unknown":
                             violations.append(
                                 ValidationViolation(
-                                    rule="BALL_SHOULD_OUT_OF_PLAY",
+                                    rule="BALL_SHOULD_UNKNOWN",
                                     severity="error",
-                                    message=f"Frame {frame_idx}: Gap={gap} > {MAX_BALL_GAP_FRAMES} but state='{state_value}' (expected 'out_of_play')",
+                                    message=f"Frame {frame_idx}: Gap={gap} > {MAX_BALL_GAP_FRAMES} but state='{state_value}' (expected 'unknown')",
                                     frame_idx=frame_idx,
                                     details={
                                         "frame_idx": frame_idx,
@@ -128,11 +128,11 @@ def validate_ball_interpolation(
         if bp2.frame_idx != bp1.frame_idx + 1:
             continue
 
-        # Skip if either is out_of_play
-        state1 = bp1.state.value if isinstance(bp1.state, BallState) else bp1.state
-        state2 = bp2.state.value if isinstance(bp2.state, BallState) else bp2.state
+        # Skip if either is unknown
+        state1 = normalize_ball_state_value(bp1.state)
+        state2 = normalize_ball_state_value(bp2.state)
 
-        if state1 == "out_of_play" or state2 == "out_of_play":
+        if state1 == "unknown" or state2 == "unknown":
             continue
 
         # Check speed
@@ -167,7 +167,7 @@ def validate_ball_state_consistency(ball_positions: List[BallPosition]) -> List[
     Checks:
     - real: must have bbox and centroid
     - interpolated: must have centroid, bbox optional
-    - out_of_play: centroid and bbox should be None
+    - unknown: centroid and bbox should be None
 
     Args:
         ball_positions: List of ball positions
@@ -178,7 +178,7 @@ def validate_ball_state_consistency(ball_positions: List[BallPosition]) -> List[
     violations = []
 
     for bp in ball_positions:
-        state_value = bp.state.value if isinstance(bp.state, BallState) else bp.state
+        state_value = normalize_ball_state_value(bp.state)
 
         if state_value == "real":
             # Real detection: must have bbox and centroid
@@ -232,14 +232,14 @@ def validate_ball_state_consistency(ball_positions: List[BallPosition]) -> List[
                     )
                 )
 
-        elif state_value == "out_of_play":
-            # Out of play: centroid should be None
+        elif state_value == "unknown":
+            # Unknown: centroid should be None
             if bp.centroid is not None:
                 violations.append(
                     ValidationViolation(
-                        rule="BALL_OUT_OF_PLAY_HAS_CENTROID",
+                        rule="BALL_UNKNOWN_HAS_CENTROID",
                         severity="warning",
-                        message=f"Frame {bp.frame_idx}: state='out_of_play' but centroid is not None",
+                        message=f"Frame {bp.frame_idx}: state='unknown' but centroid is not None",
                         frame_idx=bp.frame_idx,
                         details={
                             "frame_idx": bp.frame_idx,

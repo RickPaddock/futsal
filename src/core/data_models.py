@@ -5,7 +5,7 @@ All entity models per CLAUDE.md contract Sections 2, 5.
 These models define the structure of JSON artifacts at each pass.
 """
 
-from pydantic import BaseModel, Field, ConfigDict, AliasChoices
+from pydantic import BaseModel, Field, ConfigDict, AliasChoices, field_validator
 from typing import List, Optional, Dict, Any
 from .types import (
     TeamID,
@@ -14,6 +14,7 @@ from .types import (
     AssignmentMethod,
     InterpolationMethod,
     BallState,
+    normalize_ball_state_value,
     BBox,
     Centroid,
     HSVHistogram,
@@ -494,20 +495,25 @@ class BallPosition(BaseModel):
     Ball state at a frame.
 
     Per CLAUDE.md R5: Ball state exists at every frame.
-    State ∈ {real, interpolated, out_of_play}
+    State ∈ {real, interpolated, unknown}
 
     Field meanings:
     - frame_idx: Frame index for this ball state row.
-    - state: real / interpolated / out_of_play.
+    - state: real / interpolated / unknown.
     - centroid: Ball position if state has on-court position.
     - bbox: Detection bbox for real observations.
     - confidence: Confidence/proxy confidence for this state.
     """
     frame_idx: FrameIndex
-    state: BallState  # real, interpolated, or out_of_play
-    centroid: Optional[Centroid] = None  # [x, y] - None if out_of_play
-    bbox: Optional[BBox] = None  # None if interpolated or out_of_play
-    confidence: float = 1.0  # 1.0 for real, < 1.0 for interpolated, 0.0 for out_of_play
+    state: BallState  # real, interpolated, or unknown
+    centroid: Optional[Centroid] = None  # [x, y] - None if unknown
+    bbox: Optional[BBox] = None  # None if interpolated or unknown
+    confidence: float = 1.0  # 1.0 for real, < 1.0 for interpolated, 0.0 for unknown
+
+    @field_validator("state", mode="before")
+    @classmethod
+    def _normalize_legacy_state(cls, value):
+        return normalize_ball_state_value(value)
 
 
 class BallInterpolationOutput(BaseModel):

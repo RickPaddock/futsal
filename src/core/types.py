@@ -77,11 +77,21 @@ class BallState(str, Enum):
     Ball state enum.
 
     Per CLAUDE.md R5: Ball state exists at every frame.
-    State ∈ {real, interpolated, out_of_play}
+    State ∈ {real, interpolated, unknown}
     """
     REAL = "real"                    # YOLO detection with bbox and confidence
     INTERPOLATED = "interpolated"    # Gap ≤ 30 frames, position interpolated
-    OUT_OF_PLAY = "out_of_play"      # Gap > 30 frames, ball not on court (no position)
+    UNKNOWN = "unknown"              # No trusted ball position available for this frame
+    OUT_OF_PLAY = "unknown"          # Legacy alias for backward compatibility
+
+
+def normalize_ball_state_value(value: object) -> str:
+    """Normalize legacy ball state labels to the current semantic name."""
+    if isinstance(value, BallState):
+        return value.value
+    if isinstance(value, str):
+        return BallState.UNKNOWN.value if value == "out_of_play" else value
+    return str(value)
 
 
 # ============================================================================

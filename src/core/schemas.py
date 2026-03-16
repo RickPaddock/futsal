@@ -396,17 +396,22 @@ PASS3C_OUTPUT_SCHEMA = {
 
 BALL_POSITION_SCHEMA = {
     "type": "object",
-    "required": ["frame_idx", "centroid", "is_interpolated"],
+    "required": ["frame_idx", "state", "confidence"],
     "properties": {
         "frame_idx": {"type": "integer", "minimum": 0},
-        "centroid": get_centroid_schema(),
+        "state": {"type": "string", "enum": ["real", "interpolated", "unknown", "out_of_play"]},
+        "centroid": {
+            "anyOf": [
+                {"type": "null"},
+                get_centroid_schema()
+            ]
+        },
         "bbox": {
             "anyOf": [
                 {"type": "null"},
                 get_bbox_schema()
             ]
         },
-        "is_interpolated": {"type": "boolean"},
         "confidence": {"type": "number", "minimum": 0, "maximum": 1}
     }
 }

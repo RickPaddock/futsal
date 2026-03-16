@@ -253,6 +253,7 @@ PASS3_IDENTITY_COMMIT_JSON = "pass3_identity_commit.json"
 PASS3_VALIDATION_JSON = "pass3_validation.json"
 
 BALL_INTERPOLATION_JSON = "ball_interpolation.json"
+BALL_INTERPOLATION_DEBUG_VIDEO = "ball_interpolation_debug.mp4"
 DEBUG_METRICS_JSON = "debug_metrics.json"
 VISUALIZATION_VIDEO = "visualization.mp4"
 

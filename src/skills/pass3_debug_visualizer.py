@@ -6,6 +6,7 @@ Renders a confirmation-layer video from committed Pass 3 identities.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 import cv2
@@ -16,12 +17,14 @@ from ..core import constants as const
 from ..core.data_models import (
     CommittedIdentity,
     Detection,
+    BallInterpolationOutput,
+    BallPosition,
     Pass1Output,
     Pass2COutput,
     Pass3COutput,
     ScoredFragment,
 )
-from ..core.types import TeamID
+from ..core.types import TeamID, BallState
 from ..utils.file_utils import load_json
 from ..utils.logging_utils import get_logger
 from ..utils.video_io import VideoReader
@@ -78,6 +81,34 @@ def _draw_dashed_rectangle(
     draw_dashed_line((x2, y1), (x2, y2))
     draw_dashed_line((x2, y2), (x1, y2))
     draw_dashed_line((x1, y2), (x1, y1))
+
+
+def _draw_ball_marker(
+    overlay: np.ndarray,
+    ball_position: Optional[BallPosition],
+) -> str:
+    if ball_position is None:
+        return "ball=not_loaded"
+
+    state = ball_position.state.value if isinstance(ball_position.state, BallState) else str(ball_position.state)
+    if state == BallState.REAL.value and ball_position.centroid is not None:
+        color = (0, 215, 255)
+        cx, cy = [int(round(v)) for v in ball_position.centroid]
+        cv2.circle(overlay, (cx, cy), 6, color, -1)
+        if ball_position.bbox is not None:
+            x1, y1, x2, y2 = [int(round(v)) for v in ball_position.bbox]
+            cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 2)
+        return f"ball=real conf={ball_position.confidence:.2f}"
+
+    if state == BallState.INTERPOLATED.value and ball_position.centroid is not None:
+        color = (255, 255, 0)
+        cx, cy = [int(round(v)) for v in ball_position.centroid]
+        cv2.circle(overlay, (cx, cy), 8, color, 2)
+        cv2.line(overlay, (cx - 5, cy), (cx + 5, cy), color, 2)
+        cv2.line(overlay, (cx, cy - 5), (cx, cy + 5), color, 2)
+        return "ball=interpolated"
+
+    return "ball=unknown"
 
 
 def _resolve_team_palette(
@@ -345,8 +376,10 @@ def _draw_pass3_overlay_frame(
     annotations: List[Dict[str, Any]],
     team_palette: Dict[TeamID, Tuple[int, int, int]],
     palette_line: str,
+    ball_position: Optional[BallPosition],
 ) -> np.ndarray:
     overlay = frame.copy()
+    ball_line = _draw_ball_marker(overlay, ball_position)
 
     team_a_count = 0
     team_b_count = 0
@@ -416,6 +449,7 @@ def _draw_pass3_overlay_frame(
     title = "PASS 3 DEBUG: COMMITTED IDENTITY"
     lines = [
         f"{palette_line} | dashed boxes=ghosts",
+        f"{ball_line} | real=yellow ball, interpolated=cyan crosshair",
         "top label=player_id, bottom label=#number - name (if known)",
         "bbox bottom=track+fragment",
         f"frame={frame_idx} team_a={team_a_count} team_b={team_b_count} ghosts={committed_ghost_count}",
@@ -461,6 +495,15 @@ def render_pass3_debug_video_from_artifact(
     pass1_output = load_json(pass1_output_path, Pass1Output)
     pass2c_output = load_json(pass2c_output_path, Pass2COutput)
     pass3_output = load_json(pass3_output_path, Pass3COutput)
+    ball_output_path = Path(pass3_output_path).with_name(const.BALL_INTERPOLATION_JSON)
+    ball_by_frame: Dict[int, BallPosition] = {}
+    if ball_output_path.exists():
+        ball_output = load_json(str(ball_output_path), BallInterpolationOutput)
+        ball_by_frame = {position.frame_idx: position for position in ball_output.ball_positions}
+        logger.info(f"Loaded ball interpolation overlay from {ball_output_path}")
+    else:
+        logger.info("No ball interpolation artifact found; Pass 3 debug video will omit ball overlay")
+
     team_palette, bibbed_team, random_team, palette_source = _resolve_team_palette(pass3_output)
     palette_line = (
         f"bibbed={bibbed_team.value}(ORANGE), random={random_team.value}(BLACK), source={palette_source}"
@@ -584,6 +627,7 @@ def render_pass3_debug_video_from_artifact(
                     anns,
                     team_palette,
                     palette_line,
+                    ball_by_frame.get(frame_idx),
                 )
                 writer.write(debug_frame)
                 pbar.update(1)

@@ -154,20 +154,31 @@ with the new CLAUDE.md contract.
   - [x] Identity temporal overlap
   - [x] Team assignment fails
   - [x] Jersey exclusivity fails
-
+- [ ] Fix ghosts - they are still a bit floaty (see clip 2 around frame 1050)
 ---
 
 ## Ball Interpolation
 
 **File**: `src/skills/ball_interpolator.py` (create)
 **Input**: `pass1_raw.json` (ball_detections)
-**Output**: `ball_interpolation.json`
+**Output**: `ball_interpolation.json`, `ball_interpolation_debug.mp4`
 
 - [ ] Detect gaps in ball detections
+- [ ] Collapse duplicate same-frame ball detections to the highest-confidence detection before interpolation
 - [ ] Gaps ≤ 30 frames: linear interpolation → `state = "interpolated"`
-- [ ] Gaps > 30 frames: `state = "out_of_play"` (no position field)
+- [ ] Gaps > 30 frames: `state = "unknown"` (no trusted position available)
+- [ ] Frames before first real detection and after last real detection: `state = "unknown"`
 - [ ] Every frame must have a ball state entry (validates R5)
 - [ ] Validate output
+
+### Ball Debug Video
+
+- [ ] Render a dedicated ball interpolation debug video for visual inspection
+- [ ] Real detection frame: draw real bbox + solid centroid marker + `state=real`
+- [ ] Interpolated frame: draw no bbox, draw distinct interpolated centroid marker + `state=interpolated`
+- [ ] Unknown frame: draw no ball marker and display `state=unknown`
+- [ ] Overlay gap context: previous real frame, next real frame, gap length, fill mode
+- [ ] Debug video is diagnostic only and MUST NOT infer, alter, suppress, or repair ball states
 
 ---
 
@@ -180,7 +191,7 @@ with the new CLAUDE.md contract.
 - [ ] Bboxes colored by team (`team_a` = blue, `team_b` = red)
 - [ ] Label: `<jersey> - <name>` if mapped (4=Spyros, 7=Rick, 10=Kiki); else jersey number; else identity_id
 - [ ] Ghosts: dashed bboxes
-- [ ] Ball: solid circle (real), dashed circle (interpolated), no circle (out_of_play)
+- [ ] Ball: solid circle (real), dashed circle (interpolated), no circle (unknown)
 - [ ] Deduplication: only suppress same `track_id` duplicates — different tracks may share screen space
 - [ ] Visualizer CANNOT infer, fix, suppress, or merge entities — any inconsistency must be fixed upstream
 
@@ -196,7 +207,7 @@ with the new CLAUDE.md contract.
 - [x] `CandidateEdge` — fragment_a_id, fragment_b_id, all score fields, overall_candidate_score
 - [x] `Constraint` — type (MUST_SAME | CANNOT_SAME | SOFT_SAME), fragment_a_id, fragment_b_id
 - [x] `CommittedIdentity` — identity_id, team_id, jersey_number, fragments[], is_ghost
-- [ ] `BallState` — frame_idx, state (real | interpolated | out_of_play), centroid (optional)
+- [ ] `BallState` / `BallPosition` — `frame_idx`, `state` (real | interpolated | unknown), `centroid` (optional), `bbox` (real only), `confidence`
 
 ---
 
@@ -239,5 +250,6 @@ After each pass, test on clip7:
 - [x] `pass3a_candidates.json`: same-track pairs always have a candidate edge
 - [x] `pass3b_constraints.json`: no contradictions, MUST/CANNOT/SOFT edges present
 - [x] `pass3_identity_commit.json`: 0 unknown teams, jersey exclusivity holds, correct player count
-- [ ] `ball_interpolation.json`: state present at every frame
+- [ ] `ball_interpolation.json`: state present at every frame, short gaps interpolated, long gaps unknown
+- [ ] `ball_interpolation_debug.mp4`: real vs interpolated vs unknown visually distinguishable
 - [ ] `visualization.mp4`: correct team colours, labels, ghosts, ball tracking visible

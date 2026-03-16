@@ -22,7 +22,7 @@ from ..core.data_models import (
     BallPosition,
     ValidationViolation,
 )
-from ..core.types import TeamID, BallState, FrameIndex
+from ..core.types import TeamID, BallState, FrameIndex, normalize_ball_state_value
 
 
 def validate_r1_pass1_raw_truth(pass1_output: Pass1Output) -> List[ValidationViolation]:
@@ -575,9 +575,9 @@ def validate_r5_ball_never_disappears(
 
     Per CLAUDE.md R5:
     - Ball state MUST exist at every frame
-    - State ∈ {real, interpolated, out_of_play}
+    - State ∈ {real, interpolated, unknown}
     - Validator checks presence of state, not position
-    - Position can be None if state = out_of_play
+    - Position can be None if state = unknown
 
     Args:
         ball_positions: List of ball positions
@@ -619,27 +619,27 @@ def validate_r5_ball_never_disappears(
             )
             continue
 
-        state_value = bp.state.value if isinstance(bp.state, BallState) else bp.state
+        state_value = normalize_ball_state_value(bp.state)
 
-        if state_value not in ["real", "interpolated", "out_of_play"]:
+        if state_value not in ["real", "interpolated", "unknown"]:
             violations.append(
                 ValidationViolation(
                     rule="R5",
                     severity="error",
-                    message=f"Frame {bp.frame_idx}: Ball state '{state_value}' invalid (must be real/interpolated/out_of_play)",
+                    message=f"Frame {bp.frame_idx}: Ball state '{state_value}' invalid (must be real/interpolated/unknown)",
                     frame_idx=bp.frame_idx,
                     details={"frame_idx": bp.frame_idx, "state": state_value},
                 )
             )
 
         # Check position consistency
-        if state_value == "out_of_play":
+        if state_value == "unknown":
             if bp.centroid is not None:
                 violations.append(
                     ValidationViolation(
                         rule="R5",
                         severity="warning",
-                        message=f"Frame {bp.frame_idx}: Ball state='out_of_play' but centroid is not None",
+                        message=f"Frame {bp.frame_idx}: Ball state='unknown' but centroid is not None",
                         frame_idx=bp.frame_idx,
                         details={"frame_idx": bp.frame_idx, "centroid": bp.centroid},
                     )
