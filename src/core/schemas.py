@@ -431,6 +431,118 @@ BALL_INTERPOLATION_OUTPUT_SCHEMA = {
 
 
 # ============================================================================
+# BIRD'S-EYE PROJECTION SCHEMAS
+# ============================================================================
+
+BIRDSEYE_PLAYER_POSITION_SCHEMA = {
+    "type": "object",
+    "required": [
+        "frame_idx",
+        "fragment_id",
+        "player_id",
+        "team",
+        "track_id",
+        "is_ghost",
+        "is_estimated",
+        "image_bbox",
+        "image_anchor",
+        "court_position",
+        "render_position",
+    ],
+    "properties": {
+        "frame_idx": {"type": "integer", "minimum": 0},
+        "fragment_id": {"type": "string"},
+        "player_id": {"type": "string", "pattern": "^P\\d{2}_(team_a|team_b)$"},
+        "team": {"type": "string", "enum": ["team_a", "team_b"]},
+        "jersey_number": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "integer", "minimum": 1, "maximum": 12}
+            ]
+        },
+        "track_id": {"type": "integer"},
+        "is_ghost": {"type": "boolean"},
+        "is_estimated": {"type": "boolean"},
+        "image_bbox": get_bbox_schema(),
+        "image_anchor": get_centroid_schema(),
+        "court_position": get_centroid_schema(),
+        "render_position": get_centroid_schema(),
+    },
+}
+
+
+BIRDSEYE_BALL_FRAME_SCHEMA = {
+    "type": "object",
+    "required": ["frame_idx", "state", "confidence"],
+    "properties": {
+        "frame_idx": {"type": "integer", "minimum": 0},
+        "state": {"type": "string", "enum": ["real", "interpolated", "unknown", "out_of_play"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "image_position": {
+            "anyOf": [
+                {"type": "null"},
+                get_centroid_schema(),
+            ]
+        },
+        "court_position": {
+            "anyOf": [
+                {"type": "null"},
+                get_centroid_schema(),
+            ]
+        },
+        "render_position": {
+            "anyOf": [
+                {"type": "null"},
+                get_centroid_schema(),
+            ]
+        },
+    },
+}
+
+
+BIRDSEYE_FRAME_SCHEMA = {
+    "type": "object",
+    "required": ["frame_idx", "players", "ball"],
+    "properties": {
+        "frame_idx": {"type": "integer", "minimum": 0},
+        "players": {"type": "array", "items": BIRDSEYE_PLAYER_POSITION_SCHEMA},
+        "ball": BIRDSEYE_BALL_FRAME_SCHEMA,
+    },
+}
+
+
+BIRDSEYE_PROJECTION_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": [
+        "video_name",
+        "fps",
+        "total_frames",
+        "court_length_m",
+        "court_width_m",
+        "output_pixel_scale",
+        "frames",
+    ],
+    "properties": {
+        "video_name": {"type": "string"},
+        "fps": {"type": "number", "minimum": 1},
+        "total_frames": {"type": "integer", "minimum": 1},
+        "processed_start_frame": {"type": "integer", "minimum": 0},
+        "processed_end_frame_exclusive": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "integer", "minimum": 0},
+            ]
+        },
+        "court_length_m": {"type": "number", "exclusiveMinimum": 0},
+        "court_width_m": {"type": "number", "exclusiveMinimum": 0},
+        "output_pixel_scale": {"type": "integer", "minimum": 1},
+        "frames": {"type": "array", "items": BIRDSEYE_FRAME_SCHEMA},
+        "diagnostics": {"type": "object"},
+    },
+}
+
+
+# ============================================================================
 # DEBUG METRICS SCHEMAS
 # ============================================================================
 
@@ -517,6 +629,7 @@ SCHEMA_REGISTRY = {
     "pass3_constraints": PASS3B_OUTPUT_SCHEMA,
     "pass3_identity_commit": PASS3C_OUTPUT_SCHEMA,
     "ball_interpolation": BALL_INTERPOLATION_OUTPUT_SCHEMA,
+    "birdseye_projection": BIRDSEYE_PROJECTION_OUTPUT_SCHEMA,
     "debug_metrics": DEBUG_METRICS_OUTPUT_SCHEMA,
     "validation_result": VALIDATION_RESULT_SCHEMA,
 }

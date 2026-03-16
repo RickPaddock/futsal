@@ -554,3 +554,254 @@ It is unacceptable to allow one fragment to contain multiple players.
 ---
 
 
+# POST-PIPELINE 2D PITCH PROJECTION
+
+This section defines a downstream projection stage that converts committed player and ball positions into a top-down futsal pitch view.
+
+This stage exists to support both visual inspection and later analytics.
+
+It must NOT repair, reinterpret, or override upstream player identity or ball artifacts.
+
+---
+
+## Objective
+
+Given stable player identities and a stable ball timeline:
+
+1. project players into a 2D bird's-eye pitch coordinate system
+2. project the ball into the same 2D pitch coordinate system
+3. render a top-down pitch view that can be shown in the top-right corner of rendered video
+4. provide court-space positions for downstream analytics
+
+---
+
+## Inputs
+
+pass3_identity_commit.json
+ball_interpolation.json
+existing clicked pitch calibration / homography inputs
+
+---
+
+## Outputs
+
+birdseye_projection.json
+birdseye_debug.mp4
+
+---
+
+## Projection Rules
+
+1. Projection must use committed identities only.
+
+2. Ball projection must use ball states from ball_interpolation.json only.
+
+3. Existing clicked pitch calibration / fisheye-correction inputs should be reused as-is.
+
+4. The existing click-based calibration workflow is considered a valid starting point and should not be replaced by heuristic re-inference.
+
+5. If calibration is unavailable, the system must report that explicitly rather than inventing court coordinates.
+
+---
+
+## 2D Pitch Render Rules
+
+1. Players must appear as circles colored by team.
+
+2. If a player has a resolved jersey number, that number must appear inside the circle.
+
+3. The ball must appear on the same 2D pitch when its state is real or interpolated.
+
+4. Unknown ball frames must show no committed ball marker.
+
+5. This 2D pitch view is intended both for top-right video inset rendering and for later analytics overlays.
+
+---
+
+## Validation Checks
+
+1. Team colour on the 2D pitch must match committed team identity.
+
+2. Jersey text may only be shown when jersey identity is resolved.
+
+3. Bird's-eye projection must never modify upstream identities or ball states.
+
+4. If projection fails, analytics depending on court-space coordinates must abstain or fall back explicitly.
+
+---
+
+## 2D Projection Success Condition
+
+2D projection succeeds when:
+
+• committed players are projectable into court space
+• the ball is projectable when ball state is known
+• the top-down pitch render is visually coherent
+• the output is suitable for later pass / shot / distance analytics
+
+---
+
+
+---
+
+# POST-PIPELINE ANALYTICS
+
+This section defines downstream match analytics that depend on the upstream pipeline succeeding first.
+
+These analytics are NOT allowed to repair, change, or reinterpret upstream player identity or ball tracking artifacts.
+
+The purpose of the full system is not only stable tracking, but also producing reliable football analytics such as:
+
+1. who passed the ball
+2. whether a pass was successful
+3. who took a shot
+4. how far each player ran
+
+These analytics are only valid if upstream player identity continuity and ball continuity are already stable.
+
+---
+
+## Objective
+
+Given stable player identities and a stable ball timeline:
+
+1. determine which player is in possession
+2. detect player-to-player passes
+3. classify passes as successful or unsuccessful
+4. detect shot attempts and identify the shooter
+5. measure player distance run
+6. report analytics for named players where jersey identity is known
+
+---
+
+## Inputs
+
+pass1_raw.json
+pass2_ghosts.json
+pass3_identity_commit.json
+ball_interpolation.json
+birdseye_projection.json
+
+Optional:
+court calibration / homography for metric distance
+
+---
+
+## Outputs
+
+analytics_events.json
+analytics_summary.json
+player_distance_summary.json
+
+---
+
+## Analytics Rules
+
+### Rule 1 — Possession
+
+A player may only be in possession if:
+
+1. the ball exists in the current frame as real or interpolated
+2. the player has a committed identity
+3. the player is the nearest plausible controller of the ball
+4. control persists long enough to be considered stable
+
+If possession is ambiguous, the system must abstain rather than invent possession.
+
+### Rule 2 — Pass Detection
+
+A pass starts when:
+
+1. a player has confirmed possession
+2. the ball leaves that player’s control
+3. the next confirmed controller is another player or possession is lost
+
+Passer:
+the last confirmed player in control before release
+
+Receiver:
+the next confirmed player in control, if any
+
+Successful pass:
+receiver exists, is on the same team, and gains confirmed control within a bounded receive window
+
+Unsuccessful pass:
+receiver is an opponent, or no receiver is confirmed in time, or the ball becomes unknown
+
+### Rule 3 — Shot Detection
+
+A shot attempt starts when:
+
+1. a player has confirmed possession
+2. the ball leaves the player with strong outbound motion
+3. the event is better explained as a shot than a normal pass
+
+Shooter:
+the last confirmed player in control before the shot release
+
+Initial system requirement:
+track shot attempts and shooter identity
+
+Goal outcome classification may be added later.
+
+### Rule 4 — Distance Run
+
+Distance run must be computed from committed player identity positions.
+
+Preferred output:
+court-space metric distance from birdseye_projection.json
+
+Fallback output:
+image-plane distance if calibration is unavailable
+
+Ghost-only spans must not count as confirmed distance.
+
+The output must always state its units explicitly.
+
+### Rule 5 — Named Players
+
+Where jersey identity is resolved, the system must support named reporting for:
+
+jersey 4 = Spyros
+jersey 7 = Rick
+jersey 10 = Kiki
+
+If a named jersey is not resolved, the system must report that explicitly.
+
+---
+
+## Validation Checks
+
+1. Every analytics event must reference a valid committed identity.
+
+2. A successful pass must never cross teams.
+
+3. Distance outputs must include explicit units.
+
+4. Analytics must never modify upstream artifacts.
+
+5. If possession certainty is insufficient, the system must abstain rather than fabricate pass or shot events.
+
+---
+
+## Analytics Success Condition
+
+Analytics succeed when:
+
+• pass events reference valid players
+• successful passes stay within team
+• shot attempts reference valid shooters
+• distances are reported with explicit units
+• uncertain situations are abstained rather than guessed
+
+---
+
+## Extended System Completion Condition
+
+The system is considered analytics-ready when:
+
+• all upstream passes succeed
+• fragments represent single players
+• identities and teams are stable
+• ball interpolation is stable enough for possession reasoning
+• downstream analytics can be produced without fabricating events

@@ -17,6 +17,7 @@ from ..core.data_models import (
     Pass2COutput,
     Pass3COutput,
     BallInterpolationOutput,
+    BirdseyeProjectionOutput,
     ValidationViolation,
     ValidationResult,
     ScoredFragment,
@@ -175,6 +176,34 @@ class Validator:
         violations.extend(validate_ball_state_consistency(ball_output.ball_positions))
 
         return self._build_result("ball", violations)
+
+    def validate_birdseye(
+        self,
+        birdseye_output: BirdseyeProjectionOutput,
+    ) -> ValidationResult:
+        """
+        Validate bird's-eye projection output.
+
+        Args:
+            birdseye_output: Bird's-eye projection output
+
+        Returns:
+            ValidationResult with violations (if any)
+        """
+        from .birdseye_rules import validate_birdseye_projection
+
+        violations = validate_birdseye_projection(birdseye_output)
+        diagnostics = {
+            "projected_frames": len(birdseye_output.frames),
+            "estimated_player_frames": sum(
+                1
+                for frame in birdseye_output.frames
+                for player in frame.players
+                if player.is_estimated
+            ),
+        }
+
+        return self._build_result("birdseye", violations, diagnostics=diagnostics)
 
     def _build_result(
         self,

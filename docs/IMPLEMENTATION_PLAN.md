@@ -154,7 +154,7 @@ with the new CLAUDE.md contract.
   - [x] Identity temporal overlap
   - [x] Team assignment fails
   - [x] Jersey exclusivity fails
-- [ ] Fix ghosts - they are still a bit floaty (see clip 2 around frame 1050)
+- [ ] Fix ghosts - they are still a bit floaty (see clip 2 around frame 1050) - leave until after analytics section is complete
 ---
 
 ## Ball Interpolation
@@ -163,35 +163,81 @@ with the new CLAUDE.md contract.
 **Input**: `pass1_raw.json` (ball_detections)
 **Output**: `ball_interpolation.json`, `ball_interpolation_debug.mp4`
 
-- [ ] Detect gaps in ball detections
-- [ ] Collapse duplicate same-frame ball detections to the highest-confidence detection before interpolation
-- [ ] Gaps ≤ 30 frames: linear interpolation → `state = "interpolated"`
-- [ ] Gaps > 30 frames: `state = "unknown"` (no trusted position available)
-- [ ] Frames before first real detection and after last real detection: `state = "unknown"`
-- [ ] Every frame must have a ball state entry (validates R5)
-- [ ] Validate output
+- [x] Detect gaps in ball detections
+- [x] Collapse duplicate same-frame ball detections to the highest-confidence detection before interpolation
+- [x] Gaps ≤ 30 frames: linear interpolation → `state = "interpolated"`
+- [x] Gaps > 30 frames: `state = "unknown"` (no trusted position available)
+- [x] Frames before first real detection and after last real detection: `state = "unknown"`
+- [x] Every frame must have a ball state entry (validates R5)
+- [x] Validate output
+- [x] Normalize legacy `out_of_play` artifacts to `unknown` during model/schema validation
+- [x] Suppress short false ball branches when they jump away from a supported trajectory and then jump back
+- [x] Suppress detached low-confidence islands even when average edge speed alone would otherwise let them survive
+- [x] Preserve locally supported true streaks while rejecting one-sided foot/shoe false positives
 
 ### Ball Debug Video
 
-- [ ] Render a dedicated ball interpolation debug video for visual inspection
-- [ ] Real detection frame: draw real bbox + solid centroid marker + `state=real`
-- [ ] Interpolated frame: draw no bbox, draw distinct interpolated centroid marker + `state=interpolated`
-- [ ] Unknown frame: draw no ball marker and display `state=unknown`
-- [ ] Overlay gap context: previous real frame, next real frame, gap length, fill mode
-- [ ] Debug video is diagnostic only and MUST NOT infer, alter, suppress, or repair ball states
+- [x] Render a dedicated ball interpolation debug video for visual inspection
+- [x] Real detection frame: draw real bbox + solid centroid marker + `state=real`
+- [x] Interpolated frame: draw no bbox, draw distinct interpolated centroid marker + `state=interpolated`
+- [x] Unknown frame: draw no ball marker and display `state=unknown`
+- [x] Overlay gap context: previous real frame, next real frame, gap length, fill mode
+- [x] Show rejected raw detections in red for debugging false-capture filtering
+- [x] Debug video is diagnostic only and MUST NOT infer, alter, suppress, or repair ball states
+
+### Current Diagnostics
+
+- [x] `src/skills/pass3_debug_visualizer.py` now loads `ball_interpolation.json` and overlays ball state in `pass3_debug.mp4`
+- [x] `scripts/audit_ball_candidates.py` can rerun the ball model over a frame window and save all raw candidates for detector debugging
+- [x] Audit video supports render-only reruns, separate render threshold, and capped candidate count to keep inspection usable
+
+---
+
+## 2D Bird's-Eye Pitch Projection
+
+**File**: `src/skills/birds_eye_pitch.py` (create)
+**Input**: `pass3_identity_commit.json` + `ball_interpolation.json` + existing clicked pitch calibration / homography inputs
+**Output**: `birdseye_projection.json`, `birdseye_debug.mp4`
+
+- [ ] Project committed player positions into court space using the existing clicked pitch calibration / fisheye-correction workflow
+- [ ] Project ball positions into the same court space using the same homography
+- [ ] Reuse the current clicked pitch setup as-is and leave `utils/click_points.py` unchanged
+- [ ] If calibration is unavailable, fail this stage cleanly and report diagnostics instead of inventing court coordinates
+- [ ] Every frame must include projected player positions for committed identities when projection is available
+- [ ] Every frame must include projected ball position when ball state is `real` or `interpolated`
+- [ ] Ghost-only player spans may be shown as estimated, but must be flagged as estimated and excluded from confirmed metric analytics
+
+### 2D Pitch Render
+
+- [ ] Render a top-down futsal pitch view suitable for both a debug video and a video inset
+- [ ] Player markers must be circles colored by team
+- [ ] If a player has a resolved jersey number, that number must be drawn inside the circle
+- [ ] In our current named cases, jersey display must support 4 = Spyros, 7 = Rick, 10 = Kiki
+- [ ] Ball marker must be shown on the projected pitch when ball state is `real` or `interpolated`
+- [ ] Unknown ball frames must show no committed ball marker
+- [ ] Projected pitch render is descriptive only and MUST NOT repair identity or ball artifacts
+
+### Validation
+
+- [ ] Projection must use committed identities only, never raw track IDs directly
+- [ ] Team colors on the 2D pitch must match committed team assignment
+- [ ] Jersey text inside player circles must only be shown when jersey identity is resolved
+- [ ] Bird's-eye output must never alter upstream identity or ball states
 
 ---
 
 ## Visualization
 
 **File**: `src/skills/visualizer.py` (create)
-**Input**: `pass3_identity_commit.json` + `ball_interpolation.json` ONLY
+**Input**: `pass3_identity_commit.json` + `ball_interpolation.json` + `birdseye_projection.json`
 **Output**: `visualization.mp4`
 
 - [ ] Bboxes colored by team (`team_a` = blue, `team_b` = red)
 - [ ] Label: `<jersey> - <name>` if mapped (4=Spyros, 7=Rick, 10=Kiki); else jersey number; else identity_id
 - [ ] Ghosts: dashed bboxes
 - [ ] Ball: solid circle (real), dashed circle (interpolated), no circle (unknown)
+- [ ] Top-right corner inset must show the 2D bird's-eye pitch projection
+- [ ] 2D inset must show team-colored player circles, resolved jersey numbers inside circles, and projected ball position
 - [ ] Deduplication: only suppress same `track_id` duplicates — different tracks may share screen space
 - [ ] Visualizer CANNOT infer, fix, suppress, or merge entities — any inconsistency must be fixed upstream
 
@@ -207,7 +253,7 @@ with the new CLAUDE.md contract.
 - [x] `CandidateEdge` — fragment_a_id, fragment_b_id, all score fields, overall_candidate_score
 - [x] `Constraint` — type (MUST_SAME | CANNOT_SAME | SOFT_SAME), fragment_a_id, fragment_b_id
 - [x] `CommittedIdentity` — identity_id, team_id, jersey_number, fragments[], is_ghost
-- [ ] `BallState` / `BallPosition` — `frame_idx`, `state` (real | interpolated | unknown), `centroid` (optional), `bbox` (real only), `confidence`
+- [x] `BallState` / `BallPosition` — `frame_idx`, `state` (real | interpolated | unknown), `centroid` (optional), `bbox` (real only), `confidence`
 
 ---
 
@@ -234,7 +280,7 @@ with the new CLAUDE.md contract.
 
 **File**: `src/main.py` or `src/orchestrator.py`
 
-- [ ] Execute passes in strict order (1 → 2A → 2B → 2C → 3A → 3B → 3C → Ball → Viz)
+- [ ] Execute passes in strict order (1 → 2A → 2B → 2C → 3A → 3B → 3C → Ball → BirdsEye → Viz → Analytics)
 - [ ] After each pass: validate output, FAIL FAST on error, do NOT write later artifacts
 - [ ] Support `--passes 2a` style flag to run a subset of passes (for iterative development)
 
@@ -250,6 +296,121 @@ After each pass, test on clip7:
 - [x] `pass3a_candidates.json`: same-track pairs always have a candidate edge
 - [x] `pass3b_constraints.json`: no contradictions, MUST/CANNOT/SOFT edges present
 - [x] `pass3_identity_commit.json`: 0 unknown teams, jersey exclusivity holds, correct player count
-- [ ] `ball_interpolation.json`: state present at every frame, short gaps interpolated, long gaps unknown
-- [ ] `ball_interpolation_debug.mp4`: real vs interpolated vs unknown visually distinguishable
+- [x] `ball_interpolation.json`: state present at every frame, short gaps interpolated, long gaps unknown
+- [x] `ball_interpolation_debug.mp4`: real vs interpolated vs unknown visually distinguishable
+- [ ] `birdseye_projection.json`: projected player + ball positions present when calibration is available
+- [ ] `birdseye_debug.mp4`: top-down pitch shows team-colored player circles, jersey numbers when resolved, and projected ball
 - [ ] `visualization.mp4`: correct team colours, labels, ghosts, ball tracking visible
+
+
+---
+
+## Analytics
+
+**Purpose**: downstream match analytics built on stable player identity, jersey identity, and ball tracking.
+This section exists only because the upstream goal is to make these analytics reliable.
+Analytics MUST consume upstream artifacts only and MUST NOT alter, repair, or override identity or ball outputs.
+
+**Files**: `src/skills/analytics_possession.py`, `src/skills/analytics_passes.py`, `src/skills/analytics_distance.py`, `src/skills/analytics_shots.py` (new)
+**Input**: `pass1_raw.json` + `pass2_ghosts.json` + `pass3_identity_commit.json` + `ball_interpolation.json` + `birdseye_projection.json`
+**Output**: `analytics_events.json`, `analytics_summary.json`, `player_distance_summary.json`
+
+### Scope
+
+- [ ] Track which identified player is in possession of the ball
+- [ ] Track player-to-player passes
+- [ ] Mark passes as successful or unsuccessful
+- [ ] Track shot attempts and identify the shooter
+- [ ] Track distance run for identified players
+- [ ] Produce named summaries for jersey 4 = Spyros, 7 = Rick, 10 = Kiki
+
+### Possession Model
+
+- [ ] Possession MUST be derived from `ball_interpolation.json` + committed player identities, not from raw track IDs
+- [ ] A player may only be considered in possession when:
+  - [ ] ball state is `real` or `interpolated`
+  - [ ] player identity is committed in `pass3_identity_commit.json`
+  - [ ] player is the closest plausible controller of the ball
+  - [ ] control persists for a minimum confirmation window
+- [ ] Possession output must be frame-indexed and include confidence
+- [ ] Ghost-only frames must NEVER create confirmed possession
+
+### Pass Detection
+
+- [ ] A pass starts when a player in confirmed possession releases the ball and loses control
+- [ ] Passer = last confirmed controlling player before release
+- [ ] Receiver = next confirmed controlling player after release, if any
+- [ ] Successful pass:
+  - [ ] receiver exists
+  - [ ] receiver is on the same team as passer
+  - [ ] receiver control is confirmed within a bounded receive window
+- [ ] Unsuccessful pass:
+  - [ ] opponent receives the ball, OR
+  - [ ] ball becomes unknown for too long, OR
+  - [ ] no receiver is confirmed inside the receive window
+- [ ] Pass event fields:
+  - [ ] `event_id`
+  - [ ] `event_type = "pass"`
+  - [ ] `start_frame`, `end_frame`
+  - [ ] `passer_player_id`, `passer_jersey_number`
+  - [ ] `receiver_player_id`, `receiver_jersey_number` (nullable)
+  - [ ] `team_id`
+  - [ ] `outcome = successful | unsuccessful | loose_ball`
+  - [ ] `event_confidence`
+
+### Shot Detection
+
+- [ ] A shot attempt starts when a player in confirmed possession releases the ball with strong outbound motion
+- [ ] Shooter = last confirmed controlling player before shot release
+- [ ] Initial implementation only needs `shot_attempt`
+- [ ] Goal / on-target / off-target classification can come later
+- [ ] Shot event fields:
+  - [ ] `event_id`
+  - [ ] `event_type = "shot"`
+  - [ ] `start_frame`, `end_frame`
+  - [ ] `shooter_player_id`, `shooter_jersey_number`
+  - [ ] `team_id`
+  - [ ] `outcome = shot_attempt`
+  - [ ] `event_confidence`
+
+### Distance Run
+
+- [ ] Distance must be computed from committed player identity positions, not raw track IDs
+- [ ] Prefer court-space distance from `birdseye_projection.json` when calibration / homography is available
+- [ ] If calibration is unavailable, report image-plane distance and explicitly mark units as `px`
+- [ ] Distance must be accumulated from real observed player positions only
+- [ ] Ghost-only spans must NOT contribute to confirmed distance run
+- [ ] Distance summary fields:
+  - [ ] `player_id`
+  - [ ] `jersey_number`
+  - [ ] `team_id`
+  - [ ] `display_name` (Spyros / Rick / Kiki when mapped)
+  - [ ] `distance_value`
+  - [ ] `distance_unit = m | px`
+  - [ ] `observed_frame_count`
+  - [ ] `estimated_frame_count`
+  - [ ] `distance_confidence`
+
+### Named Player Reporting
+
+- [ ] Report dedicated summaries for:
+  - [ ] jersey 4 = Spyros
+  - [ ] jersey 7 = Rick
+  - [ ] jersey 10 = Kiki
+- [ ] If a named jersey is not resolved in a clip, report that explicitly instead of fabricating analytics
+
+### Validation
+
+- [ ] Every analytics event must reference a valid committed identity
+- [ ] A successful pass must never cross teams
+- [ ] Distance output must always include explicit units
+- [ ] Analytics must never modify or reinterpret upstream artifacts
+- [ ] If possession is not stable enough, analytics should abstain rather than invent events
+
+### Verification
+
+- [ ] `analytics_events.json`: pass and shot events reference committed identities only
+- [ ] `player_distance_summary.json`: named players present when jerseys resolve
+- [ ] Successful passes always stay within team
+- [ ] Distances clearly report `m` or `px`
+- [ ] Analytics output is absent or abstains when upstream certainty is insufficient

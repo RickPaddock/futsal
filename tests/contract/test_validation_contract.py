@@ -1,6 +1,7 @@
-from src.core.data_models import BallDetection, BallInterpolationOutput, BallPosition, Detection, Pass1Output, Fragment, Pass2AOutput, ScoredFragment, CommittedIdentity, Pass3COutput, IdentityCandidateEdge
+from src.core.data_models import BallDetection, BallInterpolationOutput, BallPosition, BirdseyeProjectionOutput, Detection, Pass1Output, Fragment, Pass2AOutput, Pass2COutput, ScoredFragment, CommittedIdentity, Pass3COutput, IdentityCandidateEdge
 from src.core.types import BallState, FragmentQuality, InterpolationMethod, TeamID, AssignmentMethod
 from src.skills.ball_interpolator import build_ball_interpolation_output
+from src.skills.birds_eye_pitch import build_birds_eye_projection_output
 from src.skills.pass3_debug_visualizer import _ghost_bbox_for_frame
 from src.skills.pass3c_identity_solver import IdentitySolver
 from src.validation.validator import Validator
@@ -265,7 +266,141 @@ def test_pass3_validation_allows_matched_ghost_window():
     result = validator.validate_pass3(pass3_output, fragments)
 
     assert result.passed
-    assert len(result.violations) == 0
+
+
+def test_birdseye_projection_builds_projected_players_and_ball():
+    pass1_output = Pass1Output(
+        video_name="unit",
+        fps=30.0,
+        width=3840,
+        height=2160,
+        total_frames=2,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=2,
+        detections=[
+            Detection(
+                detection_id="0_1_deadbeef",
+                frame_idx=0,
+                bbox=[1000, 700, 1080, 980],
+                centroid=[1040, 840],
+                confidence=0.95,
+                track_id=1,
+                jersey_number=7,
+                jersey_confidence=0.9,
+                jersey_probs={7: 0.9},
+                hsv_histogram_jersey=None,
+                jersey_color_sampled=False,
+                jersey_roi_valid=False,
+                jersey_roi_bbox=None,
+            )
+        ],
+        ball_detections=[
+            BallDetection(
+                frame_idx=0,
+                bbox=[1900, 760, 1910, 770],
+                centroid=[1905, 765],
+                confidence=0.8,
+            )
+        ],
+    )
+    pass2_output = Pass2COutput(
+        fragments=[
+            ScoredFragment(
+                fragment_id="F000001",
+                original_track_id=1,
+                start_frame=0,
+                end_frame=0,
+                detection_ids=["0_1_deadbeef"],
+                quality=FragmentQuality.HIGH,
+                quality_score=0.95,
+            )
+        ]
+    )
+    pass3_output = Pass3COutput(
+        identities=[
+            CommittedIdentity(
+                fragment_id="F000001",
+                player_id="P07_team_a",
+                team=TeamID.TEAM_A,
+                jersey_number=7,
+                assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+                assignment_confidence=0.95,
+            )
+        ],
+        solver_log={},
+        unresolved_conflicts=[],
+    )
+    ball_output = BallInterpolationOutput(
+        ball_positions=[
+            BallPosition(frame_idx=0, state=BallState.REAL, centroid=[1905, 765], bbox=[1900, 760, 1910, 770], confidence=0.8),
+            BallPosition(frame_idx=1, state=BallState.UNKNOWN, centroid=None, bbox=None, confidence=0.0),
+        ],
+        interpolation_method=InterpolationMethod.LINEAR,
+        total_frames=2,
+    )
+    calibration_config = {
+        "homography": {
+            "court_length": 40.0,
+            "court_width": 20.0,
+            "output_pixel_scale": 20,
+            "source_points": [[680, 595], [843, 638], [147, 1075], [3136, 611], [2964, 650], [3644, 1100], [1900, 530], [1888, 1592], [303, 772], [128, 875], [3511, 808], [3692, 907], [1891, 760]],
+            "dest_points": [[0.0, 19.0], [3.5, 17.0], [3.5, 5.0], [40.0, 19.0], [36.5, 17.0], [36.5, 5.0], [20.0, 19.0], [20.0, 1.0], [0.0, 11.5], [0.0, 8.5], [40.0, 11.5], [40.0, 8.5], [20.0, 10.0]],
+        }
+    }
+
+    birdseye_output = build_birds_eye_projection_output(
+        pass1_output=pass1_output,
+        pass2c_output=pass2_output,
+        pass3_output=pass3_output,
+        ball_output=ball_output,
+        calibration_config=calibration_config,
+    )
+
+    assert isinstance(birdseye_output, BirdseyeProjectionOutput)
+    assert len(birdseye_output.frames) == 2
+    assert len(birdseye_output.frames[0].players) == 1
+    assert birdseye_output.frames[0].players[0].player_id == "P07_team_a"
+    assert birdseye_output.frames[0].ball.state == BallState.REAL
+    assert birdseye_output.frames[0].ball.court_position is not None
+    assert birdseye_output.frames[0].ball.render_position is not None
+    assert birdseye_output.frames[0].ball.render_position[1] < 200
+    assert birdseye_output.frames[1].ball.state == BallState.UNKNOWN
+    assert birdseye_output.frames[1].ball.court_position is None
+
+
+def test_birdseye_validation_fails_when_real_ball_has_no_projection():
+    output = BirdseyeProjectionOutput(
+        video_name="unit",
+        fps=30.0,
+        total_frames=1,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=1,
+        court_length_m=40.0,
+        court_width_m=20.0,
+        output_pixel_scale=20,
+        frames=[
+            {
+                "frame_idx": 0,
+                "players": [],
+                "ball": {
+                    "frame_idx": 0,
+                    "state": "real",
+                    "confidence": 0.7,
+                    "image_position": [1905, 765],
+                    "court_position": None,
+                    "render_position": None,
+                },
+            }
+        ],
+        diagnostics={},
+    )
+
+    validator = Validator()
+    result = validator.validate_birdseye(output)
+
+    assert not result.passed
+    rules = {violation.rule for violation in result.violations}
+    assert "BIRDSEYE_BALL_MISSING_POSITION" in rules
 
 
 def test_pass3_jersey_conflict_resolution_preserves_disjoint_same_number_fragments():

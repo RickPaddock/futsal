@@ -254,8 +254,14 @@ PASS3_VALIDATION_JSON = "pass3_validation.json"
 
 BALL_INTERPOLATION_JSON = "ball_interpolation.json"
 BALL_INTERPOLATION_DEBUG_VIDEO = "ball_interpolation_debug.mp4"
+BIRDSEYE_PROJECTION_JSON = "birdseye_projection.json"
+BIRDSEYE_VALIDATION_JSON = "birdseye_validation.json"
+BIRDSEYE_DEBUG_VIDEO = "birdseye_debug.mp4"
 DEBUG_METRICS_JSON = "debug_metrics.json"
 VISUALIZATION_VIDEO = "visualization.mp4"
+
+# Calibration artifact for pixel-to-court projection.
+PITCH_CALIBRATION_JSON = Path("config") / "pitch_calibration.json"
 
 # ============================================================================
 # SPLIT TRIGGERS (PASS 2A) — per IMPLEMENTATION_PLAN.md contract

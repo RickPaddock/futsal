@@ -23,6 +23,8 @@ from .skills.pass1_extractor import run_pass1, render_pass1_debug_video_from_art
 from .skills.pass2a_fragmenter import run_pass2a, render_pass2a_debug_video_from_artifact
 from .skills.pass2b_fragment_scoring import run_pass2b
 from .skills.pass2c_ghost_generator import run_pass2c
+from .skills.ball_interpolator import run_ball_interpolation
+from .skills.birds_eye_pitch import run_birds_eye_pitch, render_birds_eye_debug_video_from_artifact
 from .skills.pass3a_candidate_generator import run_pass3a
 from .skills.pass3b_constraint_builder import run_pass3b
 from .skills.pass3_debug_visualizer import render_pass3_debug_video_from_artifact
@@ -31,8 +33,8 @@ from .core.data_models import Pass1Output
 
 logger = get_logger("main")
 
-ALLOWED_VIDEO_OUTPUT_PASSES = {"1", "2", "3", "ball", "viz"}
-IMPLEMENTED_VIDEO_OUTPUT_PASSES = {"1", "2", "3"}
+ALLOWED_VIDEO_OUTPUT_PASSES = {"1", "2", "3", "4", "ball", "viz"}
+IMPLEMENTED_VIDEO_OUTPUT_PASSES = {"1", "2", "3", "4"}
 
 
 def _parse_video_output_option(value: str) -> Set[str]:
@@ -95,8 +97,8 @@ Examples:
         "--pass",
         dest="pass_number",
         type=int,
-        choices=[1, 2, 3],
-        help="Run specific pass only (1=raw, 2A=fragments, 3=identity). Default: run all passes"
+        choices=[1, 2, 3, 4],
+        help="Run specific pass only (1=raw, 2=fragments, 3=identity, 4=birdseye). Default: run all implemented passes"
     )
 
     parser.add_argument(
@@ -118,8 +120,8 @@ Examples:
         default=set(),
         help=(
             "Comma-separated pass keys for debug video output. "
-            "Examples: 1,2,3. "
-            "Implemented: 1 (raw detections), 2 (fragments + quality + ghosts), 3 (committed identity)"
+            "Examples: 1,2,3,4. "
+            "Implemented: 1 (raw detections), 2 (fragments + quality + ghosts), 3 (committed identity), 4 (birdseye inset)"
         )
     )
 
@@ -182,8 +184,8 @@ Examples:
         passes_to_run = [args.pass_number]
         logger.info(f"Running Pass {args.pass_number} only")
     else:
-        passes_to_run = [1, 2]  # TODO: Add [1, 2, 3] when Pass 3 implemented
-        logger.info("Running all implemented passes (currently: Pass 1, Pass 2A)")
+        passes_to_run = [1, 2, 3, 4]
+        logger.info("Running all implemented passes (currently: Pass 1, Pass 2, Pass 3, Pass 4)")
 
     logger.info("")
 
@@ -428,6 +430,72 @@ Examples:
                 end_frame=args.end_frame,
             )
             logger.info(f"Pass 3 debug video written: {pass3_debug_path}")
+            logger.info("")
+
+        if 4 in passes_to_run:
+            logger.info("Starting Pass 4: Bird's-Eye Pitch Projection")
+            logger.info("-" * 80)
+
+            pass1_output_path = output_dir / "pass1_raw.json"
+            pass2c_output_path = output_dir / "pass2_ghosts.json"
+            pass3_output_path = output_dir / "pass3_identity_commit.json"
+
+            if not pass1_output_path.exists():
+                logger.error(f"Pass 1 output not found: {pass1_output_path}")
+                logger.error("Please run Pass 1 first: python -m src.main --input <video> --pass 1")
+                return 1
+            if not pass2c_output_path.exists():
+                logger.error(f"Pass 2C output not found: {pass2c_output_path}")
+                logger.error("Please run Pass 2 first: python -m src.main --input <video> --pass 2")
+                return 1
+            if not pass3_output_path.exists():
+                logger.error(f"Pass 3 output not found: {pass3_output_path}")
+                logger.error("Please run Pass 3 first: python -m src.main --input <video> --pass 3")
+                return 1
+
+            ball_output_path = output_dir / "ball_interpolation.json"
+            if not ball_output_path.exists():
+                logger.info("Ball interpolation artifact missing; generating it before Pass 4")
+                run_ball_interpolation(input_dir=output_dir, output_dir=output_dir)
+
+            birdseye_output = run_birds_eye_pitch(
+                input_dir=output_dir,
+                output_dir=output_dir,
+                video_path=str(video_path),
+                debug_video_path=(
+                    str(output_dir / "birdseye_debug.mp4")
+                    if "4" in args.video_output
+                    else None
+                ),
+            )
+
+            logger.info("")
+            logger.info("[OK] Pass 4 Complete!")
+            logger.info(f"   Projected frames: {len(birdseye_output.frames)}")
+            logger.info(f"   Output: {output_dir / 'birdseye_projection.json'}")
+            logger.info(f"   Validation: {output_dir / 'birdseye_validation.json'}")
+            if "4" in args.video_output:
+                logger.info(f"   Debug video: {output_dir / 'birdseye_debug.mp4'}")
+            logger.info("")
+
+        if "4" in args.video_output and 4 not in passes_to_run:
+            birdseye_output_path = output_dir / "birdseye_projection.json"
+
+            if not birdseye_output_path.exists():
+                logger.error(f"Cannot render Pass 4 debug video: missing {birdseye_output_path}")
+                logger.error("Run Pass 4 first or run without --pass to generate birdseye_projection.json")
+                return 1
+
+            birdseye_debug_path = output_dir / "birdseye_debug.mp4"
+            logger.info("Generating Pass 4 debug video from existing birdseye_projection.json")
+            render_birds_eye_debug_video_from_artifact(
+                video_path=str(video_path),
+                birdseye_output_path=str(birdseye_output_path),
+                debug_video_path=str(birdseye_debug_path),
+                start_frame=args.start_frame,
+                end_frame=args.end_frame,
+            )
+            logger.info(f"Pass 4 debug video written: {birdseye_debug_path}")
             logger.info("")
 
         logger.info("=" * 80)

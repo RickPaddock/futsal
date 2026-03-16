@@ -528,6 +528,73 @@ class BallInterpolationOutput(BaseModel):
 
 
 # ============================================================================
+# BIRD'S-EYE PROJECTION MODELS
+# ============================================================================
+
+class BirdseyePlayerPosition(BaseModel):
+    """
+    Projected player position for a single frame.
+
+    Uses committed Pass 3 identity and preserves whether the source span is
+    estimated from a ghost window.
+    """
+    frame_idx: FrameIndex
+    fragment_id: FragmentID
+    player_id: PlayerID
+    team: TeamID
+    jersey_number: Optional[int] = None
+    track_id: TrackID
+    is_ghost: bool = False
+    is_estimated: bool = False
+    image_bbox: BBox
+    image_anchor: Centroid
+    court_position: Centroid
+    render_position: Centroid
+
+
+class BirdseyeBallFrame(BaseModel):
+    """
+    Projected ball state for a single frame.
+    """
+    frame_idx: FrameIndex
+    state: BallState
+    confidence: float = 0.0
+    image_position: Optional[Centroid] = None
+    court_position: Optional[Centroid] = None
+    render_position: Optional[Centroid] = None
+
+    @field_validator("state", mode="before")
+    @classmethod
+    def _normalize_legacy_state(cls, value):
+        return normalize_ball_state_value(value)
+
+
+class BirdseyeFrame(BaseModel):
+    """
+    Bird's-eye projection state for a single frame.
+    """
+    frame_idx: FrameIndex
+    players: List[BirdseyePlayerPosition] = Field(default_factory=list)
+    ball: BirdseyeBallFrame
+
+
+class BirdseyeProjectionOutput(BaseModel):
+    """
+    Output from the bird's-eye projection stage.
+    """
+    video_name: str
+    fps: float
+    total_frames: int
+    processed_start_frame: int = 0
+    processed_end_frame_exclusive: Optional[int] = None
+    court_length_m: float
+    court_width_m: float
+    output_pixel_scale: int
+    frames: List[BirdseyeFrame]
+    diagnostics: Dict[str, Any] = Field(default_factory=dict)
+
+
+# ============================================================================
 # VALIDATION MODELS
 # ============================================================================
 
