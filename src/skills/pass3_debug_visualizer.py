@@ -187,6 +187,88 @@ def _first_detection_bbox(fragment, detections_by_id: Dict[str, Detection]) -> O
     return None
 
 
+def _recent_detection_bboxes(
+    fragment: Optional[ScoredFragment],
+    detections_by_id: Dict[str, Detection],
+    limit: int = 4,
+) -> List[List[float]]:
+    if fragment is None:
+        return []
+
+    bboxes: List[List[float]] = []
+    detection_ids = list(getattr(fragment, "detection_ids", []) or [])
+    for detection_id in detection_ids[-max(2, limit):]:
+        detection = detections_by_id.get(detection_id)
+        if detection is None:
+            continue
+        bboxes.append(list(detection.bbox))
+    return bboxes
+
+
+def _bbox_center_and_size(bbox: List[float]) -> Tuple[float, float, float, float]:
+    x1, y1, x2, y2 = [float(value) for value in bbox]
+    left = min(x1, x2)
+    right = max(x1, x2)
+    top = min(y1, y2)
+    bottom = max(y1, y2)
+    width = max(1.0, right - left)
+    height = max(1.0, bottom - top)
+    center_x = left + (width / 2.0)
+    center_y = top + (height / 2.0)
+    return center_x, center_y, width, height
+
+
+def _bbox_from_center_and_size(
+    center_x: float,
+    center_y: float,
+    width: float,
+    height: float,
+) -> List[float]:
+    safe_width = max(1.0, float(width))
+    safe_height = max(1.0, float(height))
+    half_width = safe_width / 2.0
+    half_height = safe_height / 2.0
+    return [
+        float(center_x) - half_width,
+        float(center_y) - half_height,
+        float(center_x) + half_width,
+        float(center_y) + half_height,
+    ]
+
+
+def _estimate_center_velocity(
+    fragment: Optional[ScoredFragment],
+    detections_by_id: Dict[str, Detection],
+) -> Tuple[float, float]:
+    bboxes = _recent_detection_bboxes(fragment, detections_by_id)
+    if len(bboxes) < 2:
+        return 0.0, 0.0
+
+    deltas: List[Tuple[float, float]] = []
+    for previous_bbox, current_bbox in zip(bboxes[:-1], bboxes[1:]):
+        previous_center_x, previous_center_y, _, _ = _bbox_center_and_size(previous_bbox)
+        current_center_x, current_center_y, _, _ = _bbox_center_and_size(current_bbox)
+        deltas.append((current_center_x - previous_center_x, current_center_y - previous_center_y))
+
+    return (
+        float(sum(delta_x for delta_x, _ in deltas)) / float(len(deltas)),
+        float(sum(delta_y for _, delta_y in deltas)) / float(len(deltas)),
+    )
+
+
+def _offset_center(
+    center_x: float,
+    center_y: float,
+    velocity_x: float,
+    velocity_y: float,
+    frame_offset: int,
+) -> Tuple[float, float]:
+    return (
+        float(center_x) + float(velocity_x) * float(frame_offset),
+        float(center_y) + float(velocity_y) * float(frame_offset),
+    )
+
+
 def _ghost_bbox_for_frame(
     fragment: ScoredFragment,
     frame_idx: int,
@@ -201,24 +283,60 @@ def _ghost_bbox_for_frame(
     if start_bbox is None:
         return None
 
+    start_frame = _coerce_int(ghost_window.get("start_frame"), fragment.start_frame)
+    frame_offset = max(0, int(frame_idx) - start_frame)
+    start_center_x, start_center_y, start_width, start_height = _bbox_center_and_size(list(start_bbox))
+    source_fragment_id = ghost_window.get("source_fragment_id")
+    source_fragment = fragment_by_id.get(str(source_fragment_id)) if source_fragment_id is not None else None
+    velocity_x, velocity_y = _estimate_center_velocity(source_fragment, detections_by_id)
+    predicted_center_x, predicted_center_y = _offset_center(
+        start_center_x,
+        start_center_y,
+        velocity_x,
+        velocity_y,
+        frame_offset,
+    )
+    predicted_bbox = _bbox_from_center_and_size(
+        predicted_center_x,
+        predicted_center_y,
+        start_width,
+        start_height,
+    )
+
     matched_reappearance_frame = ghost_window.get("matched_reappearance_frame")
     target_fragment_id = ghost_window.get("target_fragment_id")
     if matched_reappearance_frame is None or target_fragment_id is None:
-        return list(start_bbox)
+        return predicted_bbox
 
     target_fragment = fragment_by_id.get(str(target_fragment_id))
     if target_fragment is None:
-        return list(start_bbox)
+        return predicted_bbox
 
     target_bbox = _first_detection_bbox(target_fragment, detections_by_id)
     if target_bbox is None:
-        return list(start_bbox)
+        return predicted_bbox
 
-    start_frame = _coerce_int(ghost_window.get("start_frame"), fragment.start_frame)
     matched_frame = _coerce_int(matched_reappearance_frame, start_frame)
     duration = max(1, matched_frame - start_frame)
-    alpha = float(frame_idx - start_frame + 1) / float(duration)
-    return _interpolate_bbox(list(start_bbox), target_bbox, alpha)
+    progress = max(0.0, min(1.0, float(frame_offset) / float(duration)))
+    predicted_match_center_x, predicted_match_center_y = _offset_center(
+        start_center_x,
+        start_center_y,
+        velocity_x,
+        velocity_y,
+        duration,
+    )
+    target_center_x, target_center_y, target_width, target_height = _bbox_center_and_size(target_bbox)
+    blended_center_x = float(predicted_center_x) + (float(target_center_x) - float(predicted_match_center_x)) * progress
+    blended_center_y = float(predicted_center_y) + (float(target_center_y) - float(predicted_match_center_y)) * progress
+    blended_width = float(start_width) + (float(target_width) - float(start_width)) * progress
+    blended_height = float(start_height) + (float(target_height) - float(start_height)) * progress
+    return _bbox_from_center_and_size(
+        blended_center_x,
+        blended_center_y,
+        blended_width,
+        blended_height,
+    )
 
 
 def _draw_pass3_overlay_frame(

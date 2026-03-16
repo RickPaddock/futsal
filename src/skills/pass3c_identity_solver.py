@@ -349,6 +349,7 @@ class IdentitySolver:
         real_presence_frames: Optional[Dict[str, Set[int]]] = None,
         fragment_jersey_evidence: Optional[Dict[str, int]] = None,
         fragment_jersey_scores: Optional[Dict[str, Dict[int, float]]] = None,
+        detections_by_id: Optional[Dict[str, Detection]] = None,
     ) -> Pass3COutput:
         """
         Solve identity using constraint satisfaction.
@@ -377,6 +378,7 @@ class IdentitySolver:
             identity_groups,
             pass3a_edges=pass3a_edges,
             real_presence_frames=real_presence_frames,
+            fragment_jersey_evidence=fragment_jersey_evidence,
         )
         self.logger.info(
             "Identity collapse validated (<=12/frame). "
@@ -468,7 +470,20 @@ class IdentitySolver:
             committed_identities=committed_identities,
             fragments=fragments,
             ghost_activity_windows=ghost_activity_windows,
+            pass3a_edges=pass3a_edges,
+            real_presence_frames=real_presence_frames,
+            detections_by_id=detections_by_id,
         )
+        suppressed_duplicate_ghosts = {
+            identity.fragment_id
+            for identity in committed_identities
+            if "GHOST_SUPPRESSED_VISIBLE_DUPLICATE" in (identity.assignment_reasons or [])
+        }
+        if suppressed_duplicate_ghosts:
+            retired_ghost_fragments.update(suppressed_duplicate_ghosts)
+            committed_identities = [
+                identity for identity in committed_identities if identity.fragment_id not in suppressed_duplicate_ghosts
+            ]
         post_sanitize_retired_ghost_groups = self._prune_ghost_windows_to_physical_cap(
             fragments=fragments,
             refined_identity_groups=refined_identity_groups,
@@ -531,6 +546,7 @@ class IdentitySolver:
                 "jersey_global_exclusivity_drops": dropped_global_conflicts,
                 "jersey_exclusivity_drops": total_dropped_conflicts,
                 "ghost_window_identity_mismatch_clears": sanitized_ghost_windows,
+                "ghost_suppressed_visible_duplicates": len(suppressed_duplicate_ghosts),
                 "ghost_post_sanitize_cap_retires": len(post_sanitize_retired_ghost_groups),
                 "ghost_active_windows": ghost_activity_windows,
                 "retired_ghost_fragments": sorted(retired_ghost_fragments),
@@ -542,27 +558,167 @@ class IdentitySolver:
         committed_identities: List[CommittedIdentity],
         fragments: List[ScoredFragment],
         ghost_activity_windows: Dict[str, Dict[str, Any]],
+        pass3a_edges: Optional[List[IdentityCandidateEdge]] = None,
+        real_presence_frames: Optional[Dict[str, Set[int]]] = None,
+        detections_by_id: Optional[Dict[str, Detection]] = None,
     ) -> int:
-        """Drop matched ghost interpolation targets that no longer share the committed player identity."""
+        """Reconcile matched ghost targets after final identity commit."""
         identity_by_fragment = {identity.fragment_id: identity for identity in committed_identities}
         fragment_by_id = {fragment.fragment_id: fragment for fragment in fragments}
+        candidate_edges_by_source: Dict[str, List[IdentityCandidateEdge]] = defaultdict(list)
+        for edge in pass3a_edges or []:
+            candidate_edges_by_source[str(edge.fragment_a)].append(edge)
+
+        fragment_first_real_frame: Dict[str, int] = {}
+        for fragment in fragments:
+            if bool(getattr(fragment, "is_ghost", False)):
+                continue
+            frames = sorted((real_presence_frames or {}).get(fragment.fragment_id, set()))
+            fragment_first_real_frame[fragment.fragment_id] = int(frames[0]) if frames else int(fragment.start_frame)
+
+        claimed_targets: Set[str] = set()
         cleared = 0
 
-        for ghost_fragment_id, window in ghost_activity_windows.items():
-            if not isinstance(window, dict):
-                continue
-            target_fragment_id = window.get("target_fragment_id")
-            if not target_fragment_id:
-                continue
+        def keep_match(
+            ghost_identity: CommittedIdentity,
+            target_identity: CommittedIdentity,
+            required_jersey: Optional[int],
+            extra_reason: Optional[str] = None,
+        ) -> None:
+            ghost_identity.player_id = target_identity.player_id
+            ghost_identity.team = target_identity.team
+            ghost_identity._locked_team = target_identity.team
+            if required_jersey is not None:
+                ghost_identity.jersey_number = required_jersey
+            else:
+                ghost_identity.jersey_number = target_identity.jersey_number
 
-            ghost_identity = identity_by_fragment.get(str(ghost_fragment_id))
-            target_identity = identity_by_fragment.get(str(target_fragment_id))
-            if ghost_identity is None or target_identity is None:
-                continue
-            if ghost_identity.player_id == target_identity.player_id:
-                continue
+            reasons = list(ghost_identity.assignment_reasons or [])
+            reasons = [
+                reason
+                for reason in reasons
+                if reason not in {
+                    "UNMATCHED_EXIT",
+                    "GHOST_TARGET_IDENTITY_MISMATCH",
+                    "GHOST_TARGET_JERSEY_MISMATCH",
+                }
+            ]
+            if "MATCHED_GHOST_WINDOW" not in reasons:
+                reasons.append("MATCHED_GHOST_WINDOW")
+            if extra_reason and extra_reason not in reasons:
+                reasons.append(extra_reason)
+            ghost_identity.assignment_reasons = reasons
 
-            ghost_fragment = fragment_by_id.get(str(ghost_fragment_id))
+        def bbox_iou(box_a: List[float], box_b: List[float]) -> float:
+            ax1, ay1, ax2, ay2 = [float(v) for v in box_a]
+            bx1, by1, bx2, by2 = [float(v) for v in box_b]
+            ax1, ax2 = min(ax1, ax2), max(ax1, ax2)
+            ay1, ay2 = min(ay1, ay2), max(ay1, ay2)
+            bx1, bx2 = min(bx1, bx2), max(bx1, bx2)
+            by1, by2 = min(by1, by2), max(by1, by2)
+            inter_x1 = max(ax1, bx1)
+            inter_y1 = max(ay1, by1)
+            inter_x2 = min(ax2, bx2)
+            inter_y2 = min(ay2, by2)
+            inter_w = max(0.0, inter_x2 - inter_x1)
+            inter_h = max(0.0, inter_y2 - inter_y1)
+            inter_area = inter_w * inter_h
+            area_a = max(1.0, (ax2 - ax1) * (ay2 - ay1))
+            area_b = max(1.0, (bx2 - bx1) * (by2 - by1))
+            return float(inter_area / max(1.0, area_a + area_b - inter_area))
+
+        def nearest_bbox(fragment: ScoredFragment, target_frame: int, max_gap: int = 2) -> Optional[List[float]]:
+            if detections_by_id is None:
+                return None
+            best_bbox: Optional[List[float]] = None
+            best_gap: Optional[int] = None
+            for detection_id in getattr(fragment, "detection_ids", []) or []:
+                detection = detections_by_id.get(detection_id)
+                if detection is None:
+                    continue
+                gap = abs(int(detection.frame_idx) - int(target_frame))
+                if gap > max_gap:
+                    continue
+                if best_gap is None or gap < best_gap:
+                    best_gap = gap
+                    best_bbox = list(detection.bbox)
+            return best_bbox
+
+        def suppress_visible_duplicate(
+            ghost_fragment_id: str,
+            window: Dict[str, Any],
+            ghost_identity: CommittedIdentity,
+        ) -> bool:
+            if detections_by_id is None:
+                return False
+            source_fragment_id = window.get("source_fragment_id")
+            if source_fragment_id is None:
+                return False
+            source_fragment = fragment_by_id.get(str(source_fragment_id))
+            source_identity = identity_by_fragment.get(str(source_fragment_id))
+            if source_fragment is None or source_identity is None:
+                return False
+            if source_identity.jersey_number is not None:
+                return False
+            source_frames = sorted((real_presence_frames or {}).get(str(source_fragment_id), set()))
+            if not source_frames:
+                source_frames = [int(source_fragment.start_frame), int(source_fragment.end_frame)]
+            if len(source_frames) > 12:
+                return False
+            source_last_frame = int(source_frames[-1])
+            source_bbox = nearest_bbox(source_fragment, source_last_frame, max_gap=1)
+            if source_bbox is None:
+                return False
+            ghost_start_frame = int(window.get("start_frame", source_last_frame + 1))
+
+            for fragment in fragments:
+                if bool(getattr(fragment, "is_ghost", False)):
+                    continue
+                if fragment.fragment_id == str(source_fragment_id):
+                    continue
+                other_identity = identity_by_fragment.get(fragment.fragment_id)
+                if other_identity is None or other_identity.team == source_identity.team:
+                    continue
+                other_frames = (real_presence_frames or {}).get(fragment.fragment_id, set())
+                if other_frames and not any(int(frame_idx) >= ghost_start_frame and int(frame_idx) <= ghost_start_frame + 2 for frame_idx in other_frames):
+                    continue
+                other_bbox = nearest_bbox(fragment, ghost_start_frame, max_gap=2)
+                if other_bbox is None:
+                    continue
+                if bbox_iou(source_bbox, other_bbox) < 0.65:
+                    continue
+
+                ghost_activity_windows.pop(ghost_fragment_id, None)
+                reasons = list(ghost_identity.assignment_reasons or [])
+                reasons = [
+                    reason
+                    for reason in reasons
+                    if reason not in {
+                        "MATCHED_GHOST_WINDOW",
+                        "UNMATCHED_EXIT",
+                        "GHOST_TARGET_IDENTITY_MISMATCH",
+                        "GHOST_TARGET_JERSEY_MISMATCH",
+                        "GHOST_TEAM_FALLBACK_MATCH",
+                        "GHOST_JERSEY_LOCK_MATCH",
+                        "GHOST_POST_COMMIT_REMAP_MATCH",
+                    }
+                ]
+                if "GHOST_SUPPRESSED_VISIBLE_DUPLICATE" not in reasons:
+                    reasons.append("GHOST_SUPPRESSED_VISIBLE_DUPLICATE")
+                ghost_identity.assignment_reasons = reasons
+                return True
+            return False
+
+        def clear_match(
+            ghost_fragment_id: str,
+            ghost_identity: CommittedIdentity,
+            window: Dict[str, Any],
+            ghost_fragment: Optional[ScoredFragment],
+            ghost_has_defining_jersey: bool,
+            target_matches_required_jersey: bool,
+            required_jersey: Optional[int],
+        ) -> None:
+            nonlocal cleared
             window["matched_reappearance_frame"] = None
             window["target_fragment_id"] = None
             window["window_reason"] = "unmatched_exit"
@@ -571,12 +727,179 @@ class IdentitySolver:
             cleared += 1
 
             reasons = list(ghost_identity.assignment_reasons or [])
-            reasons = [reason for reason in reasons if reason != "MATCHED_GHOST_WINDOW"]
+            reasons = [
+                reason
+                for reason in reasons
+                if reason not in {
+                    "MATCHED_GHOST_WINDOW",
+                    "GHOST_TEAM_FALLBACK_MATCH",
+                    "GHOST_JERSEY_LOCK_MATCH",
+                    "GHOST_POST_COMMIT_REMAP_MATCH",
+                }
+            ]
             if "UNMATCHED_EXIT" not in reasons:
                 reasons.append("UNMATCHED_EXIT")
             if "GHOST_TARGET_IDENTITY_MISMATCH" not in reasons:
                 reasons.append("GHOST_TARGET_IDENTITY_MISMATCH")
+            if ghost_has_defining_jersey and not target_matches_required_jersey:
+                if ghost_identity.jersey_number is None and required_jersey is not None:
+                    ghost_identity.jersey_number = required_jersey
+                if "GHOST_TARGET_JERSEY_MISMATCH" not in reasons:
+                    reasons.append("GHOST_TARGET_JERSEY_MISMATCH")
             ghost_identity.assignment_reasons = reasons
+
+        def try_rematch(
+            ghost_fragment_id: str,
+            window: Dict[str, Any],
+            ghost_identity: CommittedIdentity,
+            required_jersey: Optional[int],
+        ) -> bool:
+            source_fragment_id = window.get("source_fragment_id")
+            if source_fragment_id is None:
+                return False
+
+            ghost_start_frame = int(window.get("start_frame", 0))
+            ghost_has_defining_jersey = required_jersey is not None
+            candidates: List[Tuple[int, float, float, str]] = []
+            for edge in candidate_edges_by_source.get(str(source_fragment_id), []):
+                target_fragment_id = str(edge.fragment_b)
+                if target_fragment_id in claimed_targets:
+                    continue
+                target_identity = identity_by_fragment.get(target_fragment_id)
+                if target_identity is None:
+                    continue
+                target_first_frame = fragment_first_real_frame.get(target_fragment_id)
+                if target_first_frame is None or int(target_first_frame) <= ghost_start_frame:
+                    continue
+                if target_identity.team != ghost_identity.team:
+                    continue
+                if ghost_has_defining_jersey:
+                    if target_identity.jersey_number is None or int(target_identity.jersey_number) != required_jersey:
+                        continue
+                candidates.append(
+                    (
+                        int(target_first_frame),
+                        float(edge.spatial_distance),
+                        -float(edge.overall_candidate_score),
+                        target_fragment_id,
+                    )
+                )
+
+            if not candidates:
+                return False
+
+            _, _, _, target_fragment_id = min(candidates)
+            target_identity = identity_by_fragment.get(target_fragment_id)
+            if target_identity is None:
+                return False
+            target_first_frame = fragment_first_real_frame.get(target_fragment_id)
+            if target_first_frame is None:
+                return False
+
+            window_end = min(int(window.get("end_frame", target_first_frame - 1)), int(target_first_frame) - 1)
+            window_start = int(window.get("start_frame", 0))
+            if window_end < window_start:
+                return False
+
+            window["end_frame"] = int(window_end)
+            window["matched_reappearance_frame"] = int(target_first_frame)
+            window["target_fragment_id"] = target_fragment_id
+            window["window_reason"] = "matched_reappearance"
+            keep_match(
+                ghost_identity=ghost_identity,
+                target_identity=target_identity,
+                required_jersey=required_jersey,
+                extra_reason="GHOST_POST_COMMIT_REMAP_MATCH",
+            )
+            claimed_targets.add(target_fragment_id)
+            return True
+
+        for ghost_fragment_id, window in sorted(
+            ghost_activity_windows.items(),
+            key=lambda item: int(item[1].get("start_frame", 0)) if isinstance(item[1], dict) else 0,
+        ):
+            if not isinstance(window, dict):
+                continue
+            target_fragment_id = window.get("target_fragment_id")
+
+            ghost_identity = identity_by_fragment.get(str(ghost_fragment_id))
+            if ghost_identity is None:
+                continue
+
+            if suppress_visible_duplicate(str(ghost_fragment_id), window, ghost_identity):
+                continue
+
+            source_fragment_id = window.get("source_fragment_id")
+            source_identity = identity_by_fragment.get(str(source_fragment_id)) if source_fragment_id is not None else None
+            required_jersey: Optional[int] = None
+            if ghost_identity.jersey_number is not None:
+                required_jersey = int(ghost_identity.jersey_number)
+            elif source_identity is not None:
+                if source_identity.jersey_number is not None:
+                    required_jersey = int(source_identity.jersey_number)
+                else:
+                    required_jersey = None
+            else:
+                window_jersey = window.get("defining_jersey_number")
+                if window_jersey is not None:
+                    required_jersey = int(window_jersey)
+
+            if not target_fragment_id:
+                try_rematch(str(ghost_fragment_id), window, ghost_identity, required_jersey)
+                continue
+
+            target_identity = identity_by_fragment.get(str(target_fragment_id))
+            if target_identity is None:
+                if not try_rematch(str(ghost_fragment_id), window, ghost_identity, required_jersey):
+                    continue
+                target_fragment_id = window.get("target_fragment_id")
+                if not target_fragment_id:
+                    continue
+                target_identity = identity_by_fragment.get(str(target_fragment_id))
+                if target_identity is None:
+                    continue
+
+            same_player = ghost_identity.player_id == target_identity.player_id
+            same_team = ghost_identity.team == target_identity.team
+            ghost_has_defining_jersey = required_jersey is not None
+            target_matches_locked_jersey = (
+                required_jersey is not None
+                and target_identity.jersey_number is not None
+                and int(target_identity.jersey_number) == required_jersey
+            )
+            target_matches_required_jersey = (
+                required_jersey is None
+                or target_identity.jersey_number is None
+                or int(target_identity.jersey_number) == required_jersey
+            )
+
+            if same_player and target_matches_required_jersey:
+                if ghost_identity.jersey_number is None and required_jersey is not None:
+                    ghost_identity.jersey_number = required_jersey
+                claimed_targets.add(str(target_fragment_id))
+                continue
+
+            if same_team and target_matches_locked_jersey:
+                keep_match(ghost_identity, target_identity, required_jersey, "GHOST_JERSEY_LOCK_MATCH")
+                claimed_targets.add(str(target_fragment_id))
+                continue
+
+            if same_team and not ghost_has_defining_jersey:
+                keep_match(ghost_identity, target_identity, required_jersey, "GHOST_TEAM_FALLBACK_MATCH")
+                claimed_targets.add(str(target_fragment_id))
+                continue
+
+            ghost_fragment = fragment_by_id.get(str(ghost_fragment_id))
+            clear_match(
+                str(ghost_fragment_id),
+                ghost_identity,
+                window,
+                ghost_fragment,
+                ghost_has_defining_jersey,
+                target_matches_required_jersey,
+                required_jersey,
+            )
+            try_rematch(str(ghost_fragment_id), window, ghost_identity, required_jersey)
 
         return cleared
 
@@ -979,6 +1302,7 @@ class IdentitySolver:
         identity_groups: Dict[str, Set[str]],
         pass3a_edges: Optional[List[IdentityCandidateEdge]] = None,
         real_presence_frames: Optional[Dict[str, Set[int]]] = None,
+        fragment_jersey_evidence: Optional[Dict[str, int]] = None,
     ) -> Tuple[Dict[str, Set[str]], Set[str], Dict[str, Dict[str, Any]], Dict[str, Any]]:
         """
         Validate collapsed identities before assigning jerseys/teams.
@@ -988,6 +1312,15 @@ class IdentitySolver:
         - Ghost activity is bounded by pass3 reappearance windows instead of raw pass2 spans
         """
         fragment_lookup = {fragment.fragment_id: fragment for fragment in fragments}
+        fragment_defining_jerseys: Dict[str, int] = {}
+        for fragment in fragments:
+            dominant_jersey = getattr(fragment, "dominant_jersey_number", None)
+            if dominant_jersey is not None:
+                fragment_defining_jerseys[fragment.fragment_id] = int(dominant_jersey)
+        if fragment_jersey_evidence:
+            for fragment_id, jersey_number in fragment_jersey_evidence.items():
+                if jersey_number is not None:
+                    fragment_defining_jerseys[fragment_id] = int(jersey_number)
 
         retired_ghost_fragments: Set[str] = set()
         retired_ghost_groups: Set[str] = set()
@@ -1124,12 +1457,21 @@ class IdentitySolver:
                     retired_ghost_fragments.add(fragment_id)
                     continue
 
+                source_fragment_id = ghost_source_fragment_ids.get(fragment_id)
+                defining_jersey_number = None
+                if source_fragment_id is not None:
+                    defining_jersey_number = fragment_defining_jerseys.get(source_fragment_id)
+                if defining_jersey_number is None:
+                    defining_jersey_number = fragment_defining_jerseys.get(fragment_id)
+
                 ghost_activity_windows[fragment_id] = {
                     "start_frame": window_start,
                     "end_frame": window_end,
                     "matched_reappearance_frame": matched_reappearance_frame,
                     "target_fragment_id": target_fragment_id,
                     "window_reason": window_reason,
+                    "source_fragment_id": source_fragment_id,
+                    "defining_jersey_number": defining_jersey_number,
                 }
 
         if pass3a_edges:
@@ -2838,6 +3180,7 @@ def run_pass3c(
     real_presence_frames: Dict[str, Set[int]] = {}
     fragment_jersey_evidence: Dict[str, int] = {}
     fragment_jersey_scores: Dict[str, Dict[int, float]] = {}
+    detections_by_id: Dict[str, Detection] = {}
     if pass1_path.exists():
         pass1_output = load_json(str(pass1_path), Pass1Output)
         detections_by_id = {detection.detection_id: detection for detection in pass1_output.detections}
@@ -2934,6 +3277,7 @@ def run_pass3c(
         real_presence_frames=real_presence_frames,
         fragment_jersey_evidence=fragment_jersey_evidence,
         fragment_jersey_scores=fragment_jersey_scores,
+        detections_by_id=detections_by_id,
     )
 
     # Optional clip-level calibration against GroundTruth.xlsx when available.
