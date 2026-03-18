@@ -602,6 +602,22 @@ birdseye_debug.mp4
 
 5. If calibration is unavailable, the system must report that explicitly rather than inventing court coordinates.
 
+6. Player-position stabilization is allowed only as a downstream rendering / analytics aid built on top of committed identities.
+
+7. Any stabilization must operate on projected player court coordinates, not by altering upstream identity or ball artifacts.
+
+8. Raw projection evidence must remain available for audit even when a stabilized 2D player position is rendered.
+
+9. Stabilization improvements should be attempted in a strict escalation order: first court-space smoothing on the current measurement source, then a better ground-contact estimate from existing detections, then footpoint / pose-keypoint measurement only if the earlier stages remain insufficient.
+
+10. Advancing to the next stabilization stage requires visual review showing that the previous stage is still not good enough.
+
+11. If the current measurement source is good enough for local stability but longer runs still look jittery, a second-stage trajectory smoother may be applied in court space using committed player identities and the existing bird's-eye artifacts.
+
+12. Trajectory smoothing must be selective, not global. It may fit straight or lightly curved motion only on coherent movement spans and must not smooth across pivots, abrupt stops, short reactive defensive actions, ghost gaps, or other discontinuities.
+
+13. Any fitted trajectory must remain bounded to the current frame measurement so the rendered 2D dot cannot become smooth but materially wrong.
+
 ---
 
 ## 2D Pitch Render Rules
@@ -616,6 +632,12 @@ birdseye_debug.mp4
 
 5. This 2D pitch view is intended both for top-right video inset rendering and for later analytics overlays.
 
+6. The debug render should also show the source-frame evidence that produced the 2D projection, including player bboxes, player anchor points, and ball overlay cues.
+
+7. If both raw and stabilized player positions exist, the rendered output must make that distinction auditable rather than hiding disagreement.
+
+8. If trajectory smoothing is active, diagnostics or render evidence must make it possible to tell when a player is following the current measurement and when a fitted motion span is influencing the rendered 2D position.
+
 ---
 
 ## Validation Checks
@@ -627,6 +649,18 @@ birdseye_debug.mp4
 3. Bird's-eye projection must never modify upstream identities or ball states.
 
 4. If projection fails, analytics depending on court-space coordinates must abstain or fall back explicitly.
+
+5. Stabilization must not introduce implausible player motion in court space.
+
+6. Low-confidence or occluded detections must have reduced influence on stabilized player positions.
+
+7. Raw and stabilized projected positions must remain distinguishable or otherwise auditable in the output or diagnostics.
+
+8. Trajectory smoothing must only activate on sufficiently coherent motion spans and must abstain on stationary, transition, low-trust, or reactive spans.
+
+9. A fitted trajectory must not smooth across direction-change boundaries, sudden deceleration boundaries, or ghost and occlusion discontinuities.
+
+10. The final rendered player position must stay within a bounded distance of the current projected measurement.
 
 ---
 
@@ -650,6 +684,10 @@ This section defines downstream match analytics that depend on the upstream pipe
 
 These analytics are NOT allowed to repair, change, or reinterpret upstream player identity or ball tracking artifacts.
 
+This repository targets futsal, not 11-a-side football.
+Any analytics ideas borrowed from football literature must be adapted to futsal before they are applied.
+No goalkeeper-specific analytics are required in the current system because futsal uses a rotating goalkeeper and that player should be treated as a normal committed identity.
+
 The purpose of the full system is not only stable tracking, but also producing reliable football analytics such as:
 
 1. who passed the ball
@@ -665,12 +703,17 @@ These analytics are only valid if upstream player identity continuity and ball c
 
 Given stable player identities and a stable ball timeline:
 
-1. determine which player is in possession
-2. detect player-to-player passes
+1. determine which player is in possession at each frame
+2. use that possession timeline to detect player-to-player passes
 3. classify passes as successful or unsuccessful
 4. detect shot attempts and identify the shooter
 5. measure player distance run
 6. report analytics for named players where jersey identity is known
+
+Analytics should follow a deterministic two-step structure:
+
+1. a possession step that produces an explicit frame-indexed possession artifact
+2. an event detection step that uses possession changes plus futsal-specific rules
 
 ---
 
@@ -689,6 +732,7 @@ court calibration / homography for metric distance
 
 ## Outputs
 
+analytics_possession.json
 analytics_events.json
 analytics_summary.json
 player_distance_summary.json
@@ -703,8 +747,14 @@ A player may only be in possession if:
 
 1. the ball exists in the current frame as real or interpolated
 2. the player has a committed identity
-3. the player is the nearest plausible controller of the ball
+3. the player is the nearest plausible controller of the ball, preferably in projected court space when available
 4. control persists long enough to be considered stable
+
+The possession step must output a frame-indexed possession artifact with confidence and must be able to abstain on ambiguous frames.
+
+Ghost-only frames must never create confirmed possession.
+
+No goalkeeper-specific possession rule is required; the rotating goalkeeper is handled as a normal committed identity.
 
 If possession is ambiguous, the system must abstain rather than invent possession.
 
@@ -715,6 +765,8 @@ A pass starts when:
 1. a player has confirmed possession
 2. the ball leaves that player’s control
 3. the next confirmed controller is another player or possession is lost
+
+Pass detection must consume the committed possession artifact rather than re-deriving possession ad hoc.
 
 Passer:
 the last confirmed player in control before release
@@ -728,6 +780,8 @@ receiver exists, is on the same team, and gains confirmed control within a bound
 Unsuccessful pass:
 receiver is an opponent, or no receiver is confirmed in time, or the ball becomes unknown
 
+If the same player quickly regains confirmed control after release, the sequence should be treated as recovery rather than a completed pass.
+
 ### Rule 3 — Shot Detection
 
 A shot attempt starts when:
@@ -736,6 +790,10 @@ A shot attempt starts when:
 2. the ball leaves the player with strong outbound motion
 3. the event is better explained as a shot than a normal pass
 
+Shot detection must consume the committed possession artifact rather than re-deriving possession ad hoc.
+
+Projected court-space ball motion should be preferred over raw image motion when court projection is available.
+
 Shooter:
 the last confirmed player in control before the shot release
 
@@ -743,6 +801,8 @@ Initial system requirement:
 track shot attempts and shooter identity
 
 Goal outcome classification may be added later.
+
+Goalkeeper-specific shot prevention or save analytics are out of scope for the current futsal system.
 
 ### Rule 4 — Distance Run
 
@@ -756,6 +816,8 @@ image-plane distance if calibration is unavailable
 
 Ghost-only spans must not count as confirmed distance.
 
+Rotating-goalkeeper minutes are treated exactly like any other committed-player minutes for distance purposes.
+
 The output must always state its units explicitly.
 
 ### Rule 5 — Named Players
@@ -767,6 +829,8 @@ jersey 7 = Rick
 jersey 10 = Kiki
 
 If a named jersey is not resolved, the system must report that explicitly.
+
+Set-piece and restart classification should not be inferred from 11-a-side football laws unless futsal-specific restart rules are defined first.
 
 ---
 

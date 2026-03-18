@@ -1,8 +1,4 @@
-"""
-2D Pitch Drawing Utilities
-
-Copied from ARCHIVE/src/utils/visualization.py to create blank pitch backgrounds.
-"""
+"""2D futsal pitch drawing utilities for bird's-eye renders."""
 
 import numpy as np
 import cv2
@@ -26,9 +22,9 @@ def create_court_view(
     Returns:
         BGR numpy array with court markings
     """
-    # Create green background (darker, matching ARCHIVE exactly)
+    # Create dark green background for the tactical inset.
     court = np.zeros((height, width, 3), dtype=np.uint8)
-    court[:] = (20, 70, 20)  # Very dark green (matches ARCHIVE)
+    court[:] = (20, 70, 20)
 
     # Scale factors
     scale_x = width / court_length
@@ -63,8 +59,8 @@ def create_court_view(
         2,
     )
 
-    # Penalty areas (6m x 3m from goal line)
-    penalty_depth = int(6.0 * scale_x)
+    # Futsal penalty areas are 12m wide and 4m deep from the goal line.
+    penalty_depth = int(4.0 * scale_x)
     penalty_width = int(12.0 * scale_y)
     penalty_y = (height - penalty_width) // 2
 

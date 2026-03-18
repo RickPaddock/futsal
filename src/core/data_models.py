@@ -548,6 +548,10 @@ class BirdseyePlayerPosition(BaseModel):
     is_estimated: bool = False
     image_bbox: BBox
     image_anchor: Centroid
+    raw_image_anchor: Optional[Centroid] = None
+    raw_court_position: Optional[Centroid] = None
+    raw_render_position: Optional[Centroid] = None
+    stabilization_trust: float = 1.0
     court_position: Centroid
     render_position: Centroid
 
@@ -559,6 +563,7 @@ class BirdseyeBallFrame(BaseModel):
     frame_idx: FrameIndex
     state: BallState
     confidence: float = 0.0
+    image_bbox: Optional[BBox] = None
     image_position: Optional[Centroid] = None
     court_position: Optional[Centroid] = None
     render_position: Optional[Centroid] = None

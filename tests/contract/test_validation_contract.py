@@ -1,11 +1,18 @@
-from src.core.data_models import BallDetection, BallInterpolationOutput, BallPosition, BirdseyeProjectionOutput, Detection, Pass1Output, Fragment, Pass2AOutput, Pass2COutput, ScoredFragment, CommittedIdentity, Pass3COutput, IdentityCandidateEdge
+import json
+
+import cv2
+from src.core.data_models import BallDetection, BallInterpolationOutput, BallPosition, BirdseyeBallFrame, BirdseyeFrame, BirdseyePlayerPosition, BirdseyeProjectionOutput, Detection, Pass1Output, Fragment, Pass2AOutput, Pass2COutput, ScoredFragment, CommittedIdentity, Pass3COutput, IdentityCandidateEdge
 from src.core.types import BallState, FragmentQuality, InterpolationMethod, TeamID, AssignmentMethod
 from src.skills.ball_interpolator import build_ball_interpolation_output
-from src.skills.birds_eye_pitch import build_birds_eye_projection_output
+from src.skills.birds_eye_pitch import build_birds_eye_projection_output, _apply_journey_path_smoothing, _apply_stationary_span_smoothing, _apply_trajectory_segment_smoothing, _blend_directional_motion, _build_journey_activity_lookup, _build_player_height_prior, _classify_motion_span, _expected_player_height, _pose_anchor_from_keypoints, _pose_anchor_from_upper_body_keypoints
 from src.skills.pass3_debug_visualizer import _ghost_bbox_for_frame
 from src.skills.pass3c_identity_solver import IdentitySolver
+from src.skills.visualizer import render_visualization_from_artifact
 from src.validation.validator import Validator
 from src.skills.pass1_extractor import _load_pass1_intention_lines
+from utils.homography import create_homography_from_config
+from utils.pitch_drawing import create_court_view
+import numpy as np
 
 
 def _valid_pass1_output() -> Pass1Output:
@@ -360,12 +367,518 @@ def test_birdseye_projection_builds_projected_players_and_ball():
     assert len(birdseye_output.frames) == 2
     assert len(birdseye_output.frames[0].players) == 1
     assert birdseye_output.frames[0].players[0].player_id == "P07_team_a"
+    assert birdseye_output.frames[0].players[0].raw_image_anchor == birdseye_output.frames[0].players[0].image_anchor
+    assert birdseye_output.frames[0].players[0].raw_court_position == birdseye_output.frames[0].players[0].court_position
+    assert birdseye_output.frames[0].players[0].raw_render_position == birdseye_output.frames[0].players[0].render_position
     assert birdseye_output.frames[0].ball.state == BallState.REAL
+    assert birdseye_output.frames[0].ball.image_bbox == [1900, 760, 1910, 770]
     assert birdseye_output.frames[0].ball.court_position is not None
     assert birdseye_output.frames[0].ball.render_position is not None
     assert birdseye_output.frames[0].ball.render_position[1] < 200
     assert birdseye_output.frames[1].ball.state == BallState.UNKNOWN
+    assert birdseye_output.frames[1].ball.image_bbox is None
     assert birdseye_output.frames[1].ball.court_position is None
+
+
+def test_birdseye_projection_uses_foot_anchor_and_prediction_only_on_bad_bbox():
+    pass1_output = Pass1Output(
+        video_name="unit",
+        fps=30.0,
+        width=3840,
+        height=2160,
+        total_frames=2,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=2,
+        detections=[
+            Detection(
+                detection_id="0_1_deadbeef",
+                frame_idx=0,
+                bbox=[1000, 700, 1080, 980],
+                centroid=[1040, 840],
+                confidence=0.95,
+                track_id=1,
+                jersey_number=7,
+                jersey_confidence=0.9,
+                jersey_probs={7: 0.9},
+                hsv_histogram_jersey=None,
+                jersey_color_sampled=False,
+                jersey_roi_valid=False,
+                jersey_roi_bbox=None,
+            ),
+            Detection(
+                detection_id="1_1_deadbeef",
+                frame_idx=1,
+                bbox=[1010, 780, 1040, 900],
+                centroid=[1025.0, 840.0],
+                confidence=0.95,
+                track_id=1,
+                jersey_number=7,
+                jersey_confidence=0.9,
+                jersey_probs={7: 0.9},
+                hsv_histogram_jersey=None,
+                jersey_color_sampled=False,
+                jersey_roi_valid=False,
+                jersey_roi_bbox=None,
+            ),
+        ],
+        ball_detections=[],
+    )
+    pass2_output = Pass2COutput(
+        fragments=[
+            ScoredFragment(
+                fragment_id="F000001",
+                original_track_id=1,
+                start_frame=0,
+                end_frame=1,
+                detection_ids=["0_1_deadbeef", "1_1_deadbeef"],
+                quality=FragmentQuality.HIGH,
+                quality_score=0.95,
+            )
+        ]
+    )
+    pass3_output = Pass3COutput(
+        identities=[
+            CommittedIdentity(
+                fragment_id="F000001",
+                player_id="P07_team_a",
+                team=TeamID.TEAM_A,
+                jersey_number=7,
+                assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+                assignment_confidence=0.95,
+            )
+        ],
+        solver_log={},
+        unresolved_conflicts=[],
+    )
+    ball_output = BallInterpolationOutput(
+        ball_positions=[
+            BallPosition(frame_idx=0, state=BallState.UNKNOWN, centroid=None, bbox=None, confidence=0.0),
+            BallPosition(frame_idx=1, state=BallState.UNKNOWN, centroid=None, bbox=None, confidence=0.0),
+        ],
+        interpolation_method=InterpolationMethod.LINEAR,
+        total_frames=2,
+    )
+    calibration_config = {
+        "homography": {
+            "court_length": 40.0,
+            "court_width": 20.0,
+            "output_pixel_scale": 20,
+            "source_points": [[680, 595], [843, 638], [147, 1075], [3136, 611], [2964, 650], [3644, 1100], [1900, 530], [1888, 1592], [303, 772], [128, 875], [3511, 808], [3692, 907], [1891, 760]],
+            "dest_points": [[0.0, 19.0], [3.5, 17.0], [3.5, 5.0], [40.0, 19.0], [36.5, 17.0], [36.5, 5.0], [20.0, 19.0], [20.0, 1.0], [0.0, 11.5], [0.0, 8.5], [40.0, 11.5], [40.0, 8.5], [20.0, 10.0]],
+        }
+    }
+
+    birdseye_output = build_birds_eye_projection_output(
+        pass1_output=pass1_output,
+        pass2c_output=pass2_output,
+        pass3_output=pass3_output,
+        ball_output=ball_output,
+        calibration_config=calibration_config,
+    )
+
+    frame0_player = birdseye_output.frames[0].players[0]
+    frame1_player = birdseye_output.frames[1].players[0]
+    assert frame0_player.raw_image_anchor == [1040.0, 980.0]
+    assert frame1_player.raw_image_anchor == [1025.0, 900.0]
+    assert frame0_player.image_anchor == [1040.0, 980.0]
+    assert frame1_player.image_anchor == [1040.0, 980.0]
+    assert frame0_player.raw_court_position == frame0_player.court_position
+    assert frame1_player.raw_court_position != frame1_player.court_position
+    assert frame0_player.raw_render_position == frame0_player.render_position
+    assert frame1_player.raw_render_position != frame1_player.render_position
+    assert frame0_player.stabilization_trust == 1.0
+    assert frame1_player.stabilization_trust == 0.0
+    assert birdseye_output.diagnostics["head_projection_anchors"] == 0.0
+    assert birdseye_output.diagnostics["foot_point_projection_anchors"] == 2.0
+    assert birdseye_output.diagnostics["pose_anchor_refinements"] == 0.0
+    assert birdseye_output.diagnostics["stabilized_player_positions"] == 1.0
+    assert birdseye_output.diagnostics["position_stabilizer_bbox_rejections"] == 1.0
+    assert birdseye_output.diagnostics["position_stabilizer_prediction_only_frames"] == 1.0
+    assert birdseye_output.diagnostics["trajectory_smoothing_frames_modified"] == 0.0
+    assert birdseye_output.diagnostics["trajectory_stationary_frames_modified"] == 0.0
+
+
+def test_pose_anchor_from_keypoints_prefers_ankles():
+    keypoints_xy = np.zeros((17, 2), dtype=float)
+    keypoints_conf = np.zeros(17, dtype=float)
+    keypoints_xy[15] = [42.0, 80.0]
+    keypoints_xy[16] = [58.0, 82.0]
+    keypoints_conf[15] = 0.9
+    keypoints_conf[16] = 0.8
+
+    anchor = _pose_anchor_from_keypoints(
+        keypoints_xy=keypoints_xy,
+        keypoints_conf=keypoints_conf,
+        fallback_anchor=[50.0, 90.0],
+        crop_height=120.0,
+    )
+
+    assert anchor == [50.0, 82.0]
+
+
+def test_pose_anchor_from_upper_body_keypoints_prefers_head_and_expected_height():
+    keypoints_xy = np.zeros((17, 2), dtype=float)
+    keypoints_conf = np.zeros(17, dtype=float)
+    keypoints_xy[0] = [46.0, 20.0]
+    keypoints_xy[1] = [42.0, 22.0]
+    keypoints_xy[2] = [50.0, 21.0]
+    keypoints_conf[0] = 0.90
+    keypoints_conf[1] = 0.80
+    keypoints_conf[2] = 0.85
+
+    anchor = _pose_anchor_from_upper_body_keypoints(
+        keypoints_xy=keypoints_xy,
+        keypoints_conf=keypoints_conf,
+        fallback_anchor=[48.0, 120.0],
+        expected_height=100.0,
+    )
+
+    assert anchor is not None
+    assert round(anchor[0], 1) == 46.0
+    assert round(anchor[1], 1) == 115.0
+
+
+def test_blend_directional_motion_damps_sideways_jitter_more_than_forward_motion():
+    stabilized = _blend_directional_motion(
+        predicted=[10.0, 5.0],
+        measurement=[10.7, 5.8],
+        motion_direction=[1.0, 0.0],
+        base_alpha=0.5,
+    )
+
+    forward_step = stabilized[0] - 10.0
+    sideways_step = stabilized[1] - 5.0
+
+    assert forward_step > 0.45
+    assert sideways_step < 0.12
+    assert forward_step > sideways_step * 4.0
+
+
+def test_player_height_prior_grows_for_lower_players_on_screen():
+    frames = [
+        BirdseyeFrame(
+            frame_idx=0,
+            players=[
+                BirdseyePlayerPosition(
+                    frame_idx=0,
+                    fragment_id="F1",
+                    player_id="P1",
+                    team=TeamID.TEAM_A,
+                    jersey_number=7,
+                    track_id=1,
+                    is_estimated=False,
+                    image_bbox=[100, 100, 140, 220],
+                    image_anchor=[120, 220],
+                    court_position=[10.0, 10.0],
+                    render_position=[10.0, 10.0],
+                ),
+                BirdseyePlayerPosition(
+                    frame_idx=0,
+                    fragment_id="F2",
+                    player_id="P2",
+                    team=TeamID.TEAM_A,
+                    jersey_number=8,
+                    track_id=2,
+                    is_estimated=False,
+                    image_bbox=[100, 300, 160, 500],
+                    image_anchor=[130, 500],
+                    court_position=[10.0, 10.0],
+                    render_position=[10.0, 10.0],
+                ),
+            ],
+            ball=BirdseyeBallFrame(frame_idx=0, state=BallState.UNKNOWN, confidence=0.0),
+        )
+    ]
+
+    prior = _build_player_height_prior(frames)
+
+    assert _expected_player_height(prior, 160.0) < _expected_player_height(prior, 400.0)
+
+
+def test_trajectory_segment_smoothing_adjusts_only_interior_coherent_frames():
+    calibration_config = {
+        "homography": {
+            "court_length": 40.0,
+            "court_width": 20.0,
+            "output_pixel_scale": 20,
+            "source_points": [[680, 595], [843, 638], [147, 1075], [3136, 611], [2964, 650], [3644, 1100], [1900, 530], [1888, 1592], [303, 772], [128, 875], [3511, 808], [3692, 907], [1891, 760]],
+            "dest_points": [[0.0, 19.0], [3.5, 17.0], [3.5, 5.0], [40.0, 19.0], [36.5, 17.0], [36.5, 5.0], [20.0, 19.0], [20.0, 1.0], [0.0, 11.5], [0.0, 8.5], [40.0, 11.5], [40.0, 8.5], [20.0, 10.0]],
+        }
+    }
+    homography = create_homography_from_config(calibration_config)
+    assert homography is not None
+
+    y_values = [5.000, 5.011, 5.002, 5.014, 5.008, 5.019]
+    frames = []
+    for frame_idx, y_value in enumerate(y_values):
+        player = BirdseyePlayerPosition(
+            frame_idx=frame_idx,
+            fragment_id="F1",
+            player_id="P1",
+            team=TeamID.TEAM_A,
+            jersey_number=7,
+            track_id=1,
+            is_estimated=False,
+            image_bbox=[100, 100, 140, 220],
+            image_anchor=[120, 220],
+            raw_image_anchor=[120, 220],
+            raw_court_position=[10.0 + frame_idx * 0.12, y_value],
+            raw_render_position=[0.0, 0.0],
+            stabilization_trust=0.8,
+            court_position=[10.0 + frame_idx * 0.12, y_value],
+            render_position=[0.0, 0.0],
+        )
+        frames.append(BirdseyeFrame(frame_idx=frame_idx, players=[player], ball=BirdseyeBallFrame(frame_idx=frame_idx, state=BallState.UNKNOWN, confidence=0.0)))
+
+    diagnostics = _apply_trajectory_segment_smoothing(
+        frames=frames,
+        homography=homography,
+        court_length_m=40.0,
+        court_width_m=20.0,
+    )
+
+    assert diagnostics["trajectory_smoothing_segments_smoothed"] == 1.0
+    assert diagnostics["trajectory_smoothing_frames_modified"] >= 2.0
+    assert frames[0].players[0].court_position[1] == y_values[0]
+    assert frames[-1].players[0].court_position[1] == y_values[-1]
+    assert abs(frames[2].players[0].court_position[1] - 5.006) < abs(y_values[2] - 5.006)
+    assert diagnostics["trajectory_smoothing_max_delta_m"] <= 0.20
+
+
+def test_journey_path_smoothing_interpolates_long_straight_run_at_constant_speed():
+    calibration_config = {
+        "homography": {
+            "court_length": 40.0,
+            "court_width": 20.0,
+            "output_pixel_scale": 20,
+            "source_points": [[680, 595], [843, 638], [147, 1075], [3136, 611], [2964, 650], [3644, 1100], [1900, 530], [1888, 1592], [303, 772], [128, 875], [3511, 808], [3692, 907], [1891, 760]],
+            "dest_points": [[0.0, 19.0], [3.5, 17.0], [3.5, 5.0], [40.0, 19.0], [36.5, 17.0], [36.5, 5.0], [20.0, 19.0], [20.0, 1.0], [0.0, 11.5], [0.0, 8.5], [40.0, 11.5], [40.0, 8.5], [20.0, 10.0]],
+        }
+    }
+    homography = create_homography_from_config(calibration_config)
+    assert homography is not None
+
+    raw_points = [
+        [10.0, 5.0],
+        [11.4, 5.05],
+        [12.7, 4.98],
+        [14.0, 5.04],
+        [15.1, 5.01],
+        [16.0, 5.0],
+    ]
+    frames = []
+    for frame_idx, point in enumerate(raw_points):
+        player = BirdseyePlayerPosition(
+            frame_idx=frame_idx,
+            fragment_id="F1",
+            player_id="P1",
+            team=TeamID.TEAM_A,
+            jersey_number=7,
+            track_id=1,
+            is_estimated=False,
+            image_bbox=[100, 100, 140, 220],
+            image_anchor=[120, 220],
+            raw_image_anchor=[120, 220],
+            raw_court_position=list(point),
+            raw_render_position=[0.0, 0.0],
+            stabilization_trust=1.0,
+            court_position=list(point),
+            render_position=[0.0, 0.0],
+        )
+        frames.append(BirdseyeFrame(frame_idx=frame_idx, players=[player], ball=BirdseyeBallFrame(frame_idx=frame_idx, state=BallState.UNKNOWN, confidence=0.0)))
+
+    diagnostics = _apply_journey_path_smoothing(
+        frames=frames,
+        homography=homography,
+        fps=10.0,
+        court_length_m=40.0,
+        court_width_m=20.0,
+    )
+
+    assert diagnostics["journey_segments_smoothed"] == 1.0
+    assert diagnostics["journey_frames_modified"] >= 2.0
+    assert len(diagnostics["journeys"]) == 1
+    assert diagnostics["journeys"][0]["point_a"] == [10.0, 5.0]
+    assert diagnostics["journeys"][0]["point_b"] == [16.0, 5.0]
+    assert abs(frames[2].players[0].court_position[0] - 12.4) < 1e-6
+    assert abs(frames[2].players[0].court_position[1] - 5.0) < 1e-6
+    first_step = frames[1].players[0].court_position[0] - frames[0].players[0].court_position[0]
+    middle_step = frames[3].players[0].court_position[0] - frames[2].players[0].court_position[0]
+    assert abs(first_step - middle_step) < 1e-6
+
+
+def test_journey_path_smoothing_skips_short_movements():
+    calibration_config = {
+        "homography": {
+            "court_length": 40.0,
+            "court_width": 20.0,
+            "output_pixel_scale": 20,
+            "source_points": [[680, 595], [843, 638], [147, 1075], [3136, 611], [2964, 650], [3644, 1100], [1900, 530], [1888, 1592], [303, 772], [128, 875], [3511, 808], [3692, 907], [1891, 760]],
+            "dest_points": [[0.0, 19.0], [3.5, 17.0], [3.5, 5.0], [40.0, 19.0], [36.5, 17.0], [36.5, 5.0], [20.0, 19.0], [20.0, 1.0], [0.0, 11.5], [0.0, 8.5], [40.0, 11.5], [40.0, 8.5], [20.0, 10.0]],
+        }
+    }
+    homography = create_homography_from_config(calibration_config)
+    assert homography is not None
+
+    raw_points = [[10.0, 5.0], [10.8, 5.1], [11.6, 5.0], [12.3, 5.05]]
+    frames = []
+    for frame_idx, point in enumerate(raw_points):
+        player = BirdseyePlayerPosition(
+            frame_idx=frame_idx,
+            fragment_id="F1",
+            player_id="P1",
+            team=TeamID.TEAM_A,
+            jersey_number=7,
+            track_id=1,
+            is_estimated=False,
+            image_bbox=[100, 100, 140, 220],
+            image_anchor=[120, 220],
+            raw_image_anchor=[120, 220],
+            raw_court_position=list(point),
+            raw_render_position=[0.0, 0.0],
+            stabilization_trust=1.0,
+            court_position=list(point),
+            render_position=[0.0, 0.0],
+        )
+        frames.append(BirdseyeFrame(frame_idx=frame_idx, players=[player], ball=BirdseyeBallFrame(frame_idx=frame_idx, state=BallState.UNKNOWN, confidence=0.0)))
+
+    diagnostics = _apply_journey_path_smoothing(
+        frames=frames,
+        homography=homography,
+        fps=10.0,
+        court_length_m=40.0,
+        court_width_m=20.0,
+    )
+
+    assert diagnostics["journey_segments_detected"] == 0.0
+    assert diagnostics["journey_segments_smoothed"] == 0.0
+    assert diagnostics["journey_frames_modified"] == 0.0
+    assert diagnostics["journeys"] == []
+    assert [frame.players[0].court_position for frame in frames] == raw_points
+
+
+def test_build_journey_activity_lookup_marks_only_active_frames():
+    lookup = _build_journey_activity_lookup(
+        {
+            "journeys": [
+                {"player_id": "P04_team_b", "start_frame": 210, "end_frame": 326},
+                {"player_id": "P01_team_a", "start_frame": 100, "end_frame": 102},
+            ]
+        }
+    )
+
+    assert "P04_team_b" in lookup[210]
+    assert "P04_team_b" in lookup[326]
+    assert 209 not in lookup
+    assert 327 not in lookup
+    assert lookup[101] == ["P01_team_a"]
+
+
+def test_stationary_span_smoothing_holds_near_median_position():
+    calibration_config = {
+        "homography": {
+            "court_length": 40.0,
+            "court_width": 20.0,
+            "output_pixel_scale": 20,
+            "source_points": [[680, 595], [843, 638], [147, 1075], [3136, 611], [2964, 650], [3644, 1100], [1900, 530], [1888, 1592], [303, 772], [128, 875], [3511, 808], [3692, 907], [1891, 760]],
+            "dest_points": [[0.0, 19.0], [3.5, 17.0], [3.5, 5.0], [40.0, 19.0], [36.5, 17.0], [36.5, 5.0], [20.0, 19.0], [20.0, 1.0], [0.0, 11.5], [0.0, 8.5], [40.0, 11.5], [40.0, 8.5], [20.0, 10.0]],
+        }
+    }
+    homography = create_homography_from_config(calibration_config)
+    assert homography is not None
+
+    x_values = [10.0, 10.015, 10.005, 10.012, 10.001]
+    y_values = [5.0, 4.995, 5.006, 5.002, 4.999]
+    frames = []
+    for frame_idx, (x_value, y_value) in enumerate(zip(x_values, y_values)):
+        player = BirdseyePlayerPosition(
+            frame_idx=frame_idx,
+            fragment_id="F1",
+            player_id="P1",
+            team=TeamID.TEAM_A,
+            jersey_number=7,
+            track_id=1,
+            is_estimated=False,
+            image_bbox=[100, 100, 140, 220],
+            image_anchor=[120, 220],
+            raw_image_anchor=[120, 220],
+            raw_court_position=[x_value, y_value],
+            raw_render_position=[0.0, 0.0],
+            stabilization_trust=0.85,
+            court_position=[x_value, y_value],
+            render_position=[0.0, 0.0],
+        )
+        frames.append(BirdseyeFrame(frame_idx=frame_idx, players=[player], ball=BirdseyeBallFrame(frame_idx=frame_idx, state=BallState.UNKNOWN, confidence=0.0)))
+
+    diagnostics = _apply_stationary_span_smoothing(
+        frames=frames,
+        homography=homography,
+        court_length_m=40.0,
+        court_width_m=20.0,
+    )
+
+    assert diagnostics["trajectory_stationary_segments_smoothed"] == 1.0
+    assert diagnostics["trajectory_stationary_frames_modified"] >= 3.0
+    assert max(abs(frame.players[0].court_position[0] - 10.0) for frame in frames) < max(abs(x_value - 10.0) for x_value in x_values)
+    assert diagnostics["trajectory_stationary_max_delta_m"] <= 0.12
+
+
+def test_classify_motion_span_distinguishes_stationary_coherent_and_reactive():
+    stationary_span = [
+        BirdseyePlayerPosition(
+            frame_idx=index,
+            fragment_id="F1",
+            player_id="P1",
+            team=TeamID.TEAM_A,
+            jersey_number=7,
+            track_id=1,
+            is_estimated=False,
+            image_bbox=[100, 100, 140, 220],
+            image_anchor=[120, 220],
+            court_position=[10.0 + x_offset, 5.0 + y_offset],
+            render_position=[0.0, 0.0],
+            stabilization_trust=0.9,
+        )
+        for index, (x_offset, y_offset) in enumerate([(0.0, 0.0), (0.01, -0.004), (0.004, 0.006), (0.009, 0.002)])
+    ]
+    coherent_span = [
+        BirdseyePlayerPosition(
+            frame_idx=index,
+            fragment_id="F1",
+            player_id="P1",
+            team=TeamID.TEAM_A,
+            jersey_number=7,
+            track_id=1,
+            is_estimated=False,
+            image_bbox=[100, 100, 140, 220],
+            image_anchor=[120, 220],
+            court_position=[10.0 + index * 0.12, 5.0 + index * 0.01],
+            render_position=[0.0, 0.0],
+            stabilization_trust=0.9,
+        )
+        for index in range(6)
+    ]
+    reactive_span = [
+        BirdseyePlayerPosition(
+            frame_idx=index,
+            fragment_id="F1",
+            player_id="P1",
+            team=TeamID.TEAM_A,
+            jersey_number=7,
+            track_id=1,
+            is_estimated=False,
+            image_bbox=[100, 100, 140, 220],
+            image_anchor=[120, 220],
+            court_position=point,
+            render_position=[0.0, 0.0],
+            stabilization_trust=0.9,
+        )
+        for index, point in enumerate([[10.0, 5.0], [10.12, 5.02], [10.24, 5.03], [10.18, 5.16], [10.09, 5.28], [9.98, 5.40]])
+    ]
+
+    assert _classify_motion_span(stationary_span) == "stationary"
+    assert _classify_motion_span(coherent_span) == "coherent"
+    assert _classify_motion_span(reactive_span) == "reactive"
 
 
 def test_birdseye_validation_fails_when_real_ball_has_no_projection():
@@ -401,6 +914,97 @@ def test_birdseye_validation_fails_when_real_ball_has_no_projection():
     assert not result.passed
     rules = {violation.rule for violation in result.violations}
     assert "BIRDSEYE_BALL_MISSING_POSITION" in rules
+
+
+def test_create_court_view_uses_futsal_penalty_area_depth():
+    court = create_court_view(width=800, height=400, court_length=40.0, court_width=20.0)
+
+    left_penalty_border = tuple(int(v) for v in court[200, 90])
+    old_depth_position = tuple(int(v) for v in court[200, 130])
+
+    assert left_penalty_border == (255, 255, 255)
+    assert old_depth_position == (20, 70, 20)
+
+
+def test_visualization_renderer_writes_video_from_birdseye_artifact(tmp_path):
+    video_path = tmp_path / "input.mp4"
+    writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (160, 120))
+    assert writer.isOpened()
+    writer.write(np.zeros((120, 160, 3), dtype=np.uint8))
+    writer.write(np.zeros((120, 160, 3), dtype=np.uint8))
+    writer.release()
+
+    birdseye_output = BirdseyeProjectionOutput(
+        video_name="unit",
+        fps=10.0,
+        total_frames=2,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=2,
+        court_length_m=40.0,
+        court_width_m=20.0,
+        output_pixel_scale=20,
+        frames=[
+            BirdseyeFrame(
+                frame_idx=0,
+                players=[
+                    BirdseyePlayerPosition(
+                        frame_idx=0,
+                        fragment_id="F000001",
+                        player_id="P07_team_a",
+                        team=TeamID.TEAM_A,
+                        jersey_number=7,
+                        track_id=1,
+                        is_ghost=False,
+                        is_estimated=False,
+                        image_bbox=[20, 20, 60, 100],
+                        image_anchor=[40, 100],
+                        raw_image_anchor=[42, 100],
+                        raw_court_position=[10.0, 5.0],
+                        raw_render_position=[200.0, 200.0],
+                        stabilization_trust=1.0,
+                        court_position=[10.0, 5.0],
+                        render_position=[200.0, 200.0],
+                    )
+                ],
+                ball=BirdseyeBallFrame(
+                    frame_idx=0,
+                    state=BallState.REAL,
+                    confidence=0.8,
+                    image_bbox=[75, 60, 85, 70],
+                    image_position=[80, 65],
+                    court_position=[20.0, 10.0],
+                    render_position=[400.0, 200.0],
+                ),
+            ),
+            BirdseyeFrame(
+                frame_idx=1,
+                players=[],
+                ball=BirdseyeBallFrame(
+                    frame_idx=1,
+                    state=BallState.UNKNOWN,
+                    confidence=0.0,
+                    image_bbox=None,
+                    image_position=None,
+                    court_position=None,
+                    render_position=None,
+                ),
+            ),
+        ],
+        diagnostics={},
+    )
+
+    birdseye_output_path = tmp_path / "birdseye_projection.json"
+    birdseye_output_path.write_text(json.dumps(birdseye_output.model_dump(mode="json")), encoding="utf-8")
+
+    visualization_path = tmp_path / "visualization.mp4"
+    render_visualization_from_artifact(
+        video_path=str(video_path),
+        birdseye_output_path=str(birdseye_output_path),
+        visualization_path=str(visualization_path),
+    )
+
+    assert visualization_path.exists()
+    assert visualization_path.stat().st_size > 0
 
 
 def test_pass3_jersey_conflict_resolution_preserves_disjoint_same_number_fragments():

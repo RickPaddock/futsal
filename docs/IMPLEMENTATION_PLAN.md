@@ -207,6 +207,50 @@ with the new CLAUDE.md contract.
 - [ ] Every frame must include projected ball position when ball state is `real` or `interpolated`
 - [ ] Ghost-only player spans may be shown as estimated, but must be flagged as estimated and excluded from confirmed metric analytics
 
+### Projection Stability
+
+- [x] Keep the raw image-derived player anchor available for audit even if the rendered 2D dot becomes stabilized
+- [x] Add a stabilized court-space player position used for 2D display and downstream court-space analytics
+- [x] Apply smoothing in court space, not image space, so homography noise and bbox jitter are handled after projection
+- [x] Maintain stabilization state per committed player identity, never per transient track id alone
+- [x] Clamp implausible per-frame court displacement so stationary or lightly occluded players do not wobble on the 2D pitch
+- [x] Reduce measurement trust when bbox evidence becomes unstable due to partial occlusion, abrupt width or area shrink, or asymmetric bbox shifts
+- [x] Preserve a clear raw-vs-stabilized audit trail so the debug render can show why the 2D dot moved or stayed stable
+
+#### Stabilization Hierarchy
+
+Apply these in order. Only move to the next level if the previous level is still not good enough on manual review of the bird's-eye debug render.
+
+Current runtime status: the active Pass 4 2D path uses pre-homography foot-point stabilization with raw-vs-stabilized audit fields preserved in the artifact and debug render.
+
+1. [x] Level 1: court-space smoothing on top of the current bbox-derived anchor
+  - keep raw image anchors and raw projected positions for audit
+  - smooth per committed player identity in court space
+  - use trust heuristics and a plausible speed cap to suppress bbox jitter and partial-occlusion wobble
+2. [x] Level 2: replace the bbox-derived anchor with a more stable ground-contact estimate using existing detections
+  - derive a better floor-contact point from the lower body / lower bbox region, mask geometry, or another geometry-only estimate that does not require a new model
+  - keep the same court-space stabilizer after the improved measurement source is introduced
+3. [x] Level 3: add a footpoint / pose-keypoint measurement source
+  - run a pose or keypoint model and use stable body cues such as head/shoulders/hips to infer the footpoint, falling back to direct ankles or feet only when they are clearly available
+  - keep raw and stabilized outputs both auditable in the debug render
+4. [ ] Level 4: only if the above still fails, escalate upstream measurement quality
+  - consider segmentation-assisted footpoint recovery or stronger detector changes rather than stacking more smoothing onto a noisy measurement
+
+#### Trajectory Segment Smoothing
+
+- [x] Capture the current measurement path in audit-friendly form using raw and stabilized projected player positions
+- [x] Add a second-stage court-space trajectory smoother that operates per committed player identity after the current height-based foot estimate and local stabilizer
+- [x] Segment each player trajectory into stationary, coherent, transition, and reactive spans using existing bird's-eye JSON signals (`frame_idx`, `court_position`, `raw_court_position`, `stabilization_trust`, `is_ghost`, `is_estimated`)
+- [x] End a smoothing span on frame gaps, trust cliffs, sharp direction changes, transitions into or out of near-stationary motion, and ghost or occlusion discontinuities
+- [x] Fit straight-line motion first for coherent spans and only allow lightly curved fitting later if linear segments still look too rigid on visual review
+- [x] Keep stationary spans near a held or median position instead of fitting motion through them
+- [x] Preserve short reactive actions such as pivots, blocks, and abrupt stops by bypassing trajectory fitting on those spans
+- [x] Blend any fitted path back toward the current measurement rather than replacing it outright
+- [x] Enforce a hard maximum drift from the current measurement so the rendered 2D dot cannot become smooth but materially wrong
+- [x] Add bird's-eye diagnostics for segment counts, segment types, frames modified, mean fitted-vs-measured delta, and max fitted-vs-measured delta
+- [ ] Persist extra artifact fields only if diagnostics alone are insufficient for debugging trajectory smoothing decisions
+- [ ] Rerender clip2 and manually verify that long A-to-B runs look calmer while pivots and defensive side-steps stay physically plausible
+
 ### 2D Pitch Render
 
 - [ ] Render a top-down futsal pitch view suitable for both a debug video and a video inset
@@ -215,6 +259,9 @@ with the new CLAUDE.md contract.
 - [ ] In our current named cases, jersey display must support 4 = Spyros, 7 = Rick, 10 = Kiki
 - [ ] Ball marker must be shown on the projected pitch when ball state is `real` or `interpolated`
 - [ ] Unknown ball frames must show no committed ball marker
+- [x] Debug render must also show the source-frame player bboxes and the exact player anchor point used to generate the 2D projection
+- [x] Debug render must show a real-ball bbox when available and an interpolated ball marker when the ball state is interpolated
+- [x] Debug overlay palette should remain visually distinct and consistent with team identity; current bird's-eye debug convention is black for one team and orange for the other
 - [ ] Projected pitch render is descriptive only and MUST NOT repair identity or ball artifacts
 
 ### Validation
@@ -232,14 +279,15 @@ with the new CLAUDE.md contract.
 **Input**: `pass3_identity_commit.json` + `ball_interpolation.json` + `birdseye_projection.json`
 **Output**: `visualization.mp4`
 
-- [ ] Bboxes colored by team (`team_a` = blue, `team_b` = red)
-- [ ] Label: `<jersey> - <name>` if mapped (4=Spyros, 7=Rick, 10=Kiki); else jersey number; else identity_id
-- [ ] Ghosts: dashed bboxes
-- [ ] Ball: solid circle (real), dashed circle (interpolated), no circle (unknown)
-- [ ] Top-right corner inset must show the 2D bird's-eye pitch projection
-- [ ] 2D inset must show team-colored player circles, resolved jersey numbers inside circles, and projected ball position
-- [ ] Deduplication: only suppress same `track_id` duplicates — different tracks may share screen space
-- [ ] Visualizer CANNOT infer, fix, suppress, or merge entities — any inconsistency must be fixed upstream
+- [x] Bboxes colored by team using the current debug convention (`team_a` = black, `team_b` = orange) unless a later visual design change is made deliberately
+- [x] Label: `<jersey> - <name>` if mapped (4=Spyros, 7=Rick, 10=Kiki); else jersey number; else identity_id
+- [x] Ghosts: dashed bboxes
+- [x] Ball: solid circle (real), dashed circle (interpolated), no circle (unknown)
+- [x] Top-right corner inset must show the 2D bird's-eye pitch projection
+- [x] 2D inset must show team-colored player circles, resolved jersey numbers inside circles, and projected ball position
+- [x] When stabilization is added, visualization must keep raw image overlays visible so bbox jitter can be compared against the stabilized 2D motion
+- [x] Deduplication: only suppress same `track_id` duplicates — different tracks may share screen space
+- [x] Visualizer CANNOT infer, fix, suppress, or merge entities — any inconsistency must be fixed upstream
 
 ---
 
@@ -310,10 +358,13 @@ After each pass, test on clip7:
 **Purpose**: downstream match analytics built on stable player identity, jersey identity, and ball tracking.
 This section exists only because the upstream goal is to make these analytics reliable.
 Analytics MUST consume upstream artifacts only and MUST NOT alter, repair, or override identity or ball outputs.
+Analytics should follow a deterministic two-step structure inspired by tracking-data event literature:
+first assign frame-level possession, then derive passes and shots from possession changes plus futsal-specific rules.
+Any ideas borrowed from 11-a-side football analytics must be adapted for futsal before use.
 
 **Files**: `src/skills/analytics_possession.py`, `src/skills/analytics_passes.py`, `src/skills/analytics_distance.py`, `src/skills/analytics_shots.py` (new)
 **Input**: `pass1_raw.json` + `pass2_ghosts.json` + `pass3_identity_commit.json` + `ball_interpolation.json` + `birdseye_projection.json`
-**Output**: `analytics_events.json`, `analytics_summary.json`, `player_distance_summary.json`
+**Output**: `analytics_possession.json`, `analytics_events.json`, `analytics_summary.json`, `player_distance_summary.json`
 
 ### Scope
 
@@ -323,23 +374,33 @@ Analytics MUST consume upstream artifacts only and MUST NOT alter, repair, or ov
 - [ ] Track shot attempts and identify the shooter
 - [ ] Track distance run for identified players
 - [ ] Produce named summaries for jersey 4 = Spyros, 7 = Rick, 10 = Kiki
+- [ ] Do NOT build goalkeeper-specific analytics; in futsal the rotating goalkeeper is treated as a normal committed player identity
+- [ ] Do NOT import 11-a-side set-piece or restart logic directly; out-of-play and restart classification is deferred until futsal-specific rules are defined
 
 ### Possession Model
 
 - [ ] Possession MUST be derived from `ball_interpolation.json` + committed player identities, not from raw track IDs
+- [ ] Analytics must expose an explicit frame-indexed possession artifact in `analytics_possession.json`
 - [ ] A player may only be considered in possession when:
   - [ ] ball state is `real` or `interpolated`
   - [ ] player identity is committed in `pass3_identity_commit.json`
-  - [ ] player is the closest plausible controller of the ball
-  - [ ] control persists for a minimum confirmation window
+  - [ ] player is the closest plausible controller of the ball using court-space distance when available, with image-space fallback only when projection is unavailable
+  - [ ] control persists for a minimum confirmation window before a handoff is committed
+- [ ] Initial handoff confirmation window must be explicit and conservative (default target: 3 consecutive frames)
+- [ ] Possession output must include a confidence score and an ambiguity state rather than forcing a binary owner in congested frames
+- [ ] If multiple players are similarly plausible controllers, the frame must be marked ambiguous and possession must abstain
 - [ ] Possession output must be frame-indexed and include confidence
 - [ ] Ghost-only frames must NEVER create confirmed possession
+- [ ] No special goalkeeper possession rules are required; the rotating goalkeeper follows the same committed-identity possession rules as any other player
 
 ### Pass Detection
 
 - [ ] A pass starts when a player in confirmed possession releases the ball and loses control
 - [ ] Passer = last confirmed controlling player before release
 - [ ] Receiver = next confirmed controlling player after release, if any
+- [ ] Pass detection MUST consume `analytics_possession.json` rather than re-deriving possession ad hoc
+- [ ] Receive window must be explicit and bounded in time (initial target: about 2 seconds, parameterized by FPS)
+- [ ] If the same player quickly regains confirmed control after release, treat it as recovery / failed control rather than a completed pass
 - [ ] Successful pass:
   - [ ] receiver exists
   - [ ] receiver is on the same team as passer
@@ -362,8 +423,12 @@ Analytics MUST consume upstream artifacts only and MUST NOT alter, repair, or ov
 
 - [ ] A shot attempt starts when a player in confirmed possession releases the ball with strong outbound motion
 - [ ] Shooter = last confirmed controlling player before shot release
+- [ ] Shot detection MUST consume `analytics_possession.json` rather than re-deriving possession ad hoc
+- [ ] Initial shot classification should prefer projected court-space ball velocity from `birdseye_projection.json` over raw image motion when calibration is available
+- [ ] A first-pass implementation may use release speed only; goalward-direction and outcome classification can come later
 - [ ] Initial implementation only needs `shot_attempt`
 - [ ] Goal / on-target / off-target classification can come later
+- [ ] Do NOT produce goalkeeper-specific save or keeper-distribution stats in the initial futsal analytics scope
 - [ ] Shot event fields:
   - [ ] `event_id`
   - [ ] `event_type = "shot"`
@@ -380,6 +445,7 @@ Analytics MUST consume upstream artifacts only and MUST NOT alter, repair, or ov
 - [ ] If calibration is unavailable, report image-plane distance and explicitly mark units as `px`
 - [ ] Distance must be accumulated from real observed player positions only
 - [ ] Ghost-only spans must NOT contribute to confirmed distance run
+- [ ] Rotating-goalkeeper minutes are treated the same as any other committed-player minutes; do NOT split distance into separate goalkeeper buckets
 - [ ] Distance summary fields:
   - [ ] `player_id`
   - [ ] `jersey_number`
@@ -406,9 +472,19 @@ Analytics MUST consume upstream artifacts only and MUST NOT alter, repair, or ov
 - [ ] Distance output must always include explicit units
 - [ ] Analytics must never modify or reinterpret upstream artifacts
 - [ ] If possession is not stable enough, analytics should abstain rather than invent events
+- [ ] Pass and shot detection must consume the committed possession artifact rather than bypassing it with ad hoc nearest-player logic
+
+### Analytics Visualization Consideration
+
+- [ ] Consider `mplsoccer` as an optional post-pipeline reporting layer for static analytics visuals built from committed artifacts
+- [ ] Do NOT use `mplsoccer` for frame-by-frame video rendering; keep the current OpenCV-based bird's-eye and visualization video pipeline for performance
+- [ ] Restrict `mplsoccer` usage to descriptive outputs such as pass maps, touch maps, heatmaps, shot maps, team shape snapshots, and summary report figures
+- [ ] Any `mplsoccer` output must consume upstream artifacts only and MUST NOT modify, repair, reinterpret, or override identity, ball, possession, or projection artifacts
+- [ ] Because this repo targets futsal, any `mplsoccer` pitch usage must be validated against custom futsal court dimensions rather than assuming a standard 11-a-side pitch
 
 ### Verification
 
+- [ ] `analytics_possession.json`: frame-indexed possession exists, ambiguous frames abstain cleanly, and ghost-only frames never create confirmed possession
 - [ ] `analytics_events.json`: pass and shot events reference committed identities only
 - [ ] `player_distance_summary.json`: named players present when jerseys resolve
 - [ ] Successful passes always stay within team

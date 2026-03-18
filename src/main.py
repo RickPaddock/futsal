@@ -25,6 +25,7 @@ from .skills.pass2b_fragment_scoring import run_pass2b
 from .skills.pass2c_ghost_generator import run_pass2c
 from .skills.ball_interpolator import run_ball_interpolation
 from .skills.birds_eye_pitch import run_birds_eye_pitch, render_birds_eye_debug_video_from_artifact
+from .skills.visualizer import run_visualization
 from .skills.pass3a_candidate_generator import run_pass3a
 from .skills.pass3b_constraint_builder import run_pass3b
 from .skills.pass3_debug_visualizer import render_pass3_debug_video_from_artifact
@@ -34,7 +35,7 @@ from .core.data_models import Pass1Output
 logger = get_logger("main")
 
 ALLOWED_VIDEO_OUTPUT_PASSES = {"1", "2", "3", "4", "ball", "viz"}
-IMPLEMENTED_VIDEO_OUTPUT_PASSES = {"1", "2", "3", "4"}
+IMPLEMENTED_VIDEO_OUTPUT_PASSES = {"1", "2", "3", "4", "viz"}
 
 
 def _parse_video_output_option(value: str) -> Set[str]:
@@ -120,8 +121,8 @@ Examples:
         default=set(),
         help=(
             "Comma-separated pass keys for debug video output. "
-            "Examples: 1,2,3,4. "
-            "Implemented: 1 (raw detections), 2 (fragments + quality + ghosts), 3 (committed identity), 4 (birdseye inset)"
+            "Examples: 1,2,3,4,viz. "
+            "Implemented: 1 (raw detections), 2 (fragments + quality + ghosts), 3 (committed identity), 4 (birdseye inset), viz (final visualization)"
         )
     )
 
@@ -496,6 +497,21 @@ Examples:
                 end_frame=args.end_frame,
             )
             logger.info(f"Pass 4 debug video written: {birdseye_debug_path}")
+            logger.info("")
+
+        if "viz" in args.video_output:
+            birdseye_output_path = output_dir / "birdseye_projection.json"
+            if not birdseye_output_path.exists():
+                logger.error(f"Cannot render visualization video: missing {birdseye_output_path}")
+                logger.error("Run Pass 4 first or include Pass 4 in the current run")
+                return 1
+
+            visualization_path = run_visualization(
+                input_dir=output_dir,
+                output_dir=output_dir,
+                video_path=str(video_path),
+            )
+            logger.info(f"Visualization video written: {visualization_path}")
             logger.info("")
 
         logger.info("=" * 80)

@@ -465,6 +465,25 @@ BIRDSEYE_PLAYER_POSITION_SCHEMA = {
         "is_estimated": {"type": "boolean"},
         "image_bbox": get_bbox_schema(),
         "image_anchor": get_centroid_schema(),
+        "raw_image_anchor": {
+            "anyOf": [
+                {"type": "null"},
+                get_centroid_schema(),
+            ]
+        },
+        "raw_court_position": {
+            "anyOf": [
+                {"type": "null"},
+                get_centroid_schema(),
+            ]
+        },
+        "raw_render_position": {
+            "anyOf": [
+                {"type": "null"},
+                get_centroid_schema(),
+            ]
+        },
+        "stabilization_trust": {"type": "number", "minimum": 0, "maximum": 1},
         "court_position": get_centroid_schema(),
         "render_position": get_centroid_schema(),
     },
@@ -478,6 +497,12 @@ BIRDSEYE_BALL_FRAME_SCHEMA = {
         "frame_idx": {"type": "integer", "minimum": 0},
         "state": {"type": "string", "enum": ["real", "interpolated", "unknown", "out_of_play"]},
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "image_bbox": {
+            "anyOf": [
+                {"type": "null"},
+                get_bbox_schema(),
+            ]
+        },
         "image_position": {
             "anyOf": [
                 {"type": "null"},
