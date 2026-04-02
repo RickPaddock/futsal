@@ -1570,43 +1570,13 @@ def build_birds_eye_projection_output(
     homography_config = calibration_config.get("homography", {}) if isinstance(calibration_config, dict) else {}
     court_length_m = float(homography_config.get("court_length", homography.pitch_width_m))
     court_width_m = float(homography_config.get("court_width", homography.pitch_height_m))
-    anchor_metrics = _apply_preprojection_position_stabilization(frames=frames, homography=homography)
-    pose_metrics = {
-        "pose_anchor_refinements": 0.0,
-        "pose_anchor_attempts": 0.0,
-        "pose_anchor_failures": 0.0,
-        "pose_upper_body_refinements": 0.0,
-    }
+    # REMOVE ALL STABILIZATION AND SMOOTHING: Only use raw projected positions
+    anchor_metrics = {}
+    pose_metrics = {}
     stabilization_metrics = {}
-    trajectory_metrics = {
-        "trajectory_smoothing_segments_detected": 0.0,
-        "trajectory_smoothing_segments_smoothed": 0.0,
-        "trajectory_smoothing_frames_modified": 0.0,
-        "trajectory_smoothing_mean_delta_m": 0.0,
-        "trajectory_smoothing_max_delta_m": 0.0,
-        "trajectory_smoothing_segments_classified_coherent": 0.0,
-        "trajectory_smoothing_segments_classified_stationary": 0.0,
-        "trajectory_smoothing_segments_classified_transition": 0.0,
-        "trajectory_smoothing_segments_classified_reactive": 0.0,
-    }
-    stationary_metrics = {
-        "trajectory_stationary_segments_detected": 0.0,
-        "trajectory_stationary_segments_smoothed": 0.0,
-        "trajectory_stationary_frames_modified": 0.0,
-        "trajectory_stationary_mean_delta_m": 0.0,
-        "trajectory_stationary_max_delta_m": 0.0,
-        "trajectory_stationary_segments_classified_stationary": 0.0,
-        "trajectory_stationary_segments_classified_transition": 0.0,
-        "trajectory_stationary_segments_classified_reactive": 0.0,
-    }
-    journey_metrics = {
-        "journey_segments_detected": 0.0,
-        "journey_segments_smoothed": 0.0,
-        "journey_frames_modified": 0.0,
-        "journey_mean_delta_m": 0.0,
-        "journey_max_delta_m": 0.0,
-        "journeys": [],
-    }
+    trajectory_metrics = {}
+    stationary_metrics = {}
+    journey_metrics = {}
 
     return BirdseyeProjectionOutput(
         video_name=pass1_output.video_name,
@@ -1624,12 +1594,6 @@ def build_birds_eye_projection_output(
             "projected_player_positions": projected_player_count,
             "estimated_player_positions": estimated_player_count,
             "ghost_windows_seen": len(ghost_activity_windows),
-            **anchor_metrics,
-            **pose_metrics,
-            **stabilization_metrics,
-            **trajectory_metrics,
-            **stationary_metrics,
-            **journey_metrics,
         },
     )
 

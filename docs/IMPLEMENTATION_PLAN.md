@@ -381,6 +381,7 @@ Any ideas borrowed from 11-a-side football analytics must be adapted for futsal 
 
 - [ ] Possession MUST be derived from `ball_interpolation.json` + committed player identities, not from raw track IDs
 - [ ] Analytics must expose an explicit frame-indexed possession artifact in `analytics_possession.json`
+- [ ] Internal possession reasoning may use any committed identity as context, but reported player analytics must be restricted to jersey-resolved identities
 - [ ] A player may only be considered in possession when:
   - [ ] ball state is `real` or `interpolated`
   - [ ] player identity is committed in `pass3_identity_commit.json`
@@ -390,6 +391,8 @@ Any ideas borrowed from 11-a-side football analytics must be adapted for futsal 
 - [ ] Possession output must include a confidence score and an ambiguity state rather than forcing a binary owner in congested frames
 - [ ] If multiple players are similarly plausible controllers, the frame must be marked ambiguous and possession must abstain
 - [ ] Possession output must be frame-indexed and include confidence
+- [x] Add an absolute control gate so extremely weak near-threshold candidates do not become confirmed possession just because they persist for 3 frames
+- [x] Add a contested-control rule so close duels are allowed to stay ambiguous even when the current top-vs-second confidence margin is not small enough on its own
 - [ ] Ghost-only frames must NEVER create confirmed possession
 - [ ] No special goalkeeper possession rules are required; the rotating goalkeeper follows the same committed-identity possession rules as any other player
 
@@ -399,6 +402,7 @@ Any ideas borrowed from 11-a-side football analytics must be adapted for futsal 
 - [ ] Passer = last confirmed controlling player before release
 - [ ] Receiver = next confirmed controlling player after release, if any
 - [ ] Pass detection MUST consume `analytics_possession.json` rather than re-deriving possession ad hoc
+- [ ] Initial implementation should populate `analytics_events.json` with pass events first; shot events can be added into the same artifact later
 - [ ] Receive window must be explicit and bounded in time (initial target: about 2 seconds, parameterized by FPS)
 - [ ] If the same player quickly regains confirmed control after release, treat it as recovery / failed control rather than a completed pass
 - [ ] Successful pass:
@@ -415,9 +419,13 @@ Any ideas borrowed from 11-a-side football analytics must be adapted for futsal 
   - [ ] `start_frame`, `end_frame`
   - [ ] `passer_player_id`, `passer_jersey_number`
   - [ ] `receiver_player_id`, `receiver_jersey_number` (nullable)
+  - [ ] `receiver_team_id` (nullable, required for unresolved-player audit display)
   - [ ] `team_id`
   - [ ] `outcome = successful | unsuccessful | loose_ball`
   - [ ] `event_confidence`
+- [ ] Keep unresolved-player pass events in `analytics_events.json` for audit, but mark them as audit-only and label them as unknown player on video overlays
+- [ ] Final player-attributed pass summaries must filter out those audit-only unresolved-player events
+- [ ] Add an interception / deflection / instant-loss review path so the first downstream controller is not always treated as clean received possession when control was only momentary or chaotic
 
 ### Shot Detection
 
@@ -437,37 +445,41 @@ Any ideas borrowed from 11-a-side football analytics must be adapted for futsal 
   - [ ] `team_id`
   - [ ] `outcome = shot_attempt`
   - [ ] `event_confidence`
+- [ ] Only emit player-attributed shot analytics when the shooter has a resolved jersey number; otherwise abstain from reported shooter attribution
 
 ### Distance Run
 
-- [ ] Distance must be computed from committed player identity positions, not raw track IDs
-- [ ] Prefer court-space distance from `birdseye_projection.json` when calibration / homography is available
+- [x] Distance must be computed from committed player identity positions, not raw track IDs
+- [x] Prefer court-space distance from `birdseye_projection.json` when calibration / homography is available
 - [ ] If calibration is unavailable, report image-plane distance and explicitly mark units as `px`
-- [ ] Distance must be accumulated from real observed player positions only
-- [ ] Ghost-only spans must NOT contribute to confirmed distance run
-- [ ] Rotating-goalkeeper minutes are treated the same as any other committed-player minutes; do NOT split distance into separate goalkeeper buckets
+- [x] Distance must be accumulated from real observed player positions only
+- [x] Ghost-only spans must NOT contribute to confirmed distance run
+- [x] Rotating-goalkeeper minutes are treated the same as any other committed-player minutes; do NOT split distance into separate goalkeeper buckets
 - [ ] Distance summary fields:
-  - [ ] `player_id`
-  - [ ] `jersey_number`
-  - [ ] `team_id`
-  - [ ] `display_name` (Spyros / Rick / Kiki when mapped)
-  - [ ] `distance_value`
-  - [ ] `distance_unit = m | px`
-  - [ ] `observed_frame_count`
-  - [ ] `estimated_frame_count`
-  - [ ] `distance_confidence`
+  - [x] `player_id`
+  - [x] `jersey_number`
+  - [x] `team_id`
+  - [x] `display_name` (Spyros / Rick / Kiki when mapped)
+  - [x] `distance_value`
+  - [x] `distance_unit = m | px`
+  - [x] `observed_frame_count`
+  - [x] `estimated_frame_count`
+  - [x] `distance_confidence`
+- [x] Do NOT emit player distance summaries for identities without resolved jersey numbers
 
 ### Named Player Reporting
 
 - [ ] Report dedicated summaries for:
-  - [ ] jersey 4 = Spyros
-  - [ ] jersey 7 = Rick
-  - [ ] jersey 10 = Kiki
-- [ ] If a named jersey is not resolved in a clip, report that explicitly instead of fabricating analytics
+  - [x] jersey 4 = Spyros
+  - [x] jersey 7 = Rick
+  - [x] jersey 10 = Kiki
+- [x] If a named jersey is not resolved in a clip, report that explicitly instead of fabricating analytics
+- [x] General player summaries must follow the same rule: only jersey-resolved players appear in reported analytics outputs
 
 ### Validation
 
 - [ ] Every analytics event must reference a valid committed identity
+- [ ] Every reported player-attributed analytics event must reference a valid committed identity with a resolved jersey number
 - [ ] A successful pass must never cross teams
 - [ ] Distance output must always include explicit units
 - [ ] Analytics must never modify or reinterpret upstream artifacts
@@ -481,12 +493,16 @@ Any ideas borrowed from 11-a-side football analytics must be adapted for futsal 
 - [ ] Restrict `mplsoccer` usage to descriptive outputs such as pass maps, touch maps, heatmaps, shot maps, team shape snapshots, and summary report figures
 - [ ] Any `mplsoccer` output must consume upstream artifacts only and MUST NOT modify, repair, reinterpret, or override identity, ball, possession, or projection artifacts
 - [ ] Because this repo targets futsal, any `mplsoccer` pitch usage must be validated against custom futsal court dimensions rather than assuming a standard 11-a-side pitch
+- [ ] Analytics review should use a single unified `analytics_debug.mp4` overlay built from `analytics_possession.json`, `analytics_events.json`, and `birdseye_projection.json`
+- [ ] The top-left analytics block should always show at least control, pass, and shot lines, with additional context lines when useful
+- [ ] Audit text should render as bright yellow on black and sit low enough to avoid editor/video-software top banners
 
 ### Verification
 
 - [ ] `analytics_possession.json`: frame-indexed possession exists, ambiguous frames abstain cleanly, and ghost-only frames never create confirmed possession
-- [ ] `analytics_events.json`: pass and shot events reference committed identities only
-- [ ] `player_distance_summary.json`: named players present when jerseys resolve
+- [ ] `analytics_events.json`: all audit pass events are retained, while unresolved-player events are clearly marked as audit-only
+- [ ] `analytics_debug.mp4`: control, pass, and shot lines are always visible; active pass events are visually auditable on video, including unknown-player events with team-only labels
+- [x] `player_distance_summary.json`: only jersey-resolved players are reported, with named players present when jerseys resolve
 - [ ] Successful passes always stay within team
 - [ ] Distances clearly report `m` or `px`
 - [ ] Analytics output is absent or abstains when upstream certainty is insufficient

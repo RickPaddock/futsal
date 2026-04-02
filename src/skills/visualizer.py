@@ -34,6 +34,15 @@ JERSEY_NAME_MAP = {
 }
 
 
+def _identity_label(player_id: str, jersey_number: Optional[int]) -> str:
+    if jersey_number is not None:
+        mapped_name = JERSEY_NAME_MAP.get(int(jersey_number))
+        if mapped_name is not None:
+            return f"{jersey_number} - {mapped_name}"
+        return str(jersey_number)
+    return player_id
+
+
 def _draw_text_with_bg(
     img: np.ndarray,
     text: str,
@@ -104,12 +113,7 @@ def _draw_dashed_circle(
 
 
 def _player_label(player: BirdseyePlayerPosition) -> str:
-    if player.jersey_number is not None:
-        mapped_name = JERSEY_NAME_MAP.get(int(player.jersey_number))
-        if mapped_name is not None:
-            return f"{player.jersey_number} - {mapped_name}"
-        return str(player.jersey_number)
-    return player.player_id
+    return _identity_label(player.player_id, player.jersey_number)
 
 
 def _dedupe_players_for_render(players: List[BirdseyePlayerPosition]) -> List[BirdseyePlayerPosition]:
@@ -146,7 +150,7 @@ def _draw_player_overlay(canvas: np.ndarray, player: BirdseyePlayerPosition) -> 
 
     label = _player_label(player)
     label_y = y1 - 8 if y1 > 18 else y1 + 16
-    _draw_text_with_bg(canvas, label, (x1, label_y), 0.45, color, 1)
+    _draw_text_with_bg(canvas, label, (x1, label_y), 0.45, (255, 255, 255), 1)
 
 
 def _draw_ball_overlay(canvas: np.ndarray, frame_projection: BirdseyeFrame) -> str:
@@ -296,7 +300,7 @@ def render_visualization_from_artifact(
                 _draw_text_with_bg(
                     overlay,
                     f"frame={frame_idx} players={len(players)} ghosts={ghost_count} {ball_label}",
-                    (12, 24),
+                    (12, 52),
                     0.52,
                     (255, 255, 255),
                     2,

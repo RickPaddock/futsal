@@ -600,6 +600,173 @@ class BirdseyeProjectionOutput(BaseModel):
 
 
 # ============================================================================
+# ANALYTICS MODELS
+# ============================================================================
+
+class PossessionCandidate(BaseModel):
+    """
+    Candidate controller for a single frame in analytics possession output.
+    """
+    player_id: PlayerID
+    team: TeamID
+    jersey_number: Optional[int] = None
+    distance_to_ball: float
+    source_space: str  # court or image
+    confidence: float
+
+
+class PossessionFrame(BaseModel):
+    """
+    Possession state for a single frame.
+
+    This is a downstream analytics artifact built from committed identities,
+    ball interpolation, and bird's-eye projection.
+    """
+    frame_idx: FrameIndex
+    player_id: Optional[PlayerID] = None
+    team: Optional[TeamID] = None
+    jersey_number: Optional[int] = None
+    confidence: float = 0.0
+    is_ambiguous: bool = False
+    ball_state: BallState
+    source_space: Optional[str] = None
+    candidates: List[PossessionCandidate] = Field(default_factory=list)
+
+    @field_validator("ball_state", mode="before")
+    @classmethod
+    def _normalize_possession_ball_state(cls, value):
+        return normalize_ball_state_value(value)
+
+
+class AnalyticsPossessionOutput(BaseModel):
+    """
+    Frame-indexed possession artifact for downstream analytics.
+    """
+    video_name: str
+    fps: float
+    total_frames: int
+    processed_start_frame: int = 0
+    processed_end_frame_exclusive: Optional[int] = None
+    frames: List[PossessionFrame]
+    diagnostics: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AnalyticsEvent(BaseModel):
+    """
+    Event record for downstream analytics reporting.
+
+    Initial implementation emits only pass events.
+    """
+    event_id: str
+    event_type: str
+    start_frame: FrameIndex
+    end_frame: FrameIndex
+    team_id: TeamID
+    outcome: str
+    event_confidence: float = 0.0
+    is_audit_only: bool = False
+    passer_player_id: Optional[PlayerID] = None
+    passer_jersey_number: Optional[int] = None
+    receiver_player_id: Optional[PlayerID] = None
+    receiver_team_id: Optional[TeamID] = None
+    receiver_jersey_number: Optional[int] = None
+
+
+class AnalyticsEventsOutput(BaseModel):
+    """
+    Event artifact for downstream analytics reporting.
+
+    Initial implementation contains pass events only.
+    """
+    video_name: str
+    fps: float
+    total_frames: int
+    processed_start_frame: int = 0
+    processed_end_frame_exclusive: Optional[int] = None
+    events: List[AnalyticsEvent]
+    diagnostics: Dict[str, Any] = Field(default_factory=dict)
+
+
+class PlayerDistanceSummaryRow(BaseModel):
+    """
+    Reportable distance summary for one committed player identity.
+
+    Distance summaries are restricted to jersey-resolved identities and must
+    state their units explicitly.
+    """
+    player_id: PlayerID
+    jersey_number: int
+    team_id: TeamID
+    display_name: Optional[str] = None
+    distance_value: float
+    distance_unit: str
+    observed_frame_count: int = 0
+    estimated_frame_count: int = 0
+    distance_confidence: float = 0.0
+
+
+class PlayerDistanceSummaryOutput(BaseModel):
+    """
+    Per-player distance summary artifact for downstream reporting.
+    """
+    video_name: str
+    fps: float
+    total_frames: int
+    processed_start_frame: int = 0
+    processed_end_frame_exclusive: Optional[int] = None
+    players: List[PlayerDistanceSummaryRow]
+    diagnostics: Dict[str, Any] = Field(default_factory=dict)
+
+
+class NamedPlayerStatus(BaseModel):
+    """
+    Resolution status for named jersey mappings used in downstream reports.
+    """
+    jersey_number: int
+    display_name: str
+    resolved: bool
+    player_id: Optional[PlayerID] = None
+    team_id: Optional[TeamID] = None
+
+
+class AnalyticsPlayerSummary(BaseModel):
+    """
+    Lightweight per-player rollup built from possession, events, and distance.
+    """
+    player_id: PlayerID
+    jersey_number: int
+    team_id: TeamID
+    display_name: Optional[str] = None
+    confirmed_possession_frames: int = 0
+    confirmed_possession_seconds: float = 0.0
+    passes_attempted: int = 0
+    passes_completed: int = 0
+    passes_received: int = 0
+    unsuccessful_passes: int = 0
+    loose_ball_releases: int = 0
+    shots_attempted: int = 0
+    goals_scored: int = 0
+    distance_value: float = 0.0
+    distance_unit: str = "m"
+    distance_confidence: float = 0.0
+
+
+class AnalyticsSummaryOutput(BaseModel):
+    """
+    Lightweight report artifact built from committed analytics artifacts only.
+    """
+    video_name: str
+    fps: float
+    total_frames: int
+    processed_start_frame: int = 0
+    processed_end_frame_exclusive: Optional[int] = None
+    players: List[AnalyticsPlayerSummary]
+    named_players: List[NamedPlayerStatus] = Field(default_factory=list)
+    event_totals: Dict[str, int] = Field(default_factory=dict)
+    diagnostics: Dict[str, Any] = Field(default_factory=dict)
+
+
+# ============================================================================
 # VALIDATION MODELS
 # ============================================================================
 

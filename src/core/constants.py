@@ -258,6 +258,11 @@ BIRDSEYE_PROJECTION_JSON = "birdseye_projection.json"
 BIRDSEYE_VALIDATION_JSON = "birdseye_validation.json"
 BIRDSEYE_DEBUG_VIDEO = "birdseye_debug.mp4"
 DEBUG_METRICS_JSON = "debug_metrics.json"
+ANALYTICS_POSSESSION_JSON = "analytics_possession.json"
+ANALYTICS_EVENTS_JSON = "analytics_events.json"
+PLAYER_DISTANCE_SUMMARY_JSON = "player_distance_summary.json"
+ANALYTICS_SUMMARY_JSON = "analytics_summary.json"
+ANALYTICS_DEBUG_VIDEO = "analytics_debug.mp4"
 VISUALIZATION_VIDEO = "visualization.mp4"
 
 # Calibration artifact for pixel-to-court projection.
@@ -363,6 +368,38 @@ QUALITY_MEDIUM_THRESHOLD = 0.4
 # ============================================================================
 # LOGGING
 # ============================================================================
+
+# ============================================================================
+# ANALYTICS - POSSESSION
+# ============================================================================
+
+ANALYTICS_POSSESSION_CONFIRMATION_FRAMES = 3
+ANALYTICS_POSSESSION_MAX_DISTANCE_M = 1.8
+ANALYTICS_POSSESSION_IMAGE_BBOX_HEIGHT_FACTOR = 0.75
+ANALYTICS_POSSESSION_MIN_IMAGE_THRESHOLD_PX = 35.0
+ANALYTICS_POSSESSION_AMBIGUITY_MARGIN = 0.10
+ANALYTICS_POSSESSION_MIN_CONTROL_CONFIDENCE = 0.10
+ANALYTICS_POSSESSION_CONTESTED_SECOND_DISTANCE_M = 1.0
+ANALYTICS_POSSESSION_CONTESTED_DISTANCE_GAP_M = 0.35
+ANALYTICS_POSSESSION_LOOSE_BALL_SECURE_DISTANCE_M = 0.15
+
+# ============================================================================
+# ANALYTICS - PASS DETECTION
+# ============================================================================
+
+ANALYTICS_PASS_RECEIVE_WINDOW_SECONDS = 2.0
+ANALYTICS_PASS_RELAY_LOOKAHEAD_SECONDS = 3.0
+ANALYTICS_PASS_RELAY_MIN_STREAK_FRAMES = 3
+ANALYTICS_PASS_RELAY_MIN_ROUTE_TURN_DEGREES = 25.0
+
+# ============================================================================
+# ANALYTICS - SHOT DETECTION
+# ============================================================================
+
+ANALYTICS_SHOT_GOAL_LINE_DISTANCE_M = 4.0
+ANALYTICS_SHOT_GOAL_BAND_HALF_WIDTH_M = 3.0
+ANALYTICS_SHOT_MIN_TRAVEL_M = 1.5
+ANALYTICS_GOAL_BANNER_SECONDS = 5.0
 
 LOG_LEVEL = "INFO"  # DEBUG, INFO, WARNING, ERROR
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

@@ -24,6 +24,10 @@ from .skills.pass2a_fragmenter import run_pass2a, render_pass2a_debug_video_from
 from .skills.pass2b_fragment_scoring import run_pass2b
 from .skills.pass2c_ghost_generator import run_pass2c
 from .skills.ball_interpolator import run_ball_interpolation
+from .skills.analytics_distance import run_analytics_distance, run_analytics_summary
+from .skills.analytics_passes import run_analytics_pass_detection
+from .skills.analytics_possession import run_analytics_possession
+from .skills.analytics_visualizer import run_analytics_events_visualization, run_analytics_possession_visualization
 from .skills.birds_eye_pitch import run_birds_eye_pitch, render_birds_eye_debug_video_from_artifact
 from .skills.visualizer import run_visualization
 from .skills.pass3a_candidate_generator import run_pass3a
@@ -34,8 +38,8 @@ from .core.data_models import Pass1Output
 
 logger = get_logger("main")
 
-ALLOWED_VIDEO_OUTPUT_PASSES = {"1", "2", "3", "4", "ball", "viz"}
-IMPLEMENTED_VIDEO_OUTPUT_PASSES = {"1", "2", "3", "4", "viz"}
+ALLOWED_VIDEO_OUTPUT_PASSES = {"1", "2", "3", "4", "analytics", "ball", "events", "poss", "viz"}
+IMPLEMENTED_VIDEO_OUTPUT_PASSES = {"1", "2", "3", "4", "analytics", "events", "poss", "viz"}
 
 
 def _parse_video_output_option(value: str) -> Set[str]:
@@ -121,8 +125,8 @@ Examples:
         default=set(),
         help=(
             "Comma-separated pass keys for debug video output. "
-            "Examples: 1,2,3,4,viz. "
-            "Implemented: 1 (raw detections), 2 (fragments + quality + ghosts), 3 (committed identity), 4 (birdseye inset), viz (final visualization)"
+            "Examples: 1,2,3,4,analytics,viz. "
+            "Implemented: 1 (raw detections), 2 (fragments + quality + ghosts), 3 (committed identity), 4 (birdseye inset), analytics (unified analytics debug overlay), viz (final visualization)"
         )
     )
 
@@ -169,7 +173,7 @@ Examples:
     logger.info(f"Processing frames: {args.start_frame} to {args.end_frame or 'end'}")
     if args.video_output:
         passes = ", ".join(sorted(args.video_output))
-        logger.info(f"Debug video outputs requested: Pass {passes}")
+        logger.info(f"Debug video outputs requested: {passes}")
     else:
         logger.info("Debug video outputs requested: none")
 
@@ -186,7 +190,7 @@ Examples:
         logger.info(f"Running Pass {args.pass_number} only")
     else:
         passes_to_run = [1, 2, 3, 4]
-        logger.info("Running all implemented passes (currently: Pass 1, Pass 2, Pass 3, Pass 4)")
+        logger.info("Running all implemented passes (currently: Pass 1, Pass 2, Pass 3, Pass 4, analytics possession, analytics pass detection)")
 
     logger.info("")
 
@@ -479,6 +483,64 @@ Examples:
                 logger.info(f"   Debug video: {output_dir / 'birdseye_debug.mp4'}")
             logger.info("")
 
+        run_possession_stage = args.pass_number is None
+        if run_possession_stage:
+            logger.info("Starting Analytics: Possession")
+            logger.info("-" * 80)
+
+            pass3_output_path = output_dir / "pass3_identity_commit.json"
+            ball_output_path = output_dir / "ball_interpolation.json"
+            birdseye_output_path = output_dir / "birdseye_projection.json"
+
+            if not pass3_output_path.exists():
+                logger.error(f"Pass 3 output not found: {pass3_output_path}")
+                logger.error("Please run Pass 3 first: python -m src.main --input <video> --pass 3")
+                return 1
+            if not ball_output_path.exists():
+                logger.error(f"Ball interpolation output not found: {ball_output_path}")
+                logger.error("Please run Pass 4 first or run without --pass to generate analytics possession")
+                return 1
+            if not birdseye_output_path.exists():
+                logger.error(f"Bird's-eye output not found: {birdseye_output_path}")
+                logger.error("Please run Pass 4 first: python -m src.main --input <video> --pass 4")
+                return 1
+
+            possession_output = run_analytics_possession(input_dir=output_dir, output_dir=output_dir)
+            logger.info("")
+            logger.info("[OK] Analytics Possession Complete!")
+            logger.info(f"   Frames: {len(possession_output.frames)}")
+            logger.info(f"   Confirmed possession frames: {int(possession_output.diagnostics.get('confirmed_possession_frames', 0.0))}")
+            logger.info(f"   Output: {output_dir / 'analytics_possession.json'}")
+            logger.info("")
+
+            logger.info("Starting Analytics: Pass Detection")
+            logger.info("-" * 80)
+            events_output = run_analytics_pass_detection(input_dir=output_dir, output_dir=output_dir)
+            logger.info("")
+            logger.info("[OK] Analytics Pass Detection Complete!")
+            logger.info(f"   Events: {len(events_output.events)}")
+            logger.info(f"   Successful passes: {int(events_output.diagnostics.get('successful_pass_events', 0.0))}")
+            logger.info(f"   Output: {output_dir / 'analytics_events.json'}")
+            logger.info("")
+
+            logger.info("Starting Analytics: Distance Summary")
+            logger.info("-" * 80)
+            distance_output = run_analytics_distance(input_dir=output_dir, output_dir=output_dir)
+            logger.info("")
+            logger.info("[OK] Analytics Distance Summary Complete!")
+            logger.info(f"   Reportable players: {len(distance_output.players)}")
+            logger.info(f"   Output: {output_dir / 'player_distance_summary.json'}")
+            logger.info("")
+
+            logger.info("Starting Analytics: Summary")
+            logger.info("-" * 80)
+            summary_output = run_analytics_summary(input_dir=output_dir, output_dir=output_dir)
+            logger.info("")
+            logger.info("[OK] Analytics Summary Complete!")
+            logger.info(f"   Reportable players: {len(summary_output.players)}")
+            logger.info(f"   Output: {output_dir / 'analytics_summary.json'}")
+            logger.info("")
+
         if "4" in args.video_output and 4 not in passes_to_run:
             birdseye_output_path = output_dir / "birdseye_projection.json"
 
@@ -497,6 +559,36 @@ Examples:
                 end_frame=args.end_frame,
             )
             logger.info(f"Pass 4 debug video written: {birdseye_debug_path}")
+            logger.info("")
+
+        if "poss" in args.video_output:
+            birdseye_output_path = output_dir / "birdseye_projection.json"
+            if not birdseye_output_path.exists():
+                logger.error(f"Cannot render analytics possession video: missing {birdseye_output_path}")
+                logger.error("Run Pass 4 first or include Pass 4 in the current run")
+                return 1
+
+            possession_visualization_path = run_analytics_possession_visualization(
+                input_dir=output_dir,
+                output_dir=output_dir,
+                video_path=str(video_path),
+            )
+            logger.info(f"Analytics debug video written: {possession_visualization_path}")
+            logger.info("")
+
+        if "events" in args.video_output or "analytics" in args.video_output:
+            birdseye_output_path = output_dir / "birdseye_projection.json"
+            if not birdseye_output_path.exists():
+                logger.error(f"Cannot render analytics events video: missing {birdseye_output_path}")
+                logger.error("Run Pass 4 first or include Pass 4 in the current run")
+                return 1
+
+            events_visualization_path = run_analytics_events_visualization(
+                input_dir=output_dir,
+                output_dir=output_dir,
+                video_path=str(video_path),
+            )
+            logger.info(f"Analytics debug video written: {events_visualization_path}")
             logger.info("")
 
         if "viz" in args.video_output:

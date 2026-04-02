@@ -1,13 +1,17 @@
 import json
 
 import cv2
-from src.core.data_models import BallDetection, BallInterpolationOutput, BallPosition, BirdseyeBallFrame, BirdseyeFrame, BirdseyePlayerPosition, BirdseyeProjectionOutput, Detection, Pass1Output, Fragment, Pass2AOutput, Pass2COutput, ScoredFragment, CommittedIdentity, Pass3COutput, IdentityCandidateEdge
+from src.core.data_models import AnalyticsEvent, AnalyticsEventsOutput, AnalyticsPossessionOutput, BallDetection, BallInterpolationOutput, BallPosition, BirdseyeBallFrame, BirdseyeFrame, BirdseyePlayerPosition, BirdseyeProjectionOutput, Detection, Pass1Output, Fragment, Pass2AOutput, Pass2COutput, PlayerDistanceSummaryOutput, PlayerDistanceSummaryRow, PossessionCandidate, PossessionFrame, ScoredFragment, CommittedIdentity, Pass3COutput, IdentityCandidateEdge
 from src.core.types import BallState, FragmentQuality, InterpolationMethod, TeamID, AssignmentMethod
+from src.skills.analytics_distance import build_analytics_summary_output, build_player_distance_summary_output
+from src.skills.analytics_passes import build_analytics_events_output
+from src.skills.analytics_possession import build_analytics_possession_output
+from src.skills.analytics_visualizer import _build_display_events_by_frame, _build_event_route_lookup, _build_goal_banner_by_frame, render_analytics_events_video_from_artifact, render_analytics_possession_video_from_artifact
 from src.skills.ball_interpolator import build_ball_interpolation_output
 from src.skills.birds_eye_pitch import build_birds_eye_projection_output, _apply_journey_path_smoothing, _apply_stationary_span_smoothing, _apply_trajectory_segment_smoothing, _blend_directional_motion, _build_journey_activity_lookup, _build_player_height_prior, _classify_motion_span, _expected_player_height, _pose_anchor_from_keypoints, _pose_anchor_from_upper_body_keypoints
 from src.skills.pass3_debug_visualizer import _ghost_bbox_for_frame
 from src.skills.pass3c_identity_solver import IdentitySolver
-from src.skills.visualizer import render_visualization_from_artifact
+from src.skills.visualizer import _identity_label, render_visualization_from_artifact
 from src.validation.validator import Validator
 from src.skills.pass1_extractor import _load_pass1_intention_lines
 from utils.homography import create_homography_from_config
@@ -496,6 +500,12 @@ def test_birdseye_projection_uses_foot_anchor_and_prediction_only_on_bad_bbox():
     assert birdseye_output.diagnostics["position_stabilizer_prediction_only_frames"] == 1.0
     assert birdseye_output.diagnostics["trajectory_smoothing_frames_modified"] == 0.0
     assert birdseye_output.diagnostics["trajectory_stationary_frames_modified"] == 0.0
+
+
+def test_identity_label_matches_bbox_and_analytics_overlay_format():
+    assert _identity_label("P07_team_a", 7) == "7 - Rick"
+    assert _identity_label("P14_team_a", 14) == "14"
+    assert _identity_label("PXX_team_b", None) == "PXX_team_b"
 
 
 def test_pose_anchor_from_keypoints_prefers_ankles():
@@ -1005,6 +1015,1075 @@ def test_visualization_renderer_writes_video_from_birdseye_artifact(tmp_path):
 
     assert visualization_path.exists()
     assert visualization_path.stat().st_size > 0
+
+
+def test_analytics_possession_renderer_writes_video_from_artifacts(tmp_path):
+    video_path = tmp_path / "input.mp4"
+    writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (160, 120))
+    assert writer.isOpened()
+    writer.write(np.zeros((120, 160, 3), dtype=np.uint8))
+    writer.write(np.zeros((120, 160, 3), dtype=np.uint8))
+    writer.release()
+
+    birdseye_output = BirdseyeProjectionOutput(
+        video_name="unit",
+        fps=10.0,
+        total_frames=2,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=2,
+        court_length_m=40.0,
+        court_width_m=20.0,
+        output_pixel_scale=20,
+        frames=[
+            BirdseyeFrame(
+                frame_idx=0,
+                players=[
+                    BirdseyePlayerPosition(
+                        frame_idx=0,
+                        fragment_id="F000001",
+                        player_id="P07_team_a",
+                        team=TeamID.TEAM_A,
+                        jersey_number=7,
+                        track_id=1,
+                        is_ghost=False,
+                        is_estimated=False,
+                        image_bbox=[20, 20, 60, 100],
+                        image_anchor=[40, 100],
+                        raw_image_anchor=[42, 100],
+                        raw_court_position=[10.0, 5.0],
+                        raw_render_position=[200.0, 200.0],
+                        stabilization_trust=1.0,
+                        court_position=[10.0, 5.0],
+                        render_position=[200.0, 200.0],
+                    )
+                ],
+                ball=BirdseyeBallFrame(
+                    frame_idx=0,
+                    state=BallState.REAL,
+                    confidence=0.8,
+                    image_bbox=[75, 60, 85, 70],
+                    image_position=[80, 65],
+                    court_position=[20.0, 10.0],
+                    render_position=[400.0, 200.0],
+                ),
+            ),
+            BirdseyeFrame(
+                frame_idx=1,
+                players=[],
+                ball=BirdseyeBallFrame(
+                    frame_idx=1,
+                    state=BallState.UNKNOWN,
+                    confidence=0.0,
+                    image_bbox=None,
+                    image_position=None,
+                    court_position=None,
+                    render_position=None,
+                ),
+            ),
+        ],
+        diagnostics={},
+    )
+    possession_output = AnalyticsPossessionOutput(
+        video_name="unit",
+        fps=10.0,
+        total_frames=2,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=2,
+        frames=[
+            PossessionFrame(
+                frame_idx=0,
+                player_id="P07_team_a",
+                team=TeamID.TEAM_A,
+                jersey_number=7,
+                confidence=0.92,
+                ball_state=BallState.REAL,
+                source_space="court",
+                candidates=[
+                    PossessionCandidate(
+                        player_id="P07_team_a",
+                        team=TeamID.TEAM_A,
+                        jersey_number=7,
+                        distance_to_ball=0.5,
+                        source_space="court",
+                        confidence=0.92,
+                    )
+                ],
+            ),
+            PossessionFrame(
+                frame_idx=1,
+                player_id=None,
+                team=None,
+                jersey_number=None,
+                confidence=0.0,
+                is_ambiguous=False,
+                ball_state=BallState.UNKNOWN,
+                source_space=None,
+                candidates=[],
+            ),
+        ],
+        diagnostics={},
+    )
+
+    birdseye_output_path = tmp_path / "birdseye_projection.json"
+    birdseye_output_path.write_text(json.dumps(birdseye_output.model_dump(mode="json")), encoding="utf-8")
+
+    possession_output_path = tmp_path / "analytics_possession.json"
+    possession_output_path.write_text(json.dumps(possession_output.model_dump(mode="json")), encoding="utf-8")
+
+    visualization_path = tmp_path / "analytics_debug.mp4"
+    render_analytics_possession_video_from_artifact(
+        video_path=str(video_path),
+        birdseye_output_path=str(birdseye_output_path),
+        analytics_possession_path=str(possession_output_path),
+        visualization_path=str(visualization_path),
+    )
+
+    assert visualization_path.exists()
+    assert visualization_path.stat().st_size > 0
+
+
+def test_analytics_events_renderer_writes_video_from_artifacts(tmp_path):
+    video_path = tmp_path / "input.mp4"
+    writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (160, 120))
+    assert writer.isOpened()
+    writer.write(np.zeros((120, 160, 3), dtype=np.uint8))
+    writer.write(np.zeros((120, 160, 3), dtype=np.uint8))
+    writer.release()
+
+    birdseye_output = BirdseyeProjectionOutput(
+        video_name="unit",
+        fps=10.0,
+        total_frames=2,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=2,
+        court_length_m=40.0,
+        court_width_m=20.0,
+        output_pixel_scale=20,
+        frames=[
+            BirdseyeFrame(
+                frame_idx=0,
+                players=[
+                    BirdseyePlayerPosition(
+                        frame_idx=0,
+                        fragment_id="F000001",
+                        player_id="P07_team_a",
+                        team=TeamID.TEAM_A,
+                        jersey_number=7,
+                        track_id=1,
+                        is_ghost=False,
+                        is_estimated=False,
+                        image_bbox=[20, 20, 60, 100],
+                        image_anchor=[40, 100],
+                        raw_image_anchor=[42, 100],
+                        raw_court_position=[10.0, 5.0],
+                        raw_render_position=[200.0, 200.0],
+                        stabilization_trust=1.0,
+                        court_position=[10.0, 5.0],
+                        render_position=[200.0, 200.0],
+                    )
+                ],
+                ball=BirdseyeBallFrame(
+                    frame_idx=0,
+                    state=BallState.REAL,
+                    confidence=0.8,
+                    image_bbox=[75, 60, 85, 70],
+                    image_position=[80, 65],
+                    court_position=[20.0, 10.0],
+                    render_position=[400.0, 200.0],
+                ),
+            ),
+            BirdseyeFrame(
+                frame_idx=1,
+                players=[],
+                ball=BirdseyeBallFrame(
+                    frame_idx=1,
+                    state=BallState.UNKNOWN,
+                    confidence=0.0,
+                    image_bbox=None,
+                    image_position=None,
+                    court_position=None,
+                    render_position=None,
+                ),
+            ),
+        ],
+        diagnostics={},
+    )
+    possession_output = AnalyticsPossessionOutput(
+        video_name="unit",
+        fps=10.0,
+        total_frames=2,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=2,
+        frames=[
+            PossessionFrame(
+                frame_idx=0,
+                player_id="P07_team_a",
+                team=TeamID.TEAM_A,
+                jersey_number=7,
+                confidence=0.92,
+                ball_state=BallState.REAL,
+                source_space="court",
+                candidates=[],
+            ),
+            PossessionFrame(
+                frame_idx=1,
+                player_id=None,
+                team=None,
+                jersey_number=None,
+                confidence=0.0,
+                ball_state=BallState.UNKNOWN,
+                source_space=None,
+                candidates=[],
+            ),
+        ],
+        diagnostics={},
+    )
+    events_output = AnalyticsEventsOutput(
+        video_name="unit",
+        fps=10.0,
+        total_frames=2,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=2,
+        events=[
+            AnalyticsEvent(
+                event_id="EV000001",
+                event_type="pass",
+                start_frame=0,
+                end_frame=0,
+                team_id=TeamID.TEAM_A,
+                outcome="successful",
+                event_confidence=0.9,
+                is_audit_only=False,
+                passer_player_id="P07_team_a",
+                passer_jersey_number=7,
+                receiver_player_id=None,
+                receiver_team_id=TeamID.TEAM_A,
+                receiver_jersey_number=None,
+            )
+        ],
+        diagnostics={},
+    )
+
+    birdseye_output_path = tmp_path / "birdseye_projection.json"
+    birdseye_output_path.write_text(json.dumps(birdseye_output.model_dump(mode="json")), encoding="utf-8")
+    possession_output_path = tmp_path / "analytics_possession.json"
+    possession_output_path.write_text(json.dumps(possession_output.model_dump(mode="json")), encoding="utf-8")
+    events_output_path = tmp_path / "analytics_events.json"
+    events_output_path.write_text(json.dumps(events_output.model_dump(mode="json")), encoding="utf-8")
+
+    visualization_path = tmp_path / "analytics_debug.mp4"
+    render_analytics_events_video_from_artifact(
+        video_path=str(video_path),
+        birdseye_output_path=str(birdseye_output_path),
+        analytics_possession_path=str(possession_output_path),
+        analytics_events_path=str(events_output_path),
+        visualization_path=str(visualization_path),
+    )
+
+    assert visualization_path.exists()
+    assert visualization_path.stat().st_size > 0
+
+
+def test_analytics_event_preview_window_and_pass_route_lookup():
+    birdseye_output = BirdseyeProjectionOutput(
+        video_name="unit",
+        fps=10.0,
+        total_frames=4,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=4,
+        court_length_m=40.0,
+        court_width_m=20.0,
+        output_pixel_scale=20,
+        frames=[
+            BirdseyeFrame(
+                frame_idx=0,
+                players=[],
+                ball=BirdseyeBallFrame(
+                    frame_idx=0,
+                    state=BallState.UNKNOWN,
+                    confidence=0.0,
+                    image_bbox=None,
+                    image_position=None,
+                    court_position=None,
+                    render_position=None,
+                ),
+            ),
+            BirdseyeFrame(
+                frame_idx=1,
+                players=[],
+                ball=BirdseyeBallFrame(
+                    frame_idx=1,
+                    state=BallState.REAL,
+                    confidence=0.9,
+                    image_bbox=[9, 9, 11, 11],
+                    image_position=[10.0, 10.0],
+                    court_position=[1.0, 1.0],
+                    render_position=[100.0, 100.0],
+                ),
+            ),
+            BirdseyeFrame(
+                frame_idx=2,
+                players=[],
+                ball=BirdseyeBallFrame(
+                    frame_idx=2,
+                    state=BallState.INTERPOLATED,
+                    confidence=0.9,
+                    image_bbox=[19, 19, 21, 21],
+                    image_position=[20.0, 20.0],
+                    court_position=[2.0, 2.0],
+                    render_position=[200.0, 200.0],
+                ),
+            ),
+            BirdseyeFrame(
+                frame_idx=3,
+                players=[],
+                ball=BirdseyeBallFrame(
+                    frame_idx=3,
+                    state=BallState.REAL,
+                    confidence=0.9,
+                    image_bbox=[19, 19, 21, 21],
+                    image_position=[20.0, 20.0],
+                    court_position=[2.0, 2.0],
+                    render_position=[200.0, 200.0],
+                ),
+            ),
+        ],
+        diagnostics={},
+    )
+    events_output = AnalyticsEventsOutput(
+        video_name="unit",
+        fps=10.0,
+        total_frames=4,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=4,
+        events=[
+            AnalyticsEvent(
+                event_id="EV000001",
+                event_type="pass",
+                start_frame=1,
+                end_frame=3,
+                team_id=TeamID.TEAM_A,
+                outcome="successful",
+                event_confidence=0.9,
+                is_audit_only=False,
+                passer_player_id="P07_team_a",
+                passer_jersey_number=7,
+                receiver_player_id="P10_team_a",
+                receiver_team_id=TeamID.TEAM_A,
+                receiver_jersey_number=10,
+            )
+        ],
+        diagnostics={},
+    )
+
+    display_events_by_frame = _build_display_events_by_frame(events_output, preview_frames=1)
+    assert display_events_by_frame[0][0].event_id == "EV000001"
+    assert display_events_by_frame[3][0].event_id == "EV000001"
+    assert 4 not in display_events_by_frame
+
+    frame_map = {frame.frame_idx: frame for frame in birdseye_output.frames}
+    route_lookup = _build_event_route_lookup(frame_map, events_output)
+    assert route_lookup["EV000001"]["image_points"] == [(10, 10), (20, 20)]
+    assert route_lookup["EV000001"]["pitch_points"] == [(100, 100), (200, 200)]
+
+
+def test_analytics_visualizer_builds_shot_routes_and_goal_banner_frames():
+    birdseye_output = BirdseyeProjectionOutput(
+        video_name="unit",
+        fps=10.0,
+        total_frames=4,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=4,
+        court_length_m=40.0,
+        court_width_m=20.0,
+        output_pixel_scale=20,
+        frames=[
+            BirdseyeFrame(frame_idx=0, players=[], ball=BirdseyeBallFrame(frame_idx=0, state=BallState.REAL, confidence=0.9, image_bbox=[9, 9, 11, 11], image_position=[10.0, 10.0], court_position=[1.0, 1.0], render_position=[100.0, 100.0])),
+            BirdseyeFrame(frame_idx=1, players=[], ball=BirdseyeBallFrame(frame_idx=1, state=BallState.REAL, confidence=0.9, image_bbox=[14, 14, 16, 16], image_position=[15.0, 15.0], court_position=[1.5, 1.5], render_position=[150.0, 150.0])),
+            BirdseyeFrame(frame_idx=2, players=[], ball=BirdseyeBallFrame(frame_idx=2, state=BallState.REAL, confidence=0.9, image_bbox=[19, 19, 21, 21], image_position=[20.0, 20.0], court_position=[2.0, 2.0], render_position=[200.0, 200.0])),
+            BirdseyeFrame(frame_idx=3, players=[], ball=BirdseyeBallFrame(frame_idx=3, state=BallState.INTERPOLATED, confidence=0.9, image_bbox=[24, 24, 26, 26], image_position=[25.0, 25.0], court_position=[2.5, 2.5], render_position=[250.0, 250.0])),
+        ],
+        diagnostics={},
+    )
+    events_output = AnalyticsEventsOutput(
+        video_name="unit",
+        fps=10.0,
+        total_frames=60,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=60,
+        events=[
+            AnalyticsEvent(
+                event_id="EV000099",
+                event_type="shot",
+                start_frame=0,
+                end_frame=2,
+                team_id=TeamID.TEAM_B,
+                outcome="goal",
+                event_confidence=0.8,
+                is_audit_only=True,
+                passer_player_id="P19_team_b",
+                passer_jersey_number=None,
+            )
+        ],
+        diagnostics={},
+    )
+
+    frame_map = {frame.frame_idx: frame for frame in birdseye_output.frames}
+    route_lookup = _build_event_route_lookup(frame_map, events_output)
+    assert route_lookup["EV000099"]["image_points"] == [(10, 10), (15, 15), (20, 20)]
+    assert route_lookup["EV000099"]["pitch_points"] == [(100, 100), (150, 150), (200, 200)]
+
+    goal_banner_by_frame = _build_goal_banner_by_frame(events_output)
+    assert goal_banner_by_frame[2].event_id == "EV000099"
+    assert goal_banner_by_frame[51].event_id == "EV000099"
+    assert 52 not in goal_banner_by_frame
+
+
+def test_analytics_possession_requires_confirmation_and_blocks_ghost_control():
+    pass3_output = Pass3COutput(
+        identities=[
+            CommittedIdentity(
+                fragment_id="F000001",
+                player_id="P07_team_a",
+                team=TeamID.TEAM_A,
+                jersey_number=7,
+                assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+                assignment_confidence=0.98,
+                assignment_reasons=["unit test"],
+            ),
+            CommittedIdentity(
+                fragment_id="F000002",
+                player_id="P10_team_b",
+                team=TeamID.TEAM_B,
+                jersey_number=10,
+                assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+                assignment_confidence=0.98,
+                assignment_reasons=["unit test"],
+            ),
+        ]
+    )
+
+    def _player(frame_idx, player_id, team, track_id, x, y, is_ghost=False, is_estimated=False, jersey=7):
+        return BirdseyePlayerPosition(
+            frame_idx=frame_idx,
+            fragment_id="F000001" if player_id == "P07_team_a" else "F000002",
+            player_id=player_id,
+            team=team,
+            jersey_number=jersey,
+            track_id=track_id,
+            is_ghost=is_ghost,
+            is_estimated=is_estimated,
+            image_bbox=[x - 20, y - 60, x + 20, y + 60],
+            image_anchor=[x, y],
+            raw_image_anchor=[x, y],
+            raw_court_position=[x / 100.0, y / 100.0],
+            raw_render_position=[x, y],
+            stabilization_trust=1.0,
+            court_position=[x / 100.0, y / 100.0],
+            render_position=[x, y],
+        )
+
+    frames = [
+        BirdseyeFrame(
+            frame_idx=0,
+            players=[
+                _player(0, "P07_team_a", TeamID.TEAM_A, 1, 100, 100, jersey=7),
+                _player(0, "P10_team_b", TeamID.TEAM_B, 2, 300, 100, jersey=10),
+            ],
+            ball=BirdseyeBallFrame(frame_idx=0, state=BallState.REAL, confidence=0.95, image_position=[100, 100], court_position=[1.0, 1.0], render_position=[100, 100]),
+        ),
+        BirdseyeFrame(
+            frame_idx=1,
+            players=[
+                _player(1, "P07_team_a", TeamID.TEAM_A, 1, 102, 100, jersey=7),
+                _player(1, "P10_team_b", TeamID.TEAM_B, 2, 300, 100, jersey=10),
+            ],
+            ball=BirdseyeBallFrame(frame_idx=1, state=BallState.REAL, confidence=0.95, image_position=[102, 100], court_position=[1.02, 1.0], render_position=[102, 100]),
+        ),
+        BirdseyeFrame(
+            frame_idx=2,
+            players=[
+                _player(2, "P07_team_a", TeamID.TEAM_A, 1, 104, 100, jersey=7),
+                _player(2, "P10_team_b", TeamID.TEAM_B, 2, 300, 100, jersey=10),
+            ],
+            ball=BirdseyeBallFrame(frame_idx=2, state=BallState.REAL, confidence=0.95, image_position=[104, 100], court_position=[1.04, 1.0], render_position=[104, 100]),
+        ),
+        BirdseyeFrame(
+            frame_idx=3,
+            players=[
+                _player(3, "P07_team_a", TeamID.TEAM_A, 1, 150, 100, jersey=7),
+                _player(3, "P10_team_b", TeamID.TEAM_B, 2, 160, 100, jersey=10),
+            ],
+            ball=BirdseyeBallFrame(frame_idx=3, state=BallState.REAL, confidence=0.95, image_position=[155, 100], court_position=[1.55, 1.0], render_position=[155, 100]),
+        ),
+        BirdseyeFrame(
+            frame_idx=4,
+            players=[
+                _player(4, "P07_team_a", TeamID.TEAM_A, 1, 10, 100, jersey=7),
+                _player(4, "P10_team_b", TeamID.TEAM_B, 2, 200, 100, is_ghost=True, is_estimated=True, jersey=10),
+            ],
+            ball=BirdseyeBallFrame(frame_idx=4, state=BallState.REAL, confidence=0.95, image_position=[200, 100], court_position=[2.0, 1.0], render_position=[200, 100]),
+        ),
+        BirdseyeFrame(
+            frame_idx=5,
+            players=[
+                _player(5, "P07_team_a", TeamID.TEAM_A, 1, 100, 100, jersey=7),
+                _player(5, "P10_team_b", TeamID.TEAM_B, 2, 202, 100, jersey=10),
+            ],
+            ball=BirdseyeBallFrame(frame_idx=5, state=BallState.REAL, confidence=0.95, image_position=[202, 100], court_position=[2.02, 1.0], render_position=[202, 100]),
+        ),
+        BirdseyeFrame(
+            frame_idx=6,
+            players=[
+                _player(6, "P07_team_a", TeamID.TEAM_A, 1, 100, 100, jersey=7),
+                _player(6, "P10_team_b", TeamID.TEAM_B, 2, 204, 100, jersey=10),
+            ],
+            ball=BirdseyeBallFrame(frame_idx=6, state=BallState.REAL, confidence=0.95, image_position=[204, 100], court_position=[2.04, 1.0], render_position=[204, 100]),
+        ),
+        BirdseyeFrame(
+            frame_idx=7,
+            players=[
+                _player(7, "P07_team_a", TeamID.TEAM_A, 1, 100, 100, jersey=7),
+                _player(7, "P10_team_b", TeamID.TEAM_B, 2, 206, 100, jersey=10),
+            ],
+            ball=BirdseyeBallFrame(frame_idx=7, state=BallState.REAL, confidence=0.95, image_position=[206, 100], court_position=[2.06, 1.0], render_position=[206, 100]),
+        ),
+    ]
+
+    birdseye_output = BirdseyeProjectionOutput(
+        video_name="unit",
+        fps=30.0,
+        total_frames=8,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=8,
+        court_length_m=40.0,
+        court_width_m=20.0,
+        output_pixel_scale=10,
+        frames=frames,
+    )
+
+    ball_output = BallInterpolationOutput(
+        ball_positions=[
+            BallPosition(frame_idx=frame.frame_idx, state=BallState.REAL, centroid=frame.ball.image_position, bbox=None, confidence=0.95)
+            for frame in frames
+        ],
+        interpolation_method=InterpolationMethod.LINEAR,
+        total_frames=8,
+    )
+
+    output = build_analytics_possession_output(
+        pass3_output=pass3_output,
+        ball_output=ball_output,
+        birdseye_output=birdseye_output,
+    )
+
+    assert isinstance(output, AnalyticsPossessionOutput)
+    assert len(output.frames) == 8
+    assert output.frames[0].player_id is None
+    assert output.frames[1].player_id is None
+    assert output.frames[2].player_id == "P07_team_a"
+    assert output.frames[3].player_id is None
+    assert output.frames[3].is_ambiguous
+    assert output.frames[4].player_id is None
+    assert output.frames[5].player_id is None
+    assert output.frames[6].player_id is None
+    assert output.frames[7].player_id == "P10_team_b"
+    assert output.diagnostics["ghost_blocked_frames"] == 1.0
+
+
+def test_analytics_possession_abstains_on_low_confidence_and_contested_duel():
+    pass3_output = Pass3COutput(
+        identities=[
+            CommittedIdentity(
+                fragment_id="F000001",
+                player_id="P07_team_a",
+                team=TeamID.TEAM_A,
+                jersey_number=7,
+                assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+                assignment_confidence=0.98,
+            ),
+            CommittedIdentity(
+                fragment_id="F000002",
+                player_id="P10_team_b",
+                team=TeamID.TEAM_B,
+                jersey_number=10,
+                assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+                assignment_confidence=0.98,
+            ),
+        ]
+    )
+
+    def _player(frame_idx, player_id, team, track_id, x, y, jersey):
+        return BirdseyePlayerPosition(
+            frame_idx=frame_idx,
+            fragment_id="F000001" if player_id == "P07_team_a" else "F000002",
+            player_id=player_id,
+            team=team,
+            jersey_number=jersey,
+            track_id=track_id,
+            is_ghost=False,
+            is_estimated=False,
+            image_bbox=[x - 20, y - 60, x + 20, y + 60],
+            image_anchor=[x, y],
+            raw_image_anchor=[x, y],
+            raw_court_position=[x / 100.0, y / 100.0],
+            raw_render_position=[x, y],
+            stabilization_trust=1.0,
+            court_position=[x / 100.0, y / 100.0],
+            render_position=[x, y],
+        )
+
+    frames = [
+        BirdseyeFrame(
+            frame_idx=0,
+            players=[_player(0, "P07_team_a", TeamID.TEAM_A, 1, 100, 100, 7)],
+            ball=BirdseyeBallFrame(frame_idx=0, state=BallState.REAL, confidence=0.95, image_position=[278, 100], court_position=[2.78, 1.0], render_position=[278, 100]),
+        ),
+        BirdseyeFrame(
+            frame_idx=1,
+            players=[_player(1, "P07_team_a", TeamID.TEAM_A, 1, 100, 100, 7)],
+            ball=BirdseyeBallFrame(frame_idx=1, state=BallState.REAL, confidence=0.95, image_position=[278, 100], court_position=[2.78, 1.0], render_position=[278, 100]),
+        ),
+        BirdseyeFrame(
+            frame_idx=2,
+            players=[_player(2, "P07_team_a", TeamID.TEAM_A, 1, 100, 100, 7)],
+            ball=BirdseyeBallFrame(frame_idx=2, state=BallState.REAL, confidence=0.95, image_position=[278, 100], court_position=[2.78, 1.0], render_position=[278, 100]),
+        ),
+        BirdseyeFrame(
+            frame_idx=3,
+            players=[
+                _player(3, "P07_team_a", TeamID.TEAM_A, 1, 100, 100, 7),
+                _player(3, "P10_team_b", TeamID.TEAM_B, 2, 130, 100, 10),
+            ],
+            ball=BirdseyeBallFrame(frame_idx=3, state=BallState.REAL, confidence=0.95, image_position=[145, 100], court_position=[1.45, 1.0], render_position=[145, 100]),
+        ),
+    ]
+
+    birdseye_output = BirdseyeProjectionOutput(
+        video_name="unit",
+        fps=30.0,
+        total_frames=4,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=4,
+        court_length_m=40.0,
+        court_width_m=20.0,
+        output_pixel_scale=10,
+        frames=frames,
+    )
+
+    ball_output = BallInterpolationOutput(
+        ball_positions=[
+            BallPosition(frame_idx=frame.frame_idx, state=BallState.REAL, centroid=frame.ball.image_position, bbox=None, confidence=0.95)
+            for frame in frames
+        ],
+        interpolation_method=InterpolationMethod.LINEAR,
+        total_frames=4,
+    )
+
+    output = build_analytics_possession_output(
+        pass3_output=pass3_output,
+        ball_output=ball_output,
+        birdseye_output=birdseye_output,
+    )
+
+    assert output.frames[0].player_id is None
+    assert output.frames[1].player_id is None
+    assert output.frames[2].player_id is None
+    assert output.frames[3].player_id is None
+    assert output.frames[3].is_ambiguous
+    assert output.diagnostics["low_confidence_abstentions"] == 3.0
+    assert output.diagnostics["contested_duel_frames"] == 1.0
+
+
+def test_analytics_possession_keeps_loose_ball_recovery_ambiguous_until_secure():
+    pass3_output = Pass3COutput(
+        identities=[
+            CommittedIdentity(
+                fragment_id="F000001",
+                player_id="P07_team_a",
+                team=TeamID.TEAM_A,
+                jersey_number=7,
+                assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+                assignment_confidence=0.98,
+            ),
+            CommittedIdentity(
+                fragment_id="F000002",
+                player_id="P10_team_b",
+                team=TeamID.TEAM_B,
+                jersey_number=10,
+                assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+                assignment_confidence=0.98,
+            ),
+        ]
+    )
+
+    def _player(frame_idx, player_id, team, track_id, court_x, court_y, jersey):
+        image_x = court_x * 100.0
+        image_y = court_y * 100.0
+        return BirdseyePlayerPosition(
+            frame_idx=frame_idx,
+            fragment_id="F000001" if player_id == "P07_team_a" else "F000002",
+            player_id=player_id,
+            team=team,
+            jersey_number=jersey,
+            track_id=track_id,
+            is_ghost=False,
+            is_estimated=False,
+            image_bbox=[image_x - 20, image_y - 60, image_x + 20, image_y + 60],
+            image_anchor=[image_x, image_y],
+            raw_image_anchor=[image_x, image_y],
+            raw_court_position=[court_x, court_y],
+            raw_render_position=[image_x, image_y],
+            stabilization_trust=1.0,
+            court_position=[court_x, court_y],
+            render_position=[image_x, image_y],
+        )
+
+    frames = [
+        BirdseyeFrame(
+            frame_idx=0,
+            players=[
+                _player(0, "P07_team_a", TeamID.TEAM_A, 1, 1.00, 1.00, 7),
+                _player(0, "P10_team_b", TeamID.TEAM_B, 2, 0.70, 1.00, 10),
+            ],
+            ball=BirdseyeBallFrame(frame_idx=0, state=BallState.REAL, confidence=0.95, image_position=[145.0, 100.0], court_position=[1.45, 1.00], render_position=[145.0, 100.0]),
+        ),
+        BirdseyeFrame(
+            frame_idx=1,
+            players=[
+                _player(1, "P07_team_a", TeamID.TEAM_A, 1, 1.10, 1.00, 7),
+                _player(1, "P10_team_b", TeamID.TEAM_B, 2, 0.40, 1.00, 10),
+            ],
+            ball=BirdseyeBallFrame(frame_idx=1, state=BallState.REAL, confidence=0.95, image_position=[170.0, 100.0], court_position=[1.70, 1.00], render_position=[170.0, 100.0]),
+        ),
+        BirdseyeFrame(
+            frame_idx=2,
+            players=[
+                _player(2, "P07_team_a", TeamID.TEAM_A, 1, 1.35, 1.00, 7),
+                _player(2, "P10_team_b", TeamID.TEAM_B, 2, 0.20, 1.00, 10),
+            ],
+            ball=BirdseyeBallFrame(frame_idx=2, state=BallState.REAL, confidence=0.95, image_position=[200.0, 100.0], court_position=[2.00, 1.00], render_position=[200.0, 100.0]),
+        ),
+        BirdseyeFrame(
+            frame_idx=3,
+            players=[
+                _player(3, "P07_team_a", TeamID.TEAM_A, 1, 2.08, 1.00, 7),
+                _player(3, "P10_team_b", TeamID.TEAM_B, 2, 0.00, 1.00, 10),
+            ],
+            ball=BirdseyeBallFrame(frame_idx=3, state=BallState.REAL, confidence=0.95, image_position=[220.0, 100.0], court_position=[2.20, 1.00], render_position=[220.0, 100.0]),
+        ),
+    ]
+
+    birdseye_output = BirdseyeProjectionOutput(
+        video_name="unit",
+        fps=30.0,
+        total_frames=4,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=4,
+        court_length_m=40.0,
+        court_width_m=20.0,
+        output_pixel_scale=10,
+        frames=frames,
+    )
+    ball_output = BallInterpolationOutput(
+        ball_positions=[
+            BallPosition(frame_idx=frame.frame_idx, state=BallState.REAL, centroid=frame.ball.image_position, bbox=None, confidence=0.95)
+            for frame in frames
+        ],
+        interpolation_method=InterpolationMethod.LINEAR,
+        total_frames=4,
+    )
+
+    output = build_analytics_possession_output(
+        pass3_output=pass3_output,
+        ball_output=ball_output,
+        birdseye_output=birdseye_output,
+    )
+
+    assert all(frame.player_id is None for frame in output.frames)
+    assert output.frames[0].is_ambiguous
+    assert output.frames[1].is_ambiguous
+    assert output.frames[2].is_ambiguous
+    assert output.diagnostics["contested_duel_frames"] == 1.0
+    assert output.diagnostics["loose_ball_recovery_frames"] >= 2.0
+
+
+def test_analytics_pass_detection_emits_audit_only_unknown_player_passes():
+    possession_output = AnalyticsPossessionOutput(
+        video_name="unit",
+        fps=10.0,
+        total_frames=14,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=14,
+        frames=[
+            PossessionFrame(frame_idx=0, player_id="P07_team_a", team=TeamID.TEAM_A, jersey_number=7, confidence=0.95, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=1, player_id="P07_team_a", team=TeamID.TEAM_A, jersey_number=7, confidence=0.95, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=2, player_id="P07_team_a", team=TeamID.TEAM_A, jersey_number=7, confidence=0.95, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=3, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.INTERPOLATED),
+            PossessionFrame(frame_idx=4, player_id="P04_team_a", team=TeamID.TEAM_A, jersey_number=4, confidence=0.91, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=5, player_id="P04_team_a", team=TeamID.TEAM_A, jersey_number=4, confidence=0.91, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=6, player_id="P04_team_a", team=TeamID.TEAM_A, jersey_number=4, confidence=0.91, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=7, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.INTERPOLATED),
+            PossessionFrame(frame_idx=8, player_id="P08_team_a", team=TeamID.TEAM_A, jersey_number=None, confidence=0.90, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=9, player_id="P08_team_a", team=TeamID.TEAM_A, jersey_number=None, confidence=0.90, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=10, player_id="P08_team_a", team=TeamID.TEAM_A, jersey_number=None, confidence=0.90, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=11, player_id="P04_team_a", team=TeamID.TEAM_A, jersey_number=4, confidence=0.93, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=12, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.UNKNOWN),
+            PossessionFrame(frame_idx=13, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.UNKNOWN),
+        ],
+        diagnostics={},
+    )
+
+    output = build_analytics_events_output(possession_output)
+
+    assert len(output.events) == 4
+    assert output.events[0].event_type == "pass"
+    assert output.events[0].outcome == "successful"
+    assert output.events[0].passer_player_id == "P07_team_a"
+    assert output.events[0].receiver_player_id == "P04_team_a"
+    assert output.events[0].passer_jersey_number == 7
+    assert output.events[0].receiver_jersey_number == 4
+    assert not output.events[0].is_audit_only
+    assert output.events[1].outcome == "successful"
+    assert output.events[1].passer_player_id == "P04_team_a"
+    assert output.events[1].receiver_player_id == "P08_team_a"
+    assert output.events[1].is_audit_only
+    assert output.events[2].passer_player_id == "P08_team_a"
+    assert output.events[2].receiver_player_id == "P04_team_a"
+    assert output.events[2].is_audit_only
+    assert output.events[3].outcome == "loose_ball"
+    assert output.events[3].passer_player_id == "P04_team_a"
+    assert output.events[3].receiver_player_id is None
+    assert not output.events[3].is_audit_only
+    assert output.diagnostics["audit_only_events"] == 2.0
+    assert output.diagnostics["unknown_passer_events"] == 1.0
+    assert output.diagnostics["unknown_receiver_events"] == 1.0
+    assert output.diagnostics["successful_pass_events"] == 3.0
+    assert output.diagnostics["loose_ball_events"] == 1.0
+    assert output.diagnostics["emitted_pass_events"] == 4.0
+
+
+def test_analytics_pass_detection_keeps_known_passer_unsuccessful_pass_reportable():
+    possession_output = AnalyticsPossessionOutput(
+        video_name="unit",
+        fps=10.0,
+        total_frames=7,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=7,
+        frames=[
+            PossessionFrame(frame_idx=0, player_id="P07_team_a", team=TeamID.TEAM_A, jersey_number=7, confidence=0.90, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=1, player_id="P07_team_a", team=TeamID.TEAM_A, jersey_number=7, confidence=0.90, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=2, player_id="P07_team_a", team=TeamID.TEAM_A, jersey_number=7, confidence=0.90, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=3, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.INTERPOLATED),
+            PossessionFrame(frame_idx=4, player_id="P12_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.82, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=5, player_id="P12_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.82, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=6, player_id="P12_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.82, ball_state=BallState.REAL),
+        ],
+        diagnostics={},
+    )
+
+    output = build_analytics_events_output(possession_output)
+
+    assert len(output.events) == 2
+    assert output.events[0].outcome == "unsuccessful"
+    assert output.events[0].passer_player_id == "P07_team_a"
+    assert output.events[0].passer_jersey_number == 7
+    assert output.events[0].receiver_player_id == "P12_team_b"
+    assert output.events[0].receiver_jersey_number is None
+    assert not output.events[0].is_audit_only
+    assert output.events[1].outcome == "loose_ball"
+    assert output.events[1].passer_player_id == "P12_team_b"
+    assert output.events[1].is_audit_only
+    assert output.diagnostics["audit_only_events"] == 1.0
+    assert output.diagnostics["unknown_receiver_events"] == 1.0
+
+
+def test_analytics_pass_detection_classifies_goal_shot_from_goal_line_crossing():
+    possession_output = AnalyticsPossessionOutput(
+        video_name="unit",
+        fps=10.0,
+        total_frames=8,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=8,
+        frames=[
+            PossessionFrame(frame_idx=0, player_id="P19_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.65, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=1, player_id="P19_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.63, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=2, player_id="P19_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.60, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=3, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=4, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.INTERPOLATED),
+            PossessionFrame(frame_idx=5, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.INTERPOLATED),
+            PossessionFrame(frame_idx=6, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.INTERPOLATED),
+            PossessionFrame(frame_idx=7, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.UNKNOWN),
+        ],
+        diagnostics={},
+    )
+    birdseye_output = BirdseyeProjectionOutput(
+        video_name="unit",
+        fps=10.0,
+        total_frames=8,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=8,
+        court_length_m=40.0,
+        court_width_m=20.0,
+        output_pixel_scale=20,
+        frames=[
+            BirdseyeFrame(frame_idx=0, players=[], ball=BirdseyeBallFrame(frame_idx=0, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[36.0, 12.6], render_position=[720.0, 148.0])),
+            BirdseyeFrame(frame_idx=1, players=[], ball=BirdseyeBallFrame(frame_idx=1, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[37.0, 12.6], render_position=[740.0, 148.0])),
+            BirdseyeFrame(frame_idx=2, players=[], ball=BirdseyeBallFrame(frame_idx=2, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[38.2, 12.7], render_position=[764.0, 146.0])),
+            BirdseyeFrame(frame_idx=3, players=[], ball=BirdseyeBallFrame(frame_idx=3, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[39.1, 12.7], render_position=[782.0, 146.0])),
+            BirdseyeFrame(frame_idx=4, players=[], ball=BirdseyeBallFrame(frame_idx=4, state=BallState.INTERPOLATED, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[40.3, 12.7], render_position=[799.0, 146.0])),
+            BirdseyeFrame(frame_idx=5, players=[], ball=BirdseyeBallFrame(frame_idx=5, state=BallState.INTERPOLATED, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[41.1, 12.7], render_position=[799.0, 146.0])),
+            BirdseyeFrame(frame_idx=6, players=[], ball=BirdseyeBallFrame(frame_idx=6, state=BallState.INTERPOLATED, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[41.8, 12.7], render_position=[799.0, 146.0])),
+            BirdseyeFrame(frame_idx=7, players=[], ball=BirdseyeBallFrame(frame_idx=7, state=BallState.UNKNOWN, confidence=0.0, image_bbox=None, image_position=None, court_position=None, render_position=None)),
+        ],
+        diagnostics={},
+    )
+
+    output = build_analytics_events_output(possession_output, birdseye_output=birdseye_output)
+
+    assert len(output.events) == 1
+    assert output.events[0].event_type == "shot"
+    assert output.events[0].outcome == "goal"
+    assert output.events[0].passer_player_id == "P19_team_b"
+    assert output.diagnostics["goal_shot_events"] == 1.0
+    assert output.diagnostics["emitted_shot_events"] == 1.0
+
+
+def test_analytics_shot_detection_does_not_skip_intervening_owner_before_goal():
+    possession_output = AnalyticsPossessionOutput(
+        video_name="unit",
+        fps=10.0,
+        total_frames=10,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=10,
+        frames=[
+            PossessionFrame(frame_idx=0, player_id="P16_team_a", team=TeamID.TEAM_A, jersey_number=None, confidence=0.70, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=1, player_id="P16_team_a", team=TeamID.TEAM_A, jersey_number=None, confidence=0.70, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=2, player_id="P16_team_a", team=TeamID.TEAM_A, jersey_number=None, confidence=0.70, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=3, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=4, player_id="P19_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.68, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=5, player_id="P19_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.68, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=6, player_id="P19_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.68, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=7, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.INTERPOLATED),
+            PossessionFrame(frame_idx=8, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.INTERPOLATED),
+            PossessionFrame(frame_idx=9, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.UNKNOWN),
+        ],
+        diagnostics={},
+    )
+    birdseye_output = BirdseyeProjectionOutput(
+        video_name="unit",
+        fps=10.0,
+        total_frames=10,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=10,
+        court_length_m=40.0,
+        court_width_m=20.0,
+        output_pixel_scale=20,
+        frames=[
+            BirdseyeFrame(frame_idx=0, players=[], ball=BirdseyeBallFrame(frame_idx=0, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[36.0, 12.7], render_position=[720.0, 146.0])),
+            BirdseyeFrame(frame_idx=1, players=[], ball=BirdseyeBallFrame(frame_idx=1, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[37.0, 12.7], render_position=[740.0, 146.0])),
+            BirdseyeFrame(frame_idx=2, players=[], ball=BirdseyeBallFrame(frame_idx=2, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[38.0, 12.7], render_position=[760.0, 146.0])),
+            BirdseyeFrame(frame_idx=3, players=[], ball=BirdseyeBallFrame(frame_idx=3, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[38.5, 12.7], render_position=[770.0, 146.0])),
+            BirdseyeFrame(frame_idx=4, players=[], ball=BirdseyeBallFrame(frame_idx=4, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[36.8, 12.7], render_position=[736.0, 146.0])),
+            BirdseyeFrame(frame_idx=5, players=[], ball=BirdseyeBallFrame(frame_idx=5, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[37.6, 12.7], render_position=[752.0, 146.0])),
+            BirdseyeFrame(frame_idx=6, players=[], ball=BirdseyeBallFrame(frame_idx=6, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[38.5, 12.7], render_position=[770.0, 146.0])),
+            BirdseyeFrame(frame_idx=7, players=[], ball=BirdseyeBallFrame(frame_idx=7, state=BallState.INTERPOLATED, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[40.2, 12.7], render_position=[799.0, 146.0])),
+            BirdseyeFrame(frame_idx=8, players=[], ball=BirdseyeBallFrame(frame_idx=8, state=BallState.INTERPOLATED, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[41.0, 12.7], render_position=[799.0, 146.0])),
+            BirdseyeFrame(frame_idx=9, players=[], ball=BirdseyeBallFrame(frame_idx=9, state=BallState.UNKNOWN, confidence=0.0, image_bbox=None, image_position=None, court_position=None, render_position=None)),
+        ],
+        diagnostics={},
+    )
+
+    output = build_analytics_events_output(possession_output, birdseye_output=birdseye_output)
+
+    assert output.events[0].event_type == "unsuccessful" or output.events[0].outcome == "unsuccessful"
+    assert output.events[1].event_type == "shot"
+    assert output.events[1].passer_player_id == "P19_team_b"
+
+
+def test_analytics_pass_detection_splits_relay_pass_on_route_turn_and_candidate_streak():
+    possession_output = AnalyticsPossessionOutput(
+        video_name="unit",
+        fps=1.0,
+        total_frames=10,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=10,
+        frames=[
+            PossessionFrame(frame_idx=0, player_id="P08_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.80, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=1, player_id="P08_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.80, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=2, player_id="P08_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.80, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=3, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.REAL, candidates=[PossessionCandidate(player_id="P11_team_b", team=TeamID.TEAM_B, jersey_number=None, distance_to_ball=1.2, source_space="court", confidence=0.06)]),
+            PossessionFrame(frame_idx=4, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.REAL, candidates=[PossessionCandidate(player_id="P11_team_b", team=TeamID.TEAM_B, jersey_number=None, distance_to_ball=1.0, source_space="court", confidence=0.08)]),
+            PossessionFrame(frame_idx=5, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.REAL, candidates=[PossessionCandidate(player_id="P11_team_b", team=TeamID.TEAM_B, jersey_number=None, distance_to_ball=0.9, source_space="court", confidence=0.09)]),
+            PossessionFrame(frame_idx=6, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=7, player_id="P10_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.72, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=8, player_id="P10_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.72, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=9, player_id="P10_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.72, ball_state=BallState.REAL),
+        ],
+        diagnostics={},
+    )
+    birdseye_output = BirdseyeProjectionOutput(
+        video_name="unit",
+        fps=1.0,
+        total_frames=10,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=10,
+        court_length_m=40.0,
+        court_width_m=20.0,
+        output_pixel_scale=20,
+        frames=[
+            BirdseyeFrame(frame_idx=0, players=[], ball=BirdseyeBallFrame(frame_idx=0, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[18.0, 9.5], render_position=[360.0, 210.0])),
+            BirdseyeFrame(frame_idx=1, players=[], ball=BirdseyeBallFrame(frame_idx=1, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[17.0, 11.0], render_position=[340.0, 180.0])),
+            BirdseyeFrame(frame_idx=2, players=[], ball=BirdseyeBallFrame(frame_idx=2, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[15.0, 15.0], render_position=[300.0, 100.0])),
+            BirdseyeFrame(frame_idx=3, players=[], ball=BirdseyeBallFrame(frame_idx=3, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[14.8, 15.9], render_position=[296.0, 82.0])),
+            BirdseyeFrame(frame_idx=4, players=[], ball=BirdseyeBallFrame(frame_idx=4, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[14.9, 15.95], render_position=[298.0, 81.0])),
+            BirdseyeFrame(frame_idx=5, players=[], ball=BirdseyeBallFrame(frame_idx=5, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[15.0, 15.9], render_position=[300.0, 82.0])),
+            BirdseyeFrame(frame_idx=6, players=[], ball=BirdseyeBallFrame(frame_idx=6, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[19.0, 17.0], render_position=[380.0, 60.0])),
+            BirdseyeFrame(frame_idx=7, players=[], ball=BirdseyeBallFrame(frame_idx=7, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[24.0, 19.0], render_position=[480.0, 20.0])),
+            BirdseyeFrame(frame_idx=8, players=[], ball=BirdseyeBallFrame(frame_idx=8, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[26.0, 19.6], render_position=[520.0, 8.0])),
+            BirdseyeFrame(frame_idx=9, players=[], ball=BirdseyeBallFrame(frame_idx=9, state=BallState.REAL, confidence=0.8, image_bbox=[0, 0, 1, 1], image_position=[0.0, 0.0], court_position=[27.0, 19.8], render_position=[540.0, 4.0])),
+        ],
+        diagnostics={},
+    )
+
+    output = build_analytics_events_output(possession_output, birdseye_output=birdseye_output)
+
+    assert len(output.events) >= 2
+    assert output.events[0].event_type == "pass"
+    assert output.events[0].passer_player_id == "P08_team_b"
+    assert output.events[0].receiver_player_id == "P11_team_b"
+    assert output.events[0].outcome == "successful"
+    assert output.events[1].passer_player_id == "P11_team_b"
+    assert output.events[1].receiver_player_id == "P10_team_b"
+    assert output.events[1].outcome == "successful"
+    assert output.diagnostics["relay_split_events"] == 1.0
+
+
+def test_analytics_pass_detection_does_not_bridge_same_team_over_opponent_control():
+    possession_output = AnalyticsPossessionOutput(
+        video_name="unit",
+        fps=10.0,
+        total_frames=8,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=8,
+        frames=[
+            PossessionFrame(frame_idx=0, player_id="P16_team_a", team=TeamID.TEAM_A, jersey_number=None, confidence=0.70, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=1, player_id="P16_team_a", team=TeamID.TEAM_A, jersey_number=None, confidence=0.70, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=2, player_id="P16_team_a", team=TeamID.TEAM_A, jersey_number=None, confidence=0.70, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=3, player_id="P19_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.68, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=4, player_id="P19_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.68, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=5, player_id="P19_team_b", team=TeamID.TEAM_B, jersey_number=None, confidence=0.68, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=6, player_id="P24_team_a", team=TeamID.TEAM_A, jersey_number=None, confidence=0.60, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=7, player_id="P24_team_a", team=TeamID.TEAM_A, jersey_number=None, confidence=0.60, ball_state=BallState.REAL),
+        ],
+        diagnostics={},
+    )
+
+    output = build_analytics_events_output(possession_output)
+
+    assert output.events[0].outcome == "unsuccessful"
+    assert output.events[0].passer_player_id == "P16_team_a"
+    assert output.events[0].receiver_player_id == "P19_team_b"
 
 
 def test_pass3_jersey_conflict_resolution_preserves_disjoint_same_number_fragments():
@@ -1688,6 +2767,132 @@ def test_pass3_global_jersey_reassignment_prefers_disjoint_true_sequence_over_lo
     assert updated_by_player["P13_team_a"].jersey_number is None
     assert updated_by_player["P20_team_a"].jersey_number == 10
     assert updated_by_player["P09_team_b"].jersey_number is None
+
+
+def test_pass3_coalesces_disjoint_same_team_same_jersey_identities():
+    fragments = [
+        ScoredFragment(
+            fragment_id="F000006",
+            original_track_id=5,
+            start_frame=0,
+            end_frame=190,
+            detection_ids=["0_5_a"],
+            quality=FragmentQuality.HIGH,
+            quality_score=0.95,
+        ),
+        ScoredFragment(
+            fragment_id="F000019",
+            original_track_id=18,
+            start_frame=311,
+            end_frame=600,
+            detection_ids=["311_18_a"],
+            quality=FragmentQuality.HIGH,
+            quality_score=0.95,
+        ),
+        ScoredFragment(
+            fragment_id="G000040",
+            original_track_id=18,
+            start_frame=601,
+            end_frame=620,
+            detection_ids=[],
+            quality=FragmentQuality.GHOST,
+            quality_score=0.0,
+            is_ghost=True,
+        ),
+    ]
+
+    identities = [
+        CommittedIdentity(
+            fragment_id="F000006",
+            player_id="P07_team_a",
+            team=TeamID.TEAM_A,
+            jersey_number=10,
+            assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+            assignment_confidence=0.95,
+            assignment_reasons=["JERSEY_GLOBAL_ASSIGNED"],
+        ),
+        CommittedIdentity(
+            fragment_id="F000019",
+            player_id="P20_team_a",
+            team=TeamID.TEAM_A,
+            jersey_number=10,
+            assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+            assignment_confidence=0.95,
+            assignment_reasons=["JERSEY_GLOBAL_ASSIGNED"],
+        ),
+        CommittedIdentity(
+            fragment_id="G000040",
+            player_id="P20_team_a",
+            team=TeamID.TEAM_A,
+            jersey_number=10,
+            assignment_method=AssignmentMethod.GHOST_INHERITED,
+            assignment_confidence=0.80,
+            assignment_reasons=["UNMATCHED_EXIT"],
+        ),
+    ]
+
+    diagnostics = IdentitySolver()._coalesce_same_jersey_identities(
+        committed_identities=identities,
+        fragments=fragments,
+        ghost_activity_windows={"G000040": {"start_frame": 601, "end_frame": 620}},
+    )
+
+    assert diagnostics["jersey_identity_coalesced_player_ids"] == 1
+    assert identities[0].player_id == "P07_team_a"
+    assert identities[1].player_id == "P07_team_a"
+    assert identities[2].player_id == "P07_team_a"
+    assert "JERSEY_IDENTITY_COALESCED" in (identities[1].assignment_reasons or [])
+
+
+def test_pass3_does_not_coalesce_overlapping_same_jersey_identities():
+    fragments = [
+        ScoredFragment(
+            fragment_id="F000001",
+            original_track_id=1,
+            start_frame=0,
+            end_frame=100,
+            detection_ids=["0_1_a"],
+            quality=FragmentQuality.HIGH,
+            quality_score=0.95,
+        ),
+        ScoredFragment(
+            fragment_id="F000002",
+            original_track_id=2,
+            start_frame=80,
+            end_frame=140,
+            detection_ids=["80_2_a"],
+            quality=FragmentQuality.HIGH,
+            quality_score=0.95,
+        ),
+    ]
+
+    identities = [
+        CommittedIdentity(
+            fragment_id="F000001",
+            player_id="P07_team_a",
+            team=TeamID.TEAM_A,
+            jersey_number=7,
+            assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+            assignment_confidence=0.95,
+        ),
+        CommittedIdentity(
+            fragment_id="F000002",
+            player_id="P17_team_a",
+            team=TeamID.TEAM_A,
+            jersey_number=7,
+            assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+            assignment_confidence=0.95,
+        ),
+    ]
+
+    diagnostics = IdentitySolver()._coalesce_same_jersey_identities(
+        committed_identities=identities,
+        fragments=fragments,
+    )
+
+    assert diagnostics["jersey_identity_coalesced_player_ids"] == 0
+    assert identities[0].player_id == "P07_team_a"
+    assert identities[1].player_id == "P17_team_a"
 
 
 def test_pass3_sanitize_ghost_window_when_target_identity_mismatches():
@@ -3112,3 +4317,408 @@ def test_ball_validation_fails_when_interpolated_state_has_no_centroid():
     rules = {violation.rule for violation in result.violations}
     assert "BALL_INTERPOLATED_NO_CENTROID" in rules
     assert retired_groups == set()
+
+
+def test_player_distance_summary_reports_only_resolved_players_and_skips_estimated_spans():
+    pass3_output = Pass3COutput(
+        identities=[
+            CommittedIdentity(
+                fragment_id="F000001",
+                player_id="P07_team_a",
+                team=TeamID.TEAM_A,
+                jersey_number=7,
+                assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+                assignment_confidence=0.95,
+            ),
+            CommittedIdentity(
+                fragment_id="F000002",
+                player_id="P11_team_b",
+                team=TeamID.TEAM_B,
+                jersey_number=None,
+                assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+                assignment_confidence=0.80,
+            ),
+        ],
+        solver_log={},
+        unresolved_conflicts=[],
+    )
+
+    frames = [
+        BirdseyeFrame(
+            frame_idx=0,
+            players=[
+                BirdseyePlayerPosition(
+                    frame_idx=0,
+                    fragment_id="F000001",
+                    player_id="P07_team_a",
+                    team=TeamID.TEAM_A,
+                    jersey_number=7,
+                    track_id=1,
+                    image_bbox=[0, 0, 10, 10],
+                    image_anchor=[5, 10],
+                    court_position=[0, 0],
+                    render_position=[0, 0],
+                ),
+                BirdseyePlayerPosition(
+                    frame_idx=0,
+                    fragment_id="F000002",
+                    player_id="P11_team_b",
+                    team=TeamID.TEAM_B,
+                    jersey_number=None,
+                    track_id=2,
+                    image_bbox=[10, 0, 20, 10],
+                    image_anchor=[15, 10],
+                    court_position=[5, 5],
+                    render_position=[5, 5],
+                ),
+            ],
+            ball=BirdseyeBallFrame(frame_idx=0, state=BallState.UNKNOWN, confidence=0.0),
+        ),
+        BirdseyeFrame(
+            frame_idx=1,
+            players=[
+                BirdseyePlayerPosition(
+                    frame_idx=1,
+                    fragment_id="F000001",
+                    player_id="P07_team_a",
+                    team=TeamID.TEAM_A,
+                    jersey_number=7,
+                    track_id=1,
+                    image_bbox=[0, 0, 10, 10],
+                    image_anchor=[5, 10],
+                    court_position=[1, 0],
+                    render_position=[1, 0],
+                )
+            ],
+            ball=BirdseyeBallFrame(frame_idx=1, state=BallState.UNKNOWN, confidence=0.0),
+        ),
+        BirdseyeFrame(
+            frame_idx=2,
+            players=[
+                BirdseyePlayerPosition(
+                    frame_idx=2,
+                    fragment_id="F000001",
+                    player_id="P07_team_a",
+                    team=TeamID.TEAM_A,
+                    jersey_number=7,
+                    track_id=1,
+                    is_estimated=True,
+                    image_bbox=[0, 0, 10, 10],
+                    image_anchor=[5, 10],
+                    court_position=[2, 0],
+                    render_position=[2, 0],
+                )
+            ],
+            ball=BirdseyeBallFrame(frame_idx=2, state=BallState.UNKNOWN, confidence=0.0),
+        ),
+        BirdseyeFrame(
+            frame_idx=3,
+            players=[
+                BirdseyePlayerPosition(
+                    frame_idx=3,
+                    fragment_id="F000001",
+                    player_id="P07_team_a",
+                    team=TeamID.TEAM_A,
+                    jersey_number=7,
+                    track_id=1,
+                    image_bbox=[0, 0, 10, 10],
+                    image_anchor=[5, 10],
+                    court_position=[2, 0],
+                    render_position=[2, 0],
+                )
+            ],
+            ball=BirdseyeBallFrame(frame_idx=3, state=BallState.UNKNOWN, confidence=0.0),
+        ),
+    ]
+    birdseye_output = BirdseyeProjectionOutput(
+        video_name="unit",
+        fps=30.0,
+        total_frames=4,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=4,
+        court_length_m=40.0,
+        court_width_m=20.0,
+        output_pixel_scale=20,
+        frames=frames,
+        diagnostics={},
+    )
+
+    output = build_player_distance_summary_output(
+        pass3_output=pass3_output,
+        birdseye_output=birdseye_output,
+    )
+
+    assert len(output.players) == 1
+    assert output.players[0].player_id == "P07_team_a"
+    assert output.players[0].display_name == "Rick"
+    assert output.players[0].distance_value == 1.0
+    assert output.players[0].distance_unit == "m"
+    assert output.players[0].observed_frame_count == 3
+    assert output.players[0].estimated_frame_count == 1
+    assert output.players[0].distance_confidence == 0.75
+
+
+def test_analytics_summary_rolls_up_reportable_events_and_named_status():
+    pass3_output = Pass3COutput(
+        identities=[
+            CommittedIdentity(
+                fragment_id="F000001",
+                player_id="P07_team_a",
+                team=TeamID.TEAM_A,
+                jersey_number=7,
+                assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+                assignment_confidence=0.95,
+            ),
+            CommittedIdentity(
+                fragment_id="F000002",
+                player_id="P04_team_a",
+                team=TeamID.TEAM_A,
+                jersey_number=4,
+                assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+                assignment_confidence=0.95,
+            ),
+        ],
+        solver_log={},
+        unresolved_conflicts=[],
+    )
+    possession_output = AnalyticsPossessionOutput(
+        video_name="unit",
+        fps=25.0,
+        total_frames=4,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=4,
+        frames=[
+            PossessionFrame(frame_idx=0, player_id="P07_team_a", team=TeamID.TEAM_A, jersey_number=7, confidence=0.8, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=1, player_id="P07_team_a", team=TeamID.TEAM_A, jersey_number=7, confidence=0.8, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=2, player_id="P04_team_a", team=TeamID.TEAM_A, jersey_number=4, confidence=0.8, ball_state=BallState.REAL),
+            PossessionFrame(frame_idx=3, player_id=None, team=None, jersey_number=None, confidence=0.0, ball_state=BallState.UNKNOWN),
+        ],
+        diagnostics={},
+    )
+    events_output = AnalyticsEventsOutput(
+        video_name="unit",
+        fps=25.0,
+        total_frames=4,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=4,
+        events=[
+            AnalyticsEvent(
+                event_id="EV000001",
+                event_type="pass",
+                start_frame=1,
+                end_frame=2,
+                team_id=TeamID.TEAM_A,
+                outcome="successful",
+                event_confidence=0.9,
+                is_audit_only=False,
+                passer_player_id="P07_team_a",
+                passer_jersey_number=7,
+                receiver_player_id="P04_team_a",
+                receiver_team_id=TeamID.TEAM_A,
+                receiver_jersey_number=4,
+            ),
+            AnalyticsEvent(
+                event_id="EV000002",
+                event_type="shot",
+                start_frame=2,
+                end_frame=3,
+                team_id=TeamID.TEAM_A,
+                outcome="goal",
+                event_confidence=0.9,
+                is_audit_only=False,
+                passer_player_id="P04_team_a",
+                passer_jersey_number=4,
+                receiver_player_id=None,
+                receiver_team_id=None,
+                receiver_jersey_number=None,
+            ),
+            AnalyticsEvent(
+                event_id="EV000003",
+                event_type="pass",
+                start_frame=0,
+                end_frame=1,
+                team_id=TeamID.TEAM_A,
+                outcome="loose_ball",
+                event_confidence=0.3,
+                is_audit_only=True,
+                passer_player_id="P99_team_a",
+                passer_jersey_number=None,
+                receiver_player_id=None,
+                receiver_team_id=None,
+                receiver_jersey_number=None,
+            ),
+        ],
+        diagnostics={},
+    )
+    distance_output = PlayerDistanceSummaryOutput(
+        video_name="unit",
+        fps=25.0,
+        total_frames=4,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=4,
+        players=[
+            PlayerDistanceSummaryRow(
+                player_id="P04_team_a",
+                jersey_number=4,
+                team_id=TeamID.TEAM_A,
+                display_name="Spyros",
+                distance_value=12.5,
+                distance_unit="m",
+                observed_frame_count=4,
+                estimated_frame_count=0,
+                distance_confidence=1.0,
+            ),
+            PlayerDistanceSummaryRow(
+                player_id="P07_team_a",
+                jersey_number=7,
+                team_id=TeamID.TEAM_A,
+                display_name="Rick",
+                distance_value=10.0,
+                distance_unit="m",
+                observed_frame_count=4,
+                estimated_frame_count=0,
+                distance_confidence=1.0,
+            ),
+        ],
+        diagnostics={},
+    )
+
+    output = build_analytics_summary_output(
+        pass3_output=pass3_output,
+        possession_output=possession_output,
+        events_output=events_output,
+        distance_output=distance_output,
+    )
+
+    players_by_id = {player.player_id: player for player in output.players}
+    assert players_by_id["P07_team_a"].passes_attempted == 1
+    assert players_by_id["P07_team_a"].passes_completed == 1
+    assert players_by_id["P07_team_a"].confirmed_possession_frames == 2
+    assert players_by_id["P04_team_a"].passes_received == 1
+    assert players_by_id["P04_team_a"].shots_attempted == 1
+    assert players_by_id["P04_team_a"].goals_scored == 1
+    assert players_by_id["P04_team_a"].display_name == "Spyros"
+    assert output.event_totals == {
+        "successful_passes": 1,
+        "unsuccessful_passes": 0,
+        "loose_ball_passes": 0,
+        "shots": 1,
+        "goals": 1,
+    }
+
+    named_players = {player.jersey_number: player for player in output.named_players}
+    assert named_players[4].resolved is True
+    assert named_players[7].resolved is True
+    assert named_players[10].resolved is False
+    assert output.diagnostics["audit_only_events_skipped"] == 1.0
+
+
+def test_reporting_abstains_on_ambiguous_duplicate_named_jersey():
+    pass3_output = Pass3COutput(
+        identities=[
+            CommittedIdentity(
+                fragment_id="F000001",
+                player_id="P01_team_a",
+                team=TeamID.TEAM_A,
+                jersey_number=7,
+                assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+                assignment_confidence=0.95,
+            ),
+            CommittedIdentity(
+                fragment_id="F000002",
+                player_id="P17_team_a",
+                team=TeamID.TEAM_A,
+                jersey_number=7,
+                assignment_method=AssignmentMethod.CONSTRAINT_SOLVED,
+                assignment_confidence=0.95,
+            ),
+        ],
+        solver_log={},
+        unresolved_conflicts=[],
+    )
+    birdseye_output = BirdseyeProjectionOutput(
+        video_name="unit",
+        fps=30.0,
+        total_frames=1,
+        processed_start_frame=0,
+        processed_end_frame_exclusive=1,
+        court_length_m=40.0,
+        court_width_m=20.0,
+        output_pixel_scale=20,
+        frames=[
+            BirdseyeFrame(
+                frame_idx=0,
+                players=[
+                    BirdseyePlayerPosition(
+                        frame_idx=0,
+                        fragment_id="F000001",
+                        player_id="P01_team_a",
+                        team=TeamID.TEAM_A,
+                        jersey_number=7,
+                        track_id=1,
+                        image_bbox=[0, 0, 10, 10],
+                        image_anchor=[5, 10],
+                        court_position=[0, 0],
+                        render_position=[0, 0],
+                    ),
+                    BirdseyePlayerPosition(
+                        frame_idx=0,
+                        fragment_id="F000002",
+                        player_id="P17_team_a",
+                        team=TeamID.TEAM_A,
+                        jersey_number=7,
+                        track_id=2,
+                        image_bbox=[10, 0, 20, 10],
+                        image_anchor=[15, 10],
+                        court_position=[2, 0],
+                        render_position=[2, 0],
+                    ),
+                ],
+                ball=BirdseyeBallFrame(frame_idx=0, state=BallState.UNKNOWN, confidence=0.0),
+            )
+        ],
+        diagnostics={},
+    )
+
+    distance_output = build_player_distance_summary_output(
+        pass3_output=pass3_output,
+        birdseye_output=birdseye_output,
+    )
+    assert distance_output.players == []
+    assert distance_output.diagnostics["ambiguous_jerseys_filtered"] == 1.0
+
+    summary_output = build_analytics_summary_output(
+        pass3_output=pass3_output,
+        possession_output=AnalyticsPossessionOutput(
+            video_name="unit",
+            fps=30.0,
+            total_frames=1,
+            processed_start_frame=0,
+            processed_end_frame_exclusive=1,
+            frames=[
+                PossessionFrame(
+                    frame_idx=0,
+                    player_id="P01_team_a",
+                    team=TeamID.TEAM_A,
+                    jersey_number=7,
+                    confidence=0.9,
+                    ball_state=BallState.REAL,
+                )
+            ],
+            diagnostics={},
+        ),
+        events_output=AnalyticsEventsOutput(
+            video_name="unit",
+            fps=30.0,
+            total_frames=1,
+            processed_start_frame=0,
+            processed_end_frame_exclusive=1,
+            events=[],
+            diagnostics={},
+        ),
+        distance_output=distance_output,
+    )
+
+    named_players = {player.jersey_number: player for player in summary_output.named_players}
+    assert summary_output.players == []
+    assert named_players[7].resolved is False

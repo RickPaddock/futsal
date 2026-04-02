@@ -568,6 +568,301 @@ BIRDSEYE_PROJECTION_OUTPUT_SCHEMA = {
 
 
 # ============================================================================
+# ANALYTICS SCHEMAS
+# ============================================================================
+
+POSSESSION_CANDIDATE_SCHEMA = {
+    "type": "object",
+    "required": ["player_id", "team", "distance_to_ball", "source_space", "confidence"],
+    "properties": {
+        "player_id": {"type": "string", "pattern": "^P\\d{2}_(team_a|team_b)$"},
+        "team": {"type": "string", "enum": ["team_a", "team_b"]},
+        "jersey_number": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "integer", "minimum": 1, "maximum": 12},
+            ]
+        },
+        "distance_to_ball": {"type": "number", "minimum": 0},
+        "source_space": {"type": "string", "enum": ["court", "image"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    },
+}
+
+
+POSSESSION_FRAME_SCHEMA = {
+    "type": "object",
+    "required": ["frame_idx", "confidence", "is_ambiguous", "ball_state", "candidates"],
+    "properties": {
+        "frame_idx": {"type": "integer", "minimum": 0},
+        "player_id": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "string", "pattern": "^P\\d{2}_(team_a|team_b)$"},
+            ]
+        },
+        "team": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "string", "enum": ["team_a", "team_b"]},
+            ]
+        },
+        "jersey_number": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "integer", "minimum": 1, "maximum": 12},
+            ]
+        },
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "is_ambiguous": {"type": "boolean"},
+        "ball_state": {"type": "string", "enum": ["real", "interpolated", "unknown", "out_of_play"]},
+        "source_space": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "string", "enum": ["court", "image"]},
+            ]
+        },
+        "candidates": {"type": "array", "items": POSSESSION_CANDIDATE_SCHEMA},
+    },
+}
+
+
+ANALYTICS_POSSESSION_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["video_name", "fps", "total_frames", "frames"],
+    "properties": {
+        "video_name": {"type": "string"},
+        "fps": {"type": "number", "minimum": 1},
+        "total_frames": {"type": "integer", "minimum": 1},
+        "processed_start_frame": {"type": "integer", "minimum": 0},
+        "processed_end_frame_exclusive": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "integer", "minimum": 0},
+            ]
+        },
+        "frames": {"type": "array", "items": POSSESSION_FRAME_SCHEMA},
+        "diagnostics": {"type": "object"},
+    },
+}
+
+
+ANALYTICS_EVENT_SCHEMA = {
+    "type": "object",
+    "required": [
+        "event_id",
+        "event_type",
+        "start_frame",
+        "end_frame",
+        "team_id",
+        "outcome",
+        "event_confidence",
+    ],
+    "properties": {
+        "event_id": {"type": "string"},
+        "event_type": {"type": "string", "enum": ["pass", "shot"]},
+        "start_frame": {"type": "integer", "minimum": 0},
+        "end_frame": {"type": "integer", "minimum": 0},
+        "team_id": {"type": "string", "enum": ["team_a", "team_b"]},
+        "outcome": {"type": "string", "enum": ["successful", "unsuccessful", "loose_ball", "goal", "miss"]},
+        "event_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "is_audit_only": {"type": "boolean"},
+        "passer_player_id": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "string", "pattern": "^P\\d{2}_(team_a|team_b)$"},
+            ]
+        },
+        "passer_jersey_number": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "integer", "minimum": 1, "maximum": 12},
+            ]
+        },
+        "receiver_player_id": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "string", "pattern": "^P\\d{2}_(team_a|team_b)$"},
+            ]
+        },
+        "receiver_team_id": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "string", "enum": ["team_a", "team_b"]},
+            ]
+        },
+        "receiver_jersey_number": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "integer", "minimum": 1, "maximum": 12},
+            ]
+        },
+    },
+}
+
+
+ANALYTICS_EVENTS_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["video_name", "fps", "total_frames", "events"],
+    "properties": {
+        "video_name": {"type": "string"},
+        "fps": {"type": "number", "minimum": 1},
+        "total_frames": {"type": "integer", "minimum": 1},
+        "processed_start_frame": {"type": "integer", "minimum": 0},
+        "processed_end_frame_exclusive": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "integer", "minimum": 0},
+            ]
+        },
+        "events": {"type": "array", "items": ANALYTICS_EVENT_SCHEMA},
+        "diagnostics": {"type": "object"},
+    },
+}
+
+
+PLAYER_DISTANCE_SUMMARY_ROW_SCHEMA = {
+    "type": "object",
+    "required": [
+        "player_id",
+        "jersey_number",
+        "team_id",
+        "distance_value",
+        "distance_unit",
+        "observed_frame_count",
+        "estimated_frame_count",
+        "distance_confidence",
+    ],
+    "properties": {
+        "player_id": {"type": "string", "pattern": "^P\\d{2}_(team_a|team_b)$"},
+        "jersey_number": {"type": "integer", "minimum": 1, "maximum": 12},
+        "team_id": {"type": "string", "enum": ["team_a", "team_b"]},
+        "display_name": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "string"},
+            ]
+        },
+        "distance_value": {"type": "number", "minimum": 0},
+        "distance_unit": {"type": "string", "enum": ["m", "px"]},
+        "observed_frame_count": {"type": "integer", "minimum": 0},
+        "estimated_frame_count": {"type": "integer", "minimum": 0},
+        "distance_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    },
+}
+
+
+PLAYER_DISTANCE_SUMMARY_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["video_name", "fps", "total_frames", "players"],
+    "properties": {
+        "video_name": {"type": "string"},
+        "fps": {"type": "number", "minimum": 1},
+        "total_frames": {"type": "integer", "minimum": 1},
+        "processed_start_frame": {"type": "integer", "minimum": 0},
+        "processed_end_frame_exclusive": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "integer", "minimum": 0},
+            ]
+        },
+        "players": {"type": "array", "items": PLAYER_DISTANCE_SUMMARY_ROW_SCHEMA},
+        "diagnostics": {"type": "object"},
+    },
+}
+
+
+NAMED_PLAYER_STATUS_SCHEMA = {
+    "type": "object",
+    "required": ["jersey_number", "display_name", "resolved"],
+    "properties": {
+        "jersey_number": {"type": "integer", "minimum": 1, "maximum": 12},
+        "display_name": {"type": "string"},
+        "resolved": {"type": "boolean"},
+        "player_id": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "string", "pattern": "^P\\d{2}_(team_a|team_b)$"},
+            ]
+        },
+        "team_id": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "string", "enum": ["team_a", "team_b"]},
+            ]
+        },
+    },
+}
+
+
+ANALYTICS_PLAYER_SUMMARY_SCHEMA = {
+    "type": "object",
+    "required": [
+        "player_id",
+        "jersey_number",
+        "team_id",
+        "confirmed_possession_frames",
+        "confirmed_possession_seconds",
+        "passes_attempted",
+        "passes_completed",
+        "passes_received",
+        "unsuccessful_passes",
+        "loose_ball_releases",
+        "shots_attempted",
+        "goals_scored",
+        "distance_value",
+        "distance_unit",
+        "distance_confidence",
+    ],
+    "properties": {
+        "player_id": {"type": "string", "pattern": "^P\\d{2}_(team_a|team_b)$"},
+        "jersey_number": {"type": "integer", "minimum": 1, "maximum": 12},
+        "team_id": {"type": "string", "enum": ["team_a", "team_b"]},
+        "display_name": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "string"},
+            ]
+        },
+        "confirmed_possession_frames": {"type": "integer", "minimum": 0},
+        "confirmed_possession_seconds": {"type": "number", "minimum": 0},
+        "passes_attempted": {"type": "integer", "minimum": 0},
+        "passes_completed": {"type": "integer", "minimum": 0},
+        "passes_received": {"type": "integer", "minimum": 0},
+        "unsuccessful_passes": {"type": "integer", "minimum": 0},
+        "loose_ball_releases": {"type": "integer", "minimum": 0},
+        "shots_attempted": {"type": "integer", "minimum": 0},
+        "goals_scored": {"type": "integer", "minimum": 0},
+        "distance_value": {"type": "number", "minimum": 0},
+        "distance_unit": {"type": "string", "enum": ["m", "px"]},
+        "distance_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    },
+}
+
+
+ANALYTICS_SUMMARY_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["video_name", "fps", "total_frames", "players", "named_players", "event_totals"],
+    "properties": {
+        "video_name": {"type": "string"},
+        "fps": {"type": "number", "minimum": 1},
+        "total_frames": {"type": "integer", "minimum": 1},
+        "processed_start_frame": {"type": "integer", "minimum": 0},
+        "processed_end_frame_exclusive": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "integer", "minimum": 0},
+            ]
+        },
+        "players": {"type": "array", "items": ANALYTICS_PLAYER_SUMMARY_SCHEMA},
+        "named_players": {"type": "array", "items": NAMED_PLAYER_STATUS_SCHEMA},
+        "event_totals": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+        "diagnostics": {"type": "object"},
+    },
+}
+
+
+# ============================================================================
 # DEBUG METRICS SCHEMAS
 # ============================================================================
 
@@ -655,6 +950,10 @@ SCHEMA_REGISTRY = {
     "pass3_identity_commit": PASS3C_OUTPUT_SCHEMA,
     "ball_interpolation": BALL_INTERPOLATION_OUTPUT_SCHEMA,
     "birdseye_projection": BIRDSEYE_PROJECTION_OUTPUT_SCHEMA,
+    "analytics_possession": ANALYTICS_POSSESSION_OUTPUT_SCHEMA,
+    "analytics_events": ANALYTICS_EVENTS_OUTPUT_SCHEMA,
+    "player_distance_summary": PLAYER_DISTANCE_SUMMARY_OUTPUT_SCHEMA,
+    "analytics_summary": ANALYTICS_SUMMARY_OUTPUT_SCHEMA,
     "debug_metrics": DEBUG_METRICS_OUTPUT_SCHEMA,
     "validation_result": VALIDATION_RESULT_SCHEMA,
 }

@@ -715,6 +715,10 @@ Analytics should follow a deterministic two-step structure:
 1. a possession step that produces an explicit frame-indexed possession artifact
 2. an event detection step that uses possession changes plus futsal-specific rules
 
+Internal analytics reasoning may use all committed identities as context.
+
+Reported player-attributed analytics must be restricted to identities with resolved jersey numbers.
+
 ---
 
 ## Inputs
@@ -752,6 +756,12 @@ A player may only be in possession if:
 
 The possession step must output a frame-indexed possession artifact with confidence and must be able to abstain on ambiguous frames.
 
+Confirmed possession must also satisfy a minimum control-strength gate rather than being awarded purely because a weak candidate persists for multiple frames.
+
+If opposing candidates are in a genuine close duel, possession should remain ambiguous even when a simple top-vs-second score margin alone would otherwise force a winner.
+
+The possession artifact may still retain unlabeled committed identities as internal context even if downstream reported analytics later filter to jersey-resolved players only.
+
 Ghost-only frames must never create confirmed possession.
 
 No goalkeeper-specific possession rule is required; the rotating goalkeeper is handled as a normal committed identity.
@@ -782,6 +792,8 @@ receiver is an opponent, or no receiver is confirmed in time, or the ball become
 
 If the same player quickly regains confirmed control after release, the sequence should be treated as recovery rather than a completed pass.
 
+Reported pass attribution must only be emitted when the attributed player or players have resolved jersey numbers.
+
 ### Rule 3 — Shot Detection
 
 A shot attempt starts when:
@@ -804,6 +816,8 @@ Goal outcome classification may be added later.
 
 Goalkeeper-specific shot prevention or save analytics are out of scope for the current futsal system.
 
+Reported shooter attribution must only be emitted when the shooter has a resolved jersey number.
+
 ### Rule 4 — Distance Run
 
 Distance run must be computed from committed player identity positions.
@@ -819,6 +833,8 @@ Ghost-only spans must not count as confirmed distance.
 Rotating-goalkeeper minutes are treated exactly like any other committed-player minutes for distance purposes.
 
 The output must always state its units explicitly.
+
+Distance summaries must only be emitted for identities with resolved jersey numbers.
 
 ### Rule 5 — Named Players
 
@@ -846,6 +862,8 @@ Set-piece and restart classification should not be inferred from 11-a-side footb
 
 5. If possession certainty is insufficient, the system must abstain rather than fabricate pass or shot events.
 
+6. Reported player-attributed analytics must reference committed identities with resolved jersey numbers.
+
 ---
 
 ## Analytics Success Condition
@@ -857,6 +875,7 @@ Analytics succeed when:
 • shot attempts reference valid shooters
 • distances are reported with explicit units
 • uncertain situations are abstained rather than guessed
+• reported player-attributed analytics are limited to jersey-resolved players
 
 ---
 

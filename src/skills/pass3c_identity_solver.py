@@ -85,6 +85,26 @@ def _rebuild_player_id_with_team(player_id: str, team_value: str) -> str:
     return player_id
 
 
+def _frames_to_intervals(frames: List[int]) -> List[Tuple[int, int]]:
+    """Compress sorted frame indices into inclusive intervals."""
+    if not frames:
+        return []
+
+    intervals: List[Tuple[int, int]] = []
+    start_frame = int(frames[0])
+    end_frame = int(frames[0])
+    for frame_idx in frames[1:]:
+        frame_idx = int(frame_idx)
+        if frame_idx == end_frame + 1:
+            end_frame = frame_idx
+            continue
+        intervals.append((start_frame, end_frame))
+        start_frame = frame_idx
+        end_frame = frame_idx
+    intervals.append((start_frame, end_frame))
+    return intervals
+
+
 def _apply_ground_truth_team_calibration(
     identities: List[CommittedIdentity],
     fragments: List[Fragment],
@@ -520,6 +540,18 @@ class IdentitySolver:
                 f"{len(post_sanitize_retired_ghost_groups)}"
             )
 
+        jersey_identity_coalesce_diagnostics = self._coalesce_same_jersey_identities(
+            committed_identities=committed_identities,
+            fragments=fragments,
+            real_presence_frames=real_presence_frames,
+            ghost_activity_windows=ghost_activity_windows,
+        )
+        if jersey_identity_coalesce_diagnostics["jersey_identity_coalesced_player_ids"] > 0:
+            self.logger.info(
+                "Canonicalized non-overlapping same-jersey identities into stable players: "
+                f"{int(jersey_identity_coalesce_diagnostics['jersey_identity_coalesced_player_ids'])} player ids merged"
+            )
+
         self.logger.info(f"Created {len(committed_identities)} committed identities")
 
         # Step 6: Validate final state
@@ -548,6 +580,7 @@ class IdentitySolver:
                 "ghost_window_identity_mismatch_clears": sanitized_ghost_windows,
                 "ghost_suppressed_visible_duplicates": len(suppressed_duplicate_ghosts),
                 "ghost_post_sanitize_cap_retires": len(post_sanitize_retired_ghost_groups),
+                **jersey_identity_coalesce_diagnostics,
                 "ghost_active_windows": ghost_activity_windows,
                 "retired_ghost_fragments": sorted(retired_ghost_fragments),
             },
@@ -1898,6 +1931,131 @@ class IdentitySolver:
                 remaining = [identity for identity in remaining if identity.fragment_id != loser.fragment_id]
 
         return dropped
+
+    def _identity_active_intervals(
+        self,
+        identity: CommittedIdentity,
+        frag_lookup: Dict[str, Fragment],
+        real_presence_frames: Optional[Dict[str, Set[int]]] = None,
+        ghost_activity_windows: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> List[Tuple[int, int]]:
+        fragment = frag_lookup.get(identity.fragment_id)
+        if fragment is None:
+            return []
+
+        ghost_activity_windows = ghost_activity_windows or {}
+        if bool(getattr(fragment, "is_ghost", False)):
+            window = ghost_activity_windows.get(fragment.fragment_id)
+            if window is None:
+                return [(int(fragment.start_frame), int(fragment.end_frame))]
+            start_frame = int(window.get("start_frame", fragment.start_frame))
+            end_frame = int(window.get("end_frame", fragment.end_frame))
+            if end_frame < start_frame:
+                return []
+            return [(start_frame, end_frame)]
+
+        if real_presence_frames is not None:
+            active_frames = sorted(int(frame_idx) for frame_idx in real_presence_frames.get(fragment.fragment_id, set()))
+            if active_frames:
+                return _frames_to_intervals(active_frames)
+
+        return [(int(fragment.start_frame), int(fragment.end_frame))]
+
+    @staticmethod
+    def _intervals_overlap(first: List[Tuple[int, int]], second: List[Tuple[int, int]]) -> bool:
+        for first_start, first_end in first:
+            for second_start, second_end in second:
+                if not (first_end < second_start or second_end < first_start):
+                    return True
+        return False
+
+    def _coalesce_same_jersey_identities(
+        self,
+        committed_identities: List[CommittedIdentity],
+        fragments: List[Fragment],
+        real_presence_frames: Optional[Dict[str, Set[int]]] = None,
+        ghost_activity_windows: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Merge same-team same-jersey identities when their activity windows do not overlap."""
+        frag_lookup = {fragment.fragment_id: fragment for fragment in fragments}
+        identities_by_player_id: Dict[str, List[CommittedIdentity]] = defaultdict(list)
+        player_ids_by_team_jersey: Dict[Tuple[TeamID, int], Set[str]] = defaultdict(set)
+
+        for identity in committed_identities:
+            player_id = str(identity.player_id)
+            identities_by_player_id[player_id].append(identity)
+            if identity.jersey_number is None:
+                continue
+            player_ids_by_team_jersey[(identity.team, int(identity.jersey_number))].add(player_id)
+
+        diagnostics: Dict[str, Any] = {
+            "jersey_identity_coalesced_player_ids": 0,
+            "jersey_identity_canonical_map": {},
+        }
+
+        for (team_id, jersey_number), player_ids in player_ids_by_team_jersey.items():
+            if len(player_ids) <= 1:
+                continue
+
+            player_intervals: Dict[str, List[Tuple[int, int]]] = {}
+            player_first_frame: Dict[str, int] = {}
+            for player_id in player_ids:
+                intervals: List[Tuple[int, int]] = []
+                for identity in identities_by_player_id.get(player_id, []):
+                    intervals.extend(
+                        self._identity_active_intervals(
+                            identity,
+                            frag_lookup,
+                            real_presence_frames=real_presence_frames,
+                            ghost_activity_windows=ghost_activity_windows,
+                        )
+                    )
+                intervals.sort(key=lambda item: (item[0], item[1]))
+                player_intervals[player_id] = intervals
+                player_first_frame[player_id] = intervals[0][0] if intervals else 10**9
+
+            clusters: List[Dict[str, Any]] = []
+            for player_id in sorted(player_ids, key=lambda item: (player_first_frame[item], item)):
+                intervals = list(player_intervals.get(player_id, []))
+                placed = False
+                for cluster in clusters:
+                    if self._intervals_overlap(cluster["intervals"], intervals):
+                        continue
+                    cluster["merged_player_ids"].append(player_id)
+                    cluster["intervals"].extend(intervals)
+                    cluster["intervals"].sort(key=lambda item: (item[0], item[1]))
+                    placed = True
+                    break
+                if not placed:
+                    clusters.append(
+                        {
+                            "canonical_player_id": player_id,
+                            "merged_player_ids": [player_id],
+                            "intervals": intervals,
+                        }
+                    )
+
+            for cluster in clusters:
+                canonical_player_id = str(cluster["canonical_player_id"])
+                merged_player_ids = [
+                    str(player_id)
+                    for player_id in cluster["merged_player_ids"]
+                    if str(player_id) != canonical_player_id
+                ]
+                if not merged_player_ids:
+                    continue
+
+                diagnostics["jersey_identity_coalesced_player_ids"] += len(merged_player_ids)
+                diagnostics["jersey_identity_canonical_map"][f"{team_id.value}:{jersey_number}:{canonical_player_id}"] = sorted(merged_player_ids)
+                for merged_player_id in merged_player_ids:
+                    for identity in identities_by_player_id.get(merged_player_id, []):
+                        identity.player_id = canonical_player_id
+                        reasons = list(identity.assignment_reasons or [])
+                        if "JERSEY_IDENTITY_COALESCED" not in reasons:
+                            reasons.append("JERSEY_IDENTITY_COALESCED")
+                        identity.assignment_reasons = reasons
+
+        return diagnostics
 
     def _resolve_global_jersey_conflicts(
         self,
